@@ -3,9 +3,9 @@ Local JSON-file persistence layer.
 
 Layout:
   data/
-    index.json          – list of record metadata dicts
-    html/{record_id}.html    – raw uploaded HTML
-    results/{record_id}.json – structured analysis JSON
+    index.json                 – list of record metadata dicts
+    html/{record_id}.html      – raw uploaded HTML
+    results/{record_id}.json   – structured analysis JSON
 """
 
 import json
@@ -43,26 +43,21 @@ def add_record(
     html_bytes: bytes,
     result_json: dict,
 ) -> str:
-    """Persist a new analysis and return its record_id."""
     _init()
     rid = uuid.uuid4().hex[:10]
-
     (HTML_DIR / f"{rid}.html").write_bytes(html_bytes)
     (RESULTS_DIR / f"{rid}.json").write_text(
-        json.dumps(result_json, indent=2, default=str)
+        json.dumps(result_json, indent=2, default=str, ensure_ascii=False)
     )
-
     index = load_index()
-    index.append(
-        {
-            "record_id": rid,
-            "company": company,
-            "industry": industry,
-            "year": int(year),
-            "filing_type": filing_type,
-            "created_at": datetime.now().isoformat(),
-        }
-    )
+    index.append({
+        "record_id": rid,
+        "company": company,
+        "industry": industry,
+        "year": int(year),
+        "filing_type": filing_type,
+        "created_at": datetime.now().isoformat(),
+    })
     _save_index(index)
     return rid
 
@@ -82,10 +77,7 @@ def get_html(record_id: str) -> bytes | None:
 
 
 def filter_records(
-    industry: str | None = None,
-    company: str | None = None,
-    year: str | None = None,
-    filing_type: str | None = None,
+    industry=None, company=None, year=None, filing_type=None,
 ) -> list[dict]:
     recs = load_index()
     if industry and industry != "All":
