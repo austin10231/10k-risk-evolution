@@ -1,12 +1,14 @@
-"""Reusable display components for risk analysis results."""
+"""Reusable display helpers for analysis results."""
 
 import streamlit as st
 import json
 
 
-def show_overview(result: dict):
-    """Render company overview as metric cards."""
+def show_analysis_result(result: dict, key_prefix: str = ""):
+    """Display overview + risks + JSON preview + download."""
     ov = result.get("company_overview", {})
+
+    # ── Overview card ─────────────────────────────────────────────────────────
     st.markdown("#### Company Overview")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Company", ov.get("company", "—"))
@@ -14,52 +16,29 @@ def show_overview(result: dict):
     c3.metric("Year", ov.get("year", "—"))
     c4.metric("Filing", ov.get("filing_type", "—"))
 
-    c5, c6 = st.columns(2)
-    c5.caption(f"Source: {ov.get('source', '—')}")
-    c6.caption(f"Scope: {ov.get('scope', '—')}")
+    overview_text = ov.get("overview_text", "")
+    if overview_text:
+        with st.expander("📝 Item 1 Overview Text", expanded=False):
+            st.write(overview_text)
 
+    # ── Risks summary ────────────────────────────────────────────────────────
+    risks = result.get("risks", [])
+    st.markdown(f"#### Risks Extracted ({len(risks)})")
 
-def show_risk_blocks(result: dict, key_prefix: str = ""):
-    """Render risk blocks list with theme summary."""
-    blocks = result.get("risk_blocks", [])
-    st.markdown(f"#### Risk Blocks ({len(blocks)})")
+    for i, r in enumerate(risks):
+        with st.expander(r.get("title", f"Risk {i+1}"), expanded=False):
+            st.write(r.get("content", ""))
 
-    # Theme distribution
-    themes: dict[str, int] = {}
-    for b in blocks:
-        t = b["risk_theme"]
-        themes[t] = themes.get(t, 0) + 1
-
-    if themes:
-        sorted_themes = sorted(themes.items(), key=lambda x: -x[1])
-        cols = st.columns(min(len(sorted_themes), 6))
-        for i, (theme, count) in enumerate(sorted_themes):
-            cols[i % len(cols)].metric(theme, count)
-
-    for i, b in enumerate(blocks):
-        with st.expander(
-            f"[{b['risk_theme'].upper()}] {b['title']}",
-            expanded=False,
-        ):
-            st.write(b["risk_text"])
-            st.caption(
-                f"Block ID: `{b['block_id'][:12]}…` · "
-                f"Evidence: {b['evidence_pointer']}"
-            )
-
-
-def show_json_preview(result: dict, key_prefix: str = ""):
-    """Collapsible full JSON viewer."""
+    # ── JSON preview ─────────────────────────────────────────────────────────
     with st.expander("📄 Full JSON Preview", expanded=False):
         st.json(result)
 
-
-def download_json_button(data: dict, filename: str, key: str):
-    """Download button with unique key."""
+    # ── Download ─────────────────────────────────────────────────────────────
+    fname = f"{ov.get('company','export')}_{ov.get('year','')}.json"
     st.download_button(
-        label="⬇️ Download JSON",
-        data=json.dumps(data, indent=2, default=str),
-        file_name=filename,
+        "⬇️ Download JSON",
+        data=json.dumps(result, indent=2, ensure_ascii=False),
+        file_name=fname,
         mime="application/json",
-        key=key,
+        key=f"dl_{key_prefix}",
     )
