@@ -16,14 +16,24 @@ def json_viewer(data: Dict[str, Any], title: str = "JSON Preview"):
     st.subheader(title)
     st.json(data)
 
-def download_json_button(payload: Dict[str, Any], filename: str, label: str = "Download JSON"):
+def download_json_button(payload, filename: str, label: str = "Download JSON", key: str | None = None):
+    import json
+    import hashlib
+
+    if key is None:
+        # 用文件名+payload hash生成稳定且唯一的key，避免重复组件ID
+        h = hashlib.md5(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:10]
+        key = f"dl-{filename}-{h}"
+
     st.download_button(
         label=label,
         data=json.dumps(payload, indent=2, ensure_ascii=False),
         file_name=filename,
         mime="application/json",
-        use_container_width=True
+        use_container_width=True,
+        key=key,
     )
+
 
 def info_kv_card(title: str, kv: Dict[str, Any]):
     st.subheader(title)
