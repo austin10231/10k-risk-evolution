@@ -34,135 +34,84 @@ st.set_page_config(page_title="10-K Risk Evolution", page_icon="📄", layout="w
 
 LIGHT_CSS = """
 <style>
-/* Force full light background across Streamlit */
-html, body, .stApp { background: #f6f7fb !important; color: #111827 !important; }
-header, footer { background: transparent !important; }
-section[data-testid="stSidebar"] { background: #ffffff !important; border-right: 1px solid #e5e7eb !important; }
-div[data-testid="stAppViewContainer"] { background: #f6f7fb !important; }
-div[data-testid="stHeader"] { background: #f6f7fb !important; }
-div[data-testid="stToolbar"] { background: #f6f7fb !important; }
+/* =========================
+   10-K Risk Evolution — Light Theme (Clean)
+   ========================= */
 
-/* main container width */
-.block-container { padding-top: 1.1rem; padding-bottom: 2.2rem; max-width: 1250px; }
-
-/* hero */
-.hero {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 18px;
-  padding: 18px 18px 12px 18px;
-  box-shadow: 0 10px 24px rgba(17,24,39,0.06);
-  margin-bottom: 14px;
+/* Page background */
+html, body, [data-testid="stAppViewContainer"] {
+  background: #f6f7fb !important;
 }
-.hero h1 { margin: 0; font-size: 28px; letter-spacing: -0.3px; }
-.hero p { margin: 8px 0 0 0; color: #4b5563; }
 
-/* panels */
-.panel {
+/* Main container spacing */
+.block-container {
+  padding-top: 1.2rem !important;
+  padding-bottom: 3rem !important;
+  max-width: 1200px;
+}
+
+/* Default text */
+.stApp, .stApp * {
+  color: #111827;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+}
+
+/* Titles / headers */
+h1, h2, h3 {
+  color: #0f172a !important;
+  letter-spacing: -0.01em;
+}
+
+/* Cards (use on your custom divs if any) */
+.card {
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 16px;
-  padding: 14px;
-  box-shadow: 0 10px 22px rgba(17,24,39,0.05);
-}
-.small { color: #6b7280; font-size: 13px; }
-hr { border-color: #e5e7eb !important; }
-
-/* buttons */
-.stButton > button {
-  border-radius: 12px !important;
-  border: 1px solid #e5e7eb !important;
-  padding: 10px 14px !important;
-}
-.stButton > button[kind="primary"]{
-  background: #2563eb !important;
-  border: 1px solid #1d4ed8 !important;
-  color: white !important;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
-/* file uploader */
-div[data-testid="stFileUploader"] section{
-  background: #f9fafb !important;
-  border-radius: 12px !important;
-  border: 1px dashed #cbd5e1 !important;
+/* Tabs */
+button[data-baseweb="tab"] {
+  background: transparent !important;
 }
-
-/* tabs */
-button[data-baseweb="tab"]{
-  border-radius: 999px !important;
-  padding-left: 14px !important;
-  padding-right: 14px !important;
-}
-div[data-baseweb="tab-list"]{ gap: 8px !important; }
-
-/* code blocks */
-pre, code { border-radius: 12px !important; }
-
-/* --- Fix washed-out text on light background --- */
-
-/* General text */
-.stApp, .stApp * {
-  color: #111827;
-}
-
-/* Tabs text */
 button[data-baseweb="tab"] * {
   color: #111827 !important;
+  font-weight: 600;
+}
+button[data-baseweb="tab"][aria-selected="true"] * {
+  color: #2563eb !important;
+}
+div[data-baseweb="tab-border"] {
+  background: #e5e7eb !important;
 }
 
-/* Expander header text */
-div[data-testid="stExpander"] summary,
-div[data-testid="stExpander"] summary * {
-  color: #111827 !important;
-}
-
-/* Metric labels + values */
-div[data-testid="stMetricLabel"],
-div[data-testid="stMetricValue"],
-div[data-testid="stMetricDelta"] {
-  color: #111827 !important;
-}
-
-/* Selectbox / input text */
-div[data-baseweb="select"] * ,
-input, textarea {
-  color: #111827 !important;
-}
-
-/* Caption / secondary text */
-small, .small, .stCaption, div[data-testid="stCaptionContainer"] * {
-  color: #4b5563 !important;
-}
-
-/* Code block text already OK, but ensure visible */
-pre, code {
-  color: #111827 !important;
-}
-
-/* --- Fix dark form controls on light theme --- */
-
-/* Text input / number input / textarea */
+/* Inputs (Text/Number/TextArea) */
 div[data-testid="stTextInput"] input,
 div[data-testid="stNumberInput"] input,
 div[data-testid="stTextArea"] textarea {
   background: #ffffff !important;
   color: #111827 !important;
   border: 1px solid #e5e7eb !important;
+  border-radius: 12px !important;
 }
 
-/* Selectbox + Multiselect (BaseWeb) */
+/* Selectbox / Multiselect */
 div[data-baseweb="select"] > div {
   background: #ffffff !important;
   border: 1px solid #e5e7eb !important;
+  border-radius: 12px !important;
 }
 div[data-baseweb="select"] * {
   color: #111827 !important;
 }
 
-/* The dropdown menu */
+/* Dropdown menu */
 ul[role="listbox"] {
   background: #ffffff !important;
   border: 1px solid #e5e7eb !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.10) !important;
 }
 ul[role="listbox"] * {
   color: #111827 !important;
@@ -171,21 +120,103 @@ ul[role="listbox"] * {
 /* File uploader */
 div[data-testid="stFileUploader"] section {
   background: #ffffff !important;
-  border: 1px dashed #d1d5db !important;
+  border: 1px dashed #cbd5e1 !important;
+  border-radius: 14px !important;
 }
 div[data-testid="stFileUploader"] * {
   color: #111827 !important;
 }
 
-/* Buttons on light background */
-.stButton>button {
+/* Buttons (default) */
+.stButton > button {
   background: #2563eb !important;
   color: #ffffff !important;
   border: 0 !important;
+  border-radius: 12px !important;
+  padding: 0.6rem 1rem !important;
+  font-weight: 700 !important;
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.18) !important;
+}
+.stButton > button:hover {
+  filter: brightness(0.97);
 }
 
+/* Make "secondary" buttons look clean if you used st.button with type="secondary" (Streamlit v1.3x+) */
+button[kind="secondary"] {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid #e5e7eb !important;
+  box-shadow: none !important;
+}
+
+/* Danger buttons — if you can, set st.button(..., type="primary") for normal
+   and st.button(..., type="secondary") for others.
+   If not, we still style common 'Delete' labels in a safer way below. */
+.stButton > button:has(span:contains("Delete")),
+.stButton > button:has(div:contains("Delete")) {
+  background: #ef4444 !important;
+  box-shadow: 0 10px 20px rgba(239, 68, 68, 0.18) !important;
+}
+
+/* Expander (remove dark header bars) */
+div[data-testid="stExpander"] {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+}
+div[data-testid="stExpander"] summary {
+  background: #f8fafc !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  padding: 0.75rem 1rem !important;
+}
+div[data-testid="stExpander"] summary, 
+div[data-testid="stExpander"] summary * {
+  color: #111827 !important;
+  font-weight: 700 !important;
+}
+
+/* Metric */
+div[data-testid="stMetricLabel"],
+div[data-testid="stMetricValue"],
+div[data-testid="stMetricDelta"] {
+  color: #111827 !important;
+}
+
+/* Dataframe / table container */
+div[data-testid="stDataFrame"] {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 14px !important;
+}
+
+/* Code blocks (JSON viewer) — keep dark for readability, but consistent */
+pre, code, div[data-testid="stCodeBlock"] pre {
+  background: #0b1220 !important;
+  color: #e5e7eb !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(148, 163, 184, 0.20) !important;
+}
+div[data-testid="stCodeBlock"] * {
+  color: #e5e7eb !important;
+}
+
+/* Captions / secondary text */
+small, .stCaption, div[data-testid="stCaptionContainer"] * {
+  color: #475569 !important;
+}
+
+/* Remove weird dark sidebar remnants if any */
+section[data-testid="stSidebar"] {
+  background: #ffffff !important;
+  border-right: 1px solid #e5e7eb !important;
+}
+
+/* Hide Streamlit footer */
+footer { visibility: hidden; }
 </style>
 """
+
 st.markdown(LIGHT_CSS, unsafe_allow_html=True)
 
 st.markdown(
