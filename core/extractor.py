@@ -43,7 +43,7 @@ def _clean(text: str) -> str:
         if re.match(r"^[\dF][\d\-]*$", s):
             continue
         # skip short TOC-like lines ("Item 1A." alone)
-        if re.match(r"^(?i)item\s*\d", s) and len(s) < 60:
+        if re.match(r"^item\s*\d", s, re.IGNORECASE) and len(s) < 60:
             continue
         # skip lines that are just dots / underscores (TOC leaders)
         if re.match(r"^[\.\s_\-–—]{5,}$", s):
