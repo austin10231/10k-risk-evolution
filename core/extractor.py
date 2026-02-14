@@ -137,29 +137,50 @@ def extract_item1_overview(
     starts = list(_ITEM1_START.finditer(text))
     ends = list(_ITEM1A_START.finditer(text))
 
-    background = ""
+    raw = ""
     if starts and ends:
         for s in starts:
             for e in ends:
                 if e.start() > s.start() + 200:
                     candidate = text[s.start():e.start()]
                     if not _is_toc_region(candidate):
-                        background = _clean_text(candidate)
+                        raw = candidate
                         break
-            if background:
+            if raw:
                 break
-        if not background:
-            background = _clean_text(text[starts[-1].start():ends[-1].start()])
+        if not raw:
+            raw = text[starts[-1].start():ends[-1].start()]
 
-    if len(background) > 2000:
-        cut = background[:2000]
+    # ── Cut off before noisy sections (Products, Services, Segments, etc.) ──
+    cut_patterns = [
+        re.compile(r"\n\s*Products\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Services\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Segments?\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Human Capital\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Employees\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Competition\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Seasonality\s*\n", re.IGNORECASE),
+    ]
+    for cp in cut_patterns:
+        m = cp.search(raw)
+        if m and m.start() > 100:
+            raw = raw[:m.start()]
+            break
+
+    background = _clean_text(raw)
+
+    # Trim to reasonable length
+    if len(background) > 1500:
+        cut = background[:1500]
         lp = cut.rfind(".")
-        if lp > 500:
+        if lp > 200:
             background = cut[:lp + 1]
 
     return {
         "company": company_name,
         "industry": industry,
+        "year": 0,
+        "filing_type": "",
         "background": background if background else "(Could not extract Item 1 overview.)",
     }
 
