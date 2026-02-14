@@ -16,23 +16,37 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Force light background */
-    .stApp { background-color: #f8f9fb; }
-    section[data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e0e3e8; }
+    /* Force light background & dark text globally */
+    .stApp { background-color: #f8f9fb; color: #1f2937; }
+    section[data-testid="stSidebar"] {
+        background-color: #ffffff; border-right: 1px solid #e0e3e8;
+    }
+    section[data-testid="stSidebar"] * { color: #1f2937; }
+    h1, h2, h3, h4, h5, h6, p, span, li, label, div { color: #1f2937; }
+    .stMarkdown, .stText, [data-testid="stMarkdownContainer"] { color: #1f2937; }
     /* Card helper */
     .card {
         background: #ffffff; border: 1px solid #e0e3e8; border-radius: 10px;
-        padding: 1.2rem 1.4rem; margin-bottom: 1rem;
+        padding: 1.2rem 1.4rem; margin-bottom: 1rem; color: #1f2937;
     }
-    /* Metric labels */
-    [data-testid="stMetricLabel"] { font-size: 0.82rem; color: #6b7280; }
+    .card h4 { color: #111827; }
+    .card p  { color: #374151; }
+    /* Metric */
+    [data-testid="stMetricLabel"] { font-size: 0.82rem; color: #6b7280 !important; }
+    [data-testid="stMetricValue"] { color: #111827 !important; }
     /* Download buttons */
     .stDownloadButton > button {
-        background-color: #2563eb; color: white; border: none; border-radius: 6px;
+        background-color: #2563eb; color: white !important; border: none; border-radius: 6px;
     }
     .stDownloadButton > button:hover { background-color: #1d4ed8; }
     /* Expander header */
-    .streamlit-expanderHeader { font-weight: 600; }
+    .streamlit-expanderHeader { font-weight: 600; color: #1f2937; }
+    /* Selectbox / input text */
+    .stSelectbox label, .stTextInput label, .stFileUploader label { color: #374151 !important; }
+    /* Tabs */
+    .stTabs [data-baseweb="tab"] { color: #374151; }
+    /* Info/Warning/Success boxes */
+    [data-testid="stAlert"] { color: #1f2937; }
     </style>
     """,
     unsafe_allow_html=True,
