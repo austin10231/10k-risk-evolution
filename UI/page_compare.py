@@ -1,7 +1,7 @@
 import streamlit as st
-from services.storage import ensure_storage, list_records, load_report_json
-from services.compare import compare_reports
-from ui.components import changes_table, side_by_side_evidence, download_json_button
+from functions.storage import ensure_storage, list_records, load_report_json
+from functions.compare import compare_reports
+from UI.components import changes_table, side_by_side_evidence, download_json_button
 
 def render_compare_page():
     ensure_storage()
