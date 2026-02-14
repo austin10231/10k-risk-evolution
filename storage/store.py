@@ -3,9 +3,9 @@ Local JSON-file persistence layer.
 
 Layout:
   data/
-    index.json                 – list of record metadata dicts
-    html/{record_id}.html      – raw uploaded HTML
-    results/{record_id}.json   – structured analysis JSON
+    index.json
+    html/{record_id}.html
+    results/{record_id}.json
 """
 
 import json
@@ -74,6 +74,21 @@ def get_html(record_id: str) -> bytes | None:
     if path.exists():
         return path.read_bytes()
     return None
+
+
+def delete_record(record_id: str):
+    """Remove a record from the index and delete its files."""
+    _init()
+    index = load_index()
+    index = [r for r in index if r["record_id"] != record_id]
+    _save_index(index)
+
+    html_path = HTML_DIR / f"{record_id}.html"
+    result_path = RESULTS_DIR / f"{record_id}.json"
+    if html_path.exists():
+        html_path.unlink()
+    if result_path.exists():
+        result_path.unlink()
 
 
 def filter_records(
