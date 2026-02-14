@@ -1,245 +1,290 @@
 """
 Extract Item 1 overview and Item 1A risks from SEC 10-K filing HTML.
 
-Functions:
-  extract_item1_overview(html_bytes)  -> str
-  extract_item1a_risks(html_bytes)    -> list[dict]   [{title, content}, ...]
+Output structure for risks:
+[
+  {
+    "category": "Macroeconomic and Industry Risks",
+    "sub_risks": [
+      "The Company's operations and performance depend ...",
+      "The Company's business can be impacted by ..."
+    ]
+  },
+  ...
+]
 """
 
 import re
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 # ── Regex patterns ────────────────────────────────────────────────────────────
-
-# Item 1. (Business) — start of overview
 _ITEM1_START = re.compile(
-    r"(?i)\bitem\s*1[\.\:\s\—\-–]+\s*bus(?:iness)?",
+    r"\bitem\s*1[\.\:\s\—\-–]+\s*bus(?:iness)?", re.IGNORECASE,
 )
-# Item 1A. (Risk Factors) — end of overview / start of risks
 _ITEM1A_START = re.compile(
-    r"(?i)\bitem\s*1\s*a[\.\:\s\—\-–]+\s*risk\s+factors",
+    r"\bitem\s*1\s*a[\.\:\s\—\-–]+\s*risk\s+factors", re.IGNORECASE,
 )
-# Item 1B or Item 2 — end of risks
 _ITEM1A_END = [
-    re.compile(r"(?i)\bitem\s*1\s*b[\.\:\s\—\-–]"),
-    re.compile(r"(?i)\bitem\s*2[\.\:\s\—\-–]"),
+    re.compile(r"\bitem\s*1\s*b[\.\:\s\—\-–]", re.IGNORECASE),
+    re.compile(r"\bitem\s*2[\.\:\s\—\-–]", re.IGNORECASE),
 ]
 
 
-def _html_to_text(html_bytes: bytes) -> str:
-    soup = BeautifulSoup(html_bytes, "lxml")
-    for tag in soup(["script", "style"]):
-        tag.decompose()
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _soup(html_bytes: bytes) -> BeautifulSoup:
+    s = BeautifulSoup(html_bytes, "lxml")
+    for t in s(["script", "style"]):
+        t.decompose()
+    return s
+
+
+def _full_text(soup: BeautifulSoup) -> str:
     return soup.get_text(separator="\n")
 
 
-def _clean(text: str) -> str:
-    """Remove excessive blank lines, page numbers, and table-of-contents noise."""
+def _is_toc_region(text: str) -> bool:
+    """If a 2000-char block has >5 'Item X' hits it's likely a table of contents."""
+    return len(re.findall(r"\bitem\s*\d", text[:2000], re.IGNORECASE)) > 5
+
+
+def _clean_text(text: str) -> str:
     lines = text.split("\n")
-    cleaned = []
+    out = []
     for ln in lines:
         s = ln.strip()
-        # skip pure page numbers like "42" or "F-3"
+        if not s:
+            out.append("")
+            continue
+        # skip page numbers like "42", "F-3"
         if re.match(r"^[\dF][\d\-]*$", s):
             continue
-        # skip short TOC-like lines ("Item 1A." alone)
+        # skip standalone short Item references (TOC lines)
         if re.match(r"^item\s*\d", s, re.IGNORECASE) and len(s) < 60:
             continue
-        # skip lines that are just dots / underscores (TOC leaders)
+        # skip dot leaders
         if re.match(r"^[\.\s_\-–—]{5,}$", s):
             continue
-        cleaned.append(s)
-    # collapse multiple blank lines
-    out = "\n".join(cleaned)
-    out = re.sub(r"\n{3,}", "\n\n", out)
-    return out.strip()
-
-
-def _is_toc_region(text: str) -> bool:
-    """Heuristic: if a 2000-char block has >5 'Item X' occurrences it's likely a TOC."""
-    sample = text[:2000]
-    return len(re.findall(r"(?i)\bitem\s*\d", sample)) > 5
+        out.append(s)
+    result = "\n".join(out)
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    return result.strip()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PUBLIC API
+#  ITEM 1 OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════
 
+def extract_item1_overview(
+    html_bytes: bytes,
+    company_name: str = "",
+    industry: str = "",
+) -> dict:
+    """
+    Returns structured overview dict:
+    {
+      "company": "...",
+      "industry": "...",
+      "background": "..."
+    }
+    """
+    text = _full_text(_soup(html_bytes))
 
-def extract_item1_overview(html_bytes: bytes) -> str:
-    """Extract text between Item 1 (Business) and Item 1A (Risk Factors).
-    Returns a trimmed overview string (target 500-1200 chars)."""
-    text = _html_to_text(html_bytes)
-
-    # Find ALL Item 1 matches, skip TOC ones
     starts = list(_ITEM1_START.finditer(text))
     ends = list(_ITEM1A_START.finditer(text))
 
-    if not starts or not ends:
-        return "(Item 1 overview could not be extracted.)"
+    background = ""
+    if starts and ends:
+        # Pick a start→end pair that isn't inside a TOC
+        for s in starts:
+            for e in ends:
+                if e.start() > s.start() + 200:
+                    candidate = text[s.start():e.start()]
+                    if not _is_toc_region(candidate):
+                        background = _clean_text(candidate)
+                        break
+            if background:
+                break
 
-    # Pick the last substantial Item 1 start that appears before an Item 1A
-    best_start = None
-    best_end = None
-    for s in starts:
-        for e in ends:
-            if e.start() > s.start() + 200:  # must have some content between
-                candidate = text[s.start():e.start()]
-                if not _is_toc_region(candidate):
-                    best_start = s.start()
-                    best_end = e.start()
-                    break
-        if best_start is not None:
-            break
+        # fallback
+        if not background and starts and ends:
+            background = _clean_text(text[starts[-1].start():ends[-1].start()])
 
-    if best_start is None:
-        # fallback: just use last match
-        best_start = starts[-1].start()
-        best_end = ends[-1].start()
+    # Trim to reasonable length
+    if len(background) > 2000:
+        cut = background[:2000]
+        lp = cut.rfind(".")
+        if lp > 500:
+            background = cut[:lp + 1]
 
-    raw = text[best_start:best_end]
-    overview = _clean(raw)
+    return {
+        "company": company_name,
+        "industry": industry,
+        "background": background if background else "(Could not extract Item 1 overview.)",
+    }
 
-    # Trim to reasonable length (keep first ~1200 chars, break at sentence)
-    if len(overview) > 1500:
-        cut = overview[:1500]
-        last_period = cut.rfind(".")
-        if last_period > 500:
-            overview = cut[: last_period + 1]
 
-    return overview if overview else "(No overview text found.)"
-
+# ══════════════════════════════════════════════════════════════════════════════
+#  ITEM 1A RISKS — hierarchical extraction
+# ══════════════════════════════════════════════════════════════════════════════
 
 def extract_item1a_risks(html_bytes: bytes) -> list[dict]:
-    """Extract risk blocks from Item 1A.
-    Returns list of {title: str, content: str}."""
-    soup = BeautifulSoup(html_bytes, "lxml")
-    for tag in soup(["script", "style"]):
-        tag.decompose()
-    full_text = soup.get_text(separator="\n")
+    """
+    Returns:
+    [
+      {
+        "category": "Macroeconomic and Industry Risks",
+        "sub_risks": ["title1", "title2", ...]
+      },
+      ...
+    ]
+    """
+    soup = _soup(html_bytes)
+    full = _full_text(soup)
 
-    # ── Locate Item 1A boundaries ─────────────────────────────────────────────
-    # Find all Item 1A matches, pick the one that starts a real section (not TOC)
-    matches_1a = list(_ITEM1A_START.finditer(full_text))
+    # ── 1. Locate Item 1A text boundaries ─────────────────────────────────────
+    matches_1a = list(_ITEM1A_START.finditer(full))
     if not matches_1a:
         return []
 
     start_pos = None
     for m in matches_1a:
-        region = full_text[m.start(): m.start() + 2000]
+        region = full[m.start():m.start() + 2000]
         if not _is_toc_region(region):
             start_pos = m.end()
             break
     if start_pos is None:
-        start_pos = matches_1a[-1].end()  # fallback to last
+        start_pos = matches_1a[-1].end()
 
-    # Find end (Item 1B or Item 2)
-    end_pos = len(full_text)
+    end_pos = len(full)
     for pat in _ITEM1A_END:
-        for m in pat.finditer(full_text):
+        for m in pat.finditer(full):
             if m.start() > start_pos + 500:
-                # Make sure this isn't a TOC reference
-                pre_context = full_text[max(0, m.start()-200):m.start()]
-                if not _is_toc_region(pre_context):
+                pre = full[max(0, m.start() - 200):m.start()]
+                if not _is_toc_region(pre):
                     end_pos = min(end_pos, m.start())
                     break
 
-    raw_1a = full_text[start_pos:end_pos]
-    cleaned_1a = _clean(raw_1a)
+    # ── 2. Collect bold/strong elements from HTML within that range ───────────
+    # We'll walk the soup and classify bold elements as:
+    #   - "category header": bold but NOT italic, typically short (< 80 chars),
+    #     looks like "Macroeconomic and Industry Risks"
+    #   - "sub-risk title": bold+italic, longer, starts with "The Company..."
+    #     or similar phrasing
 
-    if len(cleaned_1a) < 100:
-        return []
+    bold_items: list[dict] = []  # {text, is_italic, char_pos_approx}
 
-    # ── Strategy 1: use <b>/<strong> tags as risk titles ──────────────────────
-    risks = _split_by_bold_tags(soup, start_pos, end_pos, full_text)
-    if len(risks) >= 3:
-        return risks
-
-    # ── Strategy 2: paragraph heuristic ───────────────────────────────────────
-    return _split_by_paragraphs(cleaned_1a)
-
-
-def _split_by_bold_tags(
-    soup: BeautifulSoup,
-    start_char: int,
-    end_char: int,
-    full_text: str,
-) -> list[dict]:
-    """Try to use <b>/<strong>/<i> tags as risk titles."""
-    # Collect bold/strong text snippets within the Item 1A region
-    bold_texts: list[str] = []
     for tag in soup.find_all(["b", "strong"]):
-        t = tag.get_text(strip=True)
-        if 15 < len(t) < 300:
-            # Check if this bold text falls within Item 1A region
-            bold_texts.append(t)
-
-    if len(bold_texts) < 3:
-        return []
-
-    # Use bold texts as section delimiters in the cleaned text
-    text = full_text[start_char:end_char]
-    cleaned = _clean(text)
-
-    risks: list[dict] = []
-    for i, bt in enumerate(bold_texts):
-        # Find this bold text in cleaned text
-        idx = cleaned.find(bt)
-        if idx == -1:
-            # try fuzzy: first 40 chars
-            idx = cleaned.find(bt[:40])
-        if idx == -1:
+        txt = tag.get_text(strip=True)
+        if len(txt) < 10 or len(txt) > 500:
             continue
 
-        # Content is from end of title to start of next title
-        content_start = idx + len(bt)
-        if i + 1 < len(bold_texts):
-            next_idx = cleaned.find(bold_texts[i + 1], content_start)
-            if next_idx == -1:
-                next_idx = cleaned.find(bold_texts[i + 1][:40], content_start)
-            content_end = next_idx if next_idx > content_start else len(cleaned)
-        else:
-            content_end = len(cleaned)
+        # Check if italic (tag itself is <i>/<em>, or contains one, or parent is)
+        is_italic = False
+        if tag.find(["i", "em"]):
+            is_italic = True
+        if tag.parent and tag.parent.name in ("i", "em"):
+            is_italic = True
+        # Also check if the tag name itself is inside an italic wrapper
+        for p in tag.parents:
+            if p.name in ("i", "em"):
+                is_italic = True
+                break
 
-        content = cleaned[content_start:content_end].strip()
-        title = bt.strip().rstrip(".").strip()
+        # Approximate position in full text
+        pos = full.find(txt)
+        if pos == -1:
+            pos = full.find(txt[:50])
+        if pos == -1:
+            continue
 
-        if len(content) > 30 and len(title) > 10:
-            risks.append({"title": title, "content": content})
+        # Only keep if within Item 1A range
+        if start_pos <= pos <= end_pos:
+            bold_items.append({
+                "text": txt,
+                "is_italic": is_italic,
+                "pos": pos,
+            })
 
-    return risks
+    # Deduplicate by text (keep first occurrence)
+    seen = set()
+    unique_bold: list[dict] = []
+    for b in bold_items:
+        key = b["text"].strip().lower()
+        if key not in seen:
+            seen.add(key)
+            unique_bold.append(b)
+
+    # Sort by position
+    unique_bold.sort(key=lambda x: x["pos"])
+
+    # ── 3. Build hierarchical structure ───────────────────────────────────────
+    # Heuristic: non-italic bold → category header
+    #            italic bold     → sub-risk title
+    # If ALL bolds are italic (no separate category headers), fall back to
+    # a single "General Risks" category.
+
+    categories_found = [b for b in unique_bold if not b["is_italic"]]
+    subrisk_found = [b for b in unique_bold if b["is_italic"]]
+
+    # If we have clear categories + sub-risks, group them
+    if categories_found and subrisk_found:
+        return _group_hierarchical(categories_found, subrisk_found)
+
+    # Fallback: if all bold items look the same (all italic or all non-italic),
+    # treat them all as sub-risk titles under one category
+    if unique_bold:
+        return [{
+            "category": "Risk Factors",
+            "sub_risks": [b["text"] for b in unique_bold],
+        }]
+
+    # ── 4. Final fallback: paragraph-based splitting ──────────────────────────
+    return _fallback_paragraph_split(full[start_pos:end_pos])
 
 
-def _split_by_paragraphs(cleaned_text: str) -> list[dict]:
-    """Fallback: split on double-newlines, use short paragraphs as titles."""
-    parts = re.split(r"\n\s*\n", cleaned_text)
-    parts = [p.strip() for p in parts if len(p.strip()) > 30]
+def _group_hierarchical(
+    categories: list[dict],
+    subrisk_items: list[dict],
+) -> list[dict]:
+    """Group sub-risk titles under their nearest preceding category header."""
+    result: list[dict] = []
 
-    risks: list[dict] = []
-    i = 0
-    while i < len(parts):
-        p = parts[i]
-        # If paragraph is short (< 200 chars), treat as title
-        if len(p) < 200:
-            title = p.rstrip(".").strip()
-            # Gather following long paragraphs as content
-            content_parts = []
-            i += 1
-            while i < len(parts) and len(parts[i]) >= 100:
-                content_parts.append(parts[i])
-                i += 1
-            content = "\n\n".join(content_parts) if content_parts else title
-            risks.append({"title": title[:150], "content": content})
-        else:
-            # Long paragraph with no title: use first sentence as title
-            first_period = p.find(".")
-            if 10 < first_period < 200:
-                title = p[:first_period].strip()
-                content = p
-            else:
-                title = p[:100].strip() + " …"
-                content = p
-            risks.append({"title": title, "content": content})
-            i += 1
+    for i, cat in enumerate(categories):
+        cat_start = cat["pos"]
+        # Category range ends at next category or at end
+        cat_end = categories[i + 1]["pos"] if i + 1 < len(categories) else float("inf")
 
-    return risks
+        subs = [
+            sr["text"]
+            for sr in subrisk_items
+            if cat_start <= sr["pos"] < cat_end
+        ]
+
+        if subs:
+            result.append({
+                "category": cat["text"],
+                "sub_risks": subs,
+            })
+
+    # Any sub-risks before the first category?
+    if categories:
+        first_cat_pos = categories[0]["pos"]
+        orphans = [sr["text"] for sr in subrisk_items if sr["pos"] < first_cat_pos]
+        if orphans:
+            result.insert(0, {
+                "category": "General Risks",
+                "sub_risks": orphans,
+            })
+
+    return result
+
+
+def _fallback_paragraph_split(raw_text: str) -> list[dict]:
+    """If no bold structure found, split by paragraphs."""
+    cleaned = _clean_text(raw_text)
+    parts = re.split(r"\n\s*\n", cleaned)
+    titles = [p.strip() for p in parts if 20 < len(p.strip()) < 300]
+    if titles:
+        return [{"category": "Risk Factors", "sub_risks": titles[:30]}]
+    return []
