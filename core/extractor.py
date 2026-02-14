@@ -1,38 +1,31 @@
 """
 Extract Item 1 overview and Item 1A risks from SEC 10-K filing HTML.
 
-Output structure for risks:
-[
-  {
-    "category": "Macroeconomic and Industry Risks",
-    "sub_risks": [
-      "The Company's operations and performance depend ...",
-      "The Company's business can be impacted by ..."
-    ]
-  },
-  ...
-]
+Handles multiple HTML styles:
+  - <b>/<strong> tags
+  - <span style="font-weight:bold"> or font-weight:700
+  - Nested italic via <i>/<em> or font-style:italic
 """
 
 import re
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Tag
 
 # ── Regex patterns ────────────────────────────────────────────────────────────
 _ITEM1_START = re.compile(
-    r"\bitem\s*1[\.\:\s\—\-–]+\s*bus(?:iness)?", re.IGNORECASE,
+    r"item\s*1[\.\:\s\u2014\u2013\-]+\s*bus(?:iness)?", re.IGNORECASE,
 )
 _ITEM1A_START = re.compile(
-    r"\bitem\s*1\s*a[\.\:\s\—\-–]+\s*risk\s+factors", re.IGNORECASE,
+    r"item\s*1\s*a[\.\:\s\u2014\u2013\-]+\s*risk\s+factors", re.IGNORECASE,
 )
 _ITEM1A_END = [
-    re.compile(r"\bitem\s*1\s*b[\.\:\s\—\-–]", re.IGNORECASE),
-    re.compile(r"\bitem\s*2[\.\:\s\—\-–]", re.IGNORECASE),
+    re.compile(r"item\s*1\s*b[\.\:\s\u2014\u2013\-]", re.IGNORECASE),
+    re.compile(r"item\s*2[\.\:\s\u2014\u2013\-]", re.IGNORECASE),
 ]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _soup(html_bytes: bytes) -> BeautifulSoup:
+def _make_soup(html_bytes: bytes) -> BeautifulSoup:
     s = BeautifulSoup(html_bytes, "lxml")
     for t in s(["script", "style"]):
         t.decompose()
@@ -44,8 +37,7 @@ def _full_text(soup: BeautifulSoup) -> str:
 
 
 def _is_toc_region(text: str) -> bool:
-    """If a 2000-char block has >5 'Item X' hits it's likely a table of contents."""
-    return len(re.findall(r"\bitem\s*\d", text[:2000], re.IGNORECASE)) > 5
+    return len(re.findall(r"item\s*\d", text[:2000], re.IGNORECASE)) > 5
 
 
 def _clean_text(text: str) -> str:
@@ -56,19 +48,79 @@ def _clean_text(text: str) -> str:
         if not s:
             out.append("")
             continue
-        # skip page numbers like "42", "F-3"
         if re.match(r"^[\dF][\d\-]*$", s):
             continue
-        # skip standalone short Item references (TOC lines)
         if re.match(r"^item\s*\d", s, re.IGNORECASE) and len(s) < 60:
             continue
-        # skip dot leaders
-        if re.match(r"^[\.\s_\-–—]{5,}$", s):
+        if re.match(r"^[\.\s_\-\u2013\u2014]{5,}$", s):
             continue
         out.append(s)
-    result = "\n".join(out)
-    result = re.sub(r"\n{3,}", "\n\n", result)
+    result = re.sub(r"\n{3,}", "\n\n", "\n".join(out))
     return result.strip()
+
+
+def _is_bold(tag: Tag) -> bool:
+    """Check if a tag renders as bold — handles <b>, <strong>, and CSS styles."""
+    if tag.name in ("b", "strong"):
+        return True
+    style = tag.get("style", "")
+    if style:
+        if re.search(r"font-weight\s*:\s*(bold|[7-9]\d\d)", style, re.IGNORECASE):
+            return True
+    # Check parent chain (up to 3 levels)
+    for p in list(tag.parents)[:3]:
+        if not isinstance(p, Tag):
+            break
+        if p.name in ("b", "strong"):
+            return True
+        ps = p.get("style", "")
+        if ps and re.search(r"font-weight\s*:\s*(bold|[7-9]\d\d)", ps, re.IGNORECASE):
+            return True
+    return False
+
+
+def _is_italic(tag: Tag) -> bool:
+    """Check if a tag renders as italic — handles <i>, <em>, and CSS styles."""
+    if tag.name in ("i", "em"):
+        return True
+    style = tag.get("style", "")
+    if style and re.search(r"font-style\s*:\s*italic", style, re.IGNORECASE):
+        return True
+    # Check children
+    for child in tag.descendants:
+        if isinstance(child, Tag):
+            if child.name in ("i", "em"):
+                return True
+            cs = child.get("style", "")
+            if cs and re.search(r"font-style\s*:\s*italic", cs, re.IGNORECASE):
+                return True
+    # Check parent chain
+    for p in list(tag.parents)[:3]:
+        if not isinstance(p, Tag):
+            break
+        if p.name in ("i", "em"):
+            return True
+        ps = p.get("style", "")
+        if ps and re.search(r"font-style\s*:\s*italic", ps, re.IGNORECASE):
+            return True
+    return False
+
+
+def _find_text_pos(full_text: str, snippet: str) -> int:
+    """Find approximate position of snippet in full_text."""
+    pos = full_text.find(snippet)
+    if pos >= 0:
+        return pos
+    # Try with first 60 chars
+    short = snippet[:60]
+    pos = full_text.find(short)
+    if pos >= 0:
+        return pos
+    # Try normalized whitespace match
+    norm_snippet = re.sub(r"\s+", " ", snippet[:80]).strip()
+    norm_full = re.sub(r"\s+", " ", full_text)
+    pos = norm_full.find(norm_snippet)
+    return pos
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -80,22 +132,13 @@ def extract_item1_overview(
     company_name: str = "",
     industry: str = "",
 ) -> dict:
-    """
-    Returns structured overview dict:
-    {
-      "company": "...",
-      "industry": "...",
-      "background": "..."
-    }
-    """
-    text = _full_text(_soup(html_bytes))
+    text = _full_text(_make_soup(html_bytes))
 
     starts = list(_ITEM1_START.finditer(text))
     ends = list(_ITEM1A_START.finditer(text))
 
     background = ""
     if starts and ends:
-        # Pick a start→end pair that isn't inside a TOC
         for s in starts:
             for e in ends:
                 if e.start() > s.start() + 200:
@@ -105,12 +148,9 @@ def extract_item1_overview(
                         break
             if background:
                 break
-
-        # fallback
-        if not background and starts and ends:
+        if not background:
             background = _clean_text(text[starts[-1].start():ends[-1].start()])
 
-    # Trim to reasonable length
     if len(background) > 2000:
         cut = background[:2000]
         lp = cut.rfind(".")
@@ -132,17 +172,15 @@ def extract_item1a_risks(html_bytes: bytes) -> list[dict]:
     """
     Returns:
     [
-      {
-        "category": "Macroeconomic and Industry Risks",
-        "sub_risks": ["title1", "title2", ...]
-      },
+      { "category": "Macroeconomic and Industry Risks",
+        "sub_risks": ["title1", "title2", ...] },
       ...
     ]
     """
-    soup = _soup(html_bytes)
+    soup = _make_soup(html_bytes)
     full = _full_text(soup)
 
-    # ── 1. Locate Item 1A text boundaries ─────────────────────────────────────
+    # ── 1. Locate Item 1A text range ──────────────────────────────────────────
     matches_1a = list(_ITEM1A_START.finditer(full))
     if not matches_1a:
         return []
@@ -165,81 +203,102 @@ def extract_item1a_risks(html_bytes: bytes) -> list[dict]:
                     end_pos = min(end_pos, m.start())
                     break
 
-    # ── 2. Collect bold/strong elements from HTML within that range ───────────
-    # We'll walk the soup and classify bold elements as:
-    #   - "category header": bold but NOT italic, typically short (< 80 chars),
-    #     looks like "Macroeconomic and Industry Risks"
-    #   - "sub-risk title": bold+italic, longer, starts with "The Company..."
-    #     or similar phrasing
+    # ── 2. Walk ALL elements and collect bold text in Item 1A range ───────────
+    #    We check every <p>, <div>, <span>, <b>, <strong>, <font>, etc.
 
-    bold_items: list[dict] = []  # {text, is_italic, char_pos_approx}
+    bold_items: list[dict] = []
 
-    for tag in soup.find_all(["b", "strong"]):
+    # Candidate tags: anything that could contain visible text
+    for tag in soup.find_all(["p", "div", "span", "b", "strong", "font", "td", "a"]):
+        # Get direct text (avoid double-counting nested elements)
         txt = tag.get_text(strip=True)
-        if len(txt) < 10 or len(txt) > 500:
+        if len(txt) < 12 or len(txt) > 500:
             continue
 
-        # Check if italic (tag itself is <i>/<em>, or contains one, or parent is)
-        is_italic = False
-        if tag.find(["i", "em"]):
-            is_italic = True
-        if tag.parent and tag.parent.name in ("i", "em"):
-            is_italic = True
-        # Also check if the tag name itself is inside an italic wrapper
-        for p in tag.parents:
-            if p.name in ("i", "em"):
-                is_italic = True
-                break
-
-        # Approximate position in full text
-        pos = full.find(txt)
-        if pos == -1:
-            pos = full.find(txt[:50])
-        if pos == -1:
+        if not _is_bold(tag):
             continue
 
-        # Only keep if within Item 1A range
-        if start_pos <= pos <= end_pos:
-            bold_items.append({
-                "text": txt,
-                "is_italic": is_italic,
-                "pos": pos,
-            })
+        # Check position in full text
+        pos = _find_text_pos(full, txt)
+        if pos < 0:
+            continue
+        if not (start_pos <= pos <= end_pos):
+            continue
 
-    # Deduplicate by text (keep first occurrence)
-    seen = set()
-    unique_bold: list[dict] = []
+        italic = _is_italic(tag)
+
+        bold_items.append({
+            "text": txt,
+            "is_italic": italic,
+            "pos": pos,
+        })
+
+    # ── 3. Deduplicate ───────────────────────────────────────────────────────
+    # Prefer shorter (more specific) entries when texts overlap
+    bold_items.sort(key=lambda x: x["pos"])
+
+    unique: list[dict] = []
+    seen_texts: set[str] = set()
+    seen_positions: list[tuple[int, int]] = []  # (start, end) ranges
+
     for b in bold_items:
         key = b["text"].strip().lower()
-        if key not in seen:
-            seen.add(key)
-            unique_bold.append(b)
+        # Skip if this exact text was already added
+        if key in seen_texts:
+            continue
+        # Skip if a substring/superset of an already-seen item at same position
+        overlaps = False
+        for sp, ep in seen_positions:
+            if sp <= b["pos"] <= ep or b["pos"] <= sp <= b["pos"] + len(b["text"]):
+                # Check if one text contains the other
+                for existing in unique:
+                    if (existing["text"].strip().lower() in key or
+                            key in existing["text"].strip().lower()):
+                        overlaps = True
+                        break
+            if overlaps:
+                break
+        if overlaps:
+            continue
 
-    # Sort by position
-    unique_bold.sort(key=lambda x: x["pos"])
+        seen_texts.add(key)
+        seen_positions.append((b["pos"], b["pos"] + len(b["text"])))
+        unique.append(b)
 
-    # ── 3. Build hierarchical structure ───────────────────────────────────────
-    # Heuristic: non-italic bold → category header
-    #            italic bold     → sub-risk title
-    # If ALL bolds are italic (no separate category headers), fall back to
-    # a single "General Risks" category.
+    # ── 4. Classify: category headers vs sub-risk titles ─────────────────────
+    #  Category headers: bold, NOT italic, typically shorter
+    #  Sub-risk titles:  bold + italic, typically longer, sentence-like
 
-    categories_found = [b for b in unique_bold if not b["is_italic"]]
-    subrisk_found = [b for b in unique_bold if b["is_italic"]]
+    categories = [b for b in unique if not b["is_italic"]]
+    subrisk_titles = [b for b in unique if b["is_italic"]]
 
-    # If we have clear categories + sub-risks, group them
-    if categories_found and subrisk_found:
-        return _group_hierarchical(categories_found, subrisk_found)
+    # If we have both, build hierarchy
+    if categories and subrisk_titles:
+        result = _group_hierarchical(categories, subrisk_titles)
+        if result:
+            return result
 
-    # Fallback: if all bold items look the same (all italic or all non-italic),
-    # treat them all as sub-risk titles under one category
-    if unique_bold:
+    # If only italic (no separate category headers): all under one category
+    if subrisk_titles and not categories:
         return [{
             "category": "Risk Factors",
-            "sub_risks": [b["text"] for b in unique_bold],
+            "sub_risks": [b["text"] for b in subrisk_titles],
         }]
 
-    # ── 4. Final fallback: paragraph-based splitting ──────────────────────────
+    # If only non-italic bold: might be that filing uses bold-only for sub-risks
+    # Separate short ones (< 60 chars, no period) as categories, rest as sub-risks
+    if categories and not subrisk_titles:
+        cats = [b for b in categories if len(b["text"]) < 60 and "." not in b["text"][:50]]
+        subs = [b for b in categories if b not in cats]
+        if cats and subs:
+            return _group_hierarchical(cats, subs)
+        # All similar length — treat all as sub-risks
+        return [{
+            "category": "Risk Factors",
+            "sub_risks": [b["text"] for b in categories],
+        }]
+
+    # ── 5. Final fallback: paragraph-based ────────────────────────────────────
     return _fallback_paragraph_split(full[start_pos:end_pos])
 
 
@@ -250,9 +309,15 @@ def _group_hierarchical(
     """Group sub-risk titles under their nearest preceding category header."""
     result: list[dict] = []
 
+    # Any sub-risks before the first category
+    if categories:
+        first_cat_pos = categories[0]["pos"]
+        orphans = [sr["text"] for sr in subrisk_items if sr["pos"] < first_cat_pos]
+        if orphans:
+            result.append({"category": "General Risks", "sub_risks": orphans})
+
     for i, cat in enumerate(categories):
         cat_start = cat["pos"]
-        # Category range ends at next category or at end
         cat_end = categories[i + 1]["pos"] if i + 1 < len(categories) else float("inf")
 
         subs = [
@@ -262,29 +327,45 @@ def _group_hierarchical(
         ]
 
         if subs:
-            result.append({
-                "category": cat["text"],
-                "sub_risks": subs,
-            })
+            result.append({"category": cat["text"], "sub_risks": subs})
+        else:
+            # Category with no italic sub-risks — include it anyway
+            result.append({"category": cat["text"], "sub_risks": []})
 
-    # Any sub-risks before the first category?
-    if categories:
-        first_cat_pos = categories[0]["pos"]
-        orphans = [sr["text"] for sr in subrisk_items if sr["pos"] < first_cat_pos]
-        if orphans:
-            result.insert(0, {
-                "category": "General Risks",
-                "sub_risks": orphans,
-            })
-
+    # Remove empty categories
+    result = [r for r in result if r["sub_risks"]]
     return result
 
 
 def _fallback_paragraph_split(raw_text: str) -> list[dict]:
-    """If no bold structure found, split by paragraphs."""
+    """If no bold structure found, split by paragraphs as last resort."""
     cleaned = _clean_text(raw_text)
     parts = re.split(r"\n\s*\n", cleaned)
-    titles = [p.strip() for p in parts if 20 < len(p.strip()) < 300]
-    if titles:
-        return [{"category": "Risk Factors", "sub_risks": titles[:30]}]
-    return []
+    paras = [p.strip() for p in parts if len(p.strip()) > 40]
+
+    if not paras:
+        return []
+
+    # Treat short paragraphs (< 150 chars) as potential titles
+    risks: list[dict] = []
+    current_cat = "Risk Factors"
+    current_subs: list[str] = []
+
+    for p in paras:
+        if len(p) < 150 and not p.endswith("."):
+            # Looks like a header
+            if current_subs:
+                risks.append({"category": current_cat, "sub_risks": current_subs})
+                current_subs = []
+            current_cat = p
+        elif len(p) < 300:
+            current_subs.append(p)
+
+    if current_subs:
+        risks.append({"category": current_cat, "sub_risks": current_subs})
+
+    if not risks and paras:
+        # Just dump first 30 paragraphs
+        return [{"category": "Risk Factors", "sub_risks": [p for p in paras[:30] if len(p) < 400]}]
+
+    return risks
