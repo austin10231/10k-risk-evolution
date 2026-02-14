@@ -163,12 +163,11 @@ def render():
                 )
                 return
 
+            overview["year"] = int(year)
+            overview["filing_type"] = filing_type
+
             result = {
-                "company_overview": {
-                    **overview,
-                    "year": int(year),
-                    "filing_type": filing_type,
-                },
+                "company_overview": overview,
                 "risks": risks,
             }
 
