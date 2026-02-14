@@ -1,6 +1,7 @@
 """
-Split Item 1A text into risk blocks and assign keyword-based themes.
-"""
+
+#Split Item 1A text into risk blocks and assign keyword-based themes.
+
 
 import re
 import uuid
@@ -71,14 +72,14 @@ def _classify_theme(text: str) -> str:
 
 
 def build_risk_blocks(item1a_text: str) -> list[dict]:
-    """
-    Split item1a_text into risk blocks and classify each.
+    
+    #Split item1a_text into risk blocks and classify each.
 
-    Heuristic:
-      1. Split on double-newline boundaries.
-      2. Drop very short fragments (< 40 chars).
-      3. Merge consecutive tiny paragraphs into one block.
-    """
+   # Heuristic:
+      #1. Split on double-newline boundaries.
+     # 2. Drop very short fragments (< 40 chars).
+      #3. Merge consecutive tiny paragraphs into one block.
+    
     raw = re.split(r"\n\s*\n", item1a_text)
     paragraphs = [p.strip() for p in raw if len(p.strip()) > 40]
 
@@ -112,3 +113,6 @@ def build_risk_blocks(item1a_text: str) -> list[dict]:
             }
         )
     return blocks
+
+
+"""
