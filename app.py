@@ -1,407 +1,663 @@
 # app.py
 from __future__ import annotations
 
+import os
+import re
 import json
-from typing import Dict, Any, List, Tuple
+import time
+import hashlib
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 import streamlit as st
-import pandas as pd
 
-from extractors import extract_10k
-from storage import (
-    save_document,
-    load_document,
-    list_documents,
-    delete_document,
-    group_by_sector,
-    group_company_years,
-)
+# Optional: used for similarity matching in Compare
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+    SKLEARN_OK = True
+except Exception:
+    SKLEARN_OK = False
 
-# -----------------------
-# UI setup + styling
-# -----------------------
+
+# ----------------------------
+# Page config + Light UI
+# ----------------------------
 st.set_page_config(page_title="10-K Risk Evolution", page_icon="📄", layout="wide")
 
-CSS = """
+LIGHT_CSS = """
 <style>
-:root { --card-bg: rgba(255,255,255,0.06); --border: rgba(255,255,255,0.12); }
-.block-container { padding-top: 1.0rem; padding-bottom: 2rem; }
+/* Light theme */
+html, body, [class*="css"]  { background: #f6f7fb !important; color: #111827 !important; }
+
+/* Main container */
+.block-container { padding-top: 1.2rem; padding-bottom: 2.5rem; max-width: 1250px; }
+
+/* Header card */
 .hero {
-  border: 1px solid var(--border);
-  background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(16,185,129,0.12));
-  border-radius: 18px;
-  padding: 18px 18px 14px 18px;
-}
-.kpi {
-  border: 1px solid var(--border);
-  background: var(--card-bg);
+  background: white;
+  border: 1px solid #e5e7eb;
   border-radius: 16px;
+  padding: 18px 18px 12px 18px;
+  box-shadow: 0 6px 18px rgba(17, 24, 39, 0.06);
+  margin-bottom: 14px;
+}
+.hero h1 { margin: 0; font-size: 26px; }
+.hero p { margin: 6px 0 0 0; color: #4b5563; }
+
+/* Panels */
+.panel {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
   padding: 14px;
+  box-shadow: 0 6px 18px rgba(17, 24, 39, 0.04);
 }
-.badge {
-  display:inline-block; padding: 4px 10px; border-radius: 999px;
-  border: 1px solid var(--border); background: rgba(255,255,255,0.06);
-  font-size: 12px;
+.small { color: #6b7280; font-size: 13px; }
+.kpi { background: #f9fafb; border: 1px solid #e5e7eb; padding: 10px 12px; border-radius: 12px; }
+
+/* Buttons */
+.stButton > button {
+  border-radius: 12px !important;
+  padding: 10px 14px !important;
+  border: 1px solid #e5e7eb !important;
 }
-.small { font-size: 12px; opacity: 0.85; }
-hr { border: none; border-top: 1px solid rgba(255,255,255,0.10); margin: 12px 0; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.stButton > button[kind="primary"]{
+  background: #2563eb !important;
+  border: 1px solid #1d4ed8 !important;
+  color: white !important;
+}
+
+/* File uploader */
+div[data-testid="stFileUploader"] section {
+  border-radius: 12px !important;
+  border: 1px dashed #cbd5e1 !important;
+  background: #f9fafb !important;
+}
+
+/* Expander */
+details {
+  border-radius: 12px !important;
+  border: 1px solid #e5e7eb !important;
+  background: #ffffff !important;
+}
+
+/* Tabs */
+button[data-baseweb="tab"] {
+  border-radius: 999px !important;
+}
+
+/* Code blocks a bit nicer */
+pre, code { border-radius: 12px !important; }
 </style>
 """
-st.markdown(CSS, unsafe_allow_html=True)
+st.markdown(LIGHT_CSS, unsafe_allow_html=True)
 
 st.markdown(
     """
 <div class="hero">
-  <div style="font-size:26px; font-weight:800;">📄 10-K Risk Evolution</div>
-  <div class="small">
-    Upload a SEC 10-K (HTML recommended). Extract <span class="mono">Item 1 (Business)</span>,
-    <span class="mono">Item 1A (Risk Factors)</span> into structured JSON, and capture key financial tables.
-  </div>
-  <div style="margin-top:8px;">
-    <span class="badge">Upload → Extract → Store</span>
-    <span class="badge">Library (by Sector/Company/Year)</span>
-    <span class="badge">Compare (same company, different years)</span>
-  </div>
+  <h1>📄 10-K Risk Evolution</h1>
+  <p>Upload a SEC 10-K (HTML recommended). Extract Item 1 (Business), Item 1A (Risk Factors) into structured JSON, and capture key financial tables. Store & compare year-over-year changes.</p>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-st.write("")
 
-# -----------------------
-# Sidebar navigation
-# -----------------------
-page = st.sidebar.radio("Navigation", ["1) Upload & Extract", "2) Library", "3) Compare"], index=0)
+# ----------------------------
+# Storage (local JSON files)
+# ----------------------------
+DATA_DIR = "data_store"
 
-st.sidebar.divider()
-st.sidebar.caption("Tip: HTML filings give the best extraction quality (risk blocks + tables).")
+def ensure_data_dir() -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+def slugify(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s or "unknown"
+
+def stable_id(company: str, year: str, source_name: str, raw_bytes: bytes) -> str:
+    h = hashlib.sha256()
+    h.update((company or "").encode("utf-8"))
+    h.update((year or "").encode("utf-8"))
+    h.update((source_name or "").encode("utf-8"))
+    h.update(raw_bytes[:20000])  # enough for uniqueness without huge cost
+    return h.hexdigest()[:16]
+
+def doc_path(sector: str, company: str, year: str, doc_id: str) -> str:
+    return os.path.join(DATA_DIR, slugify(sector), slugify(company), slugify(year), f"{doc_id}.json")
+
+def write_json(path: str, obj: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2, ensure_ascii=False)
+
+def read_json(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def list_all_docs() -> List[dict]:
+    ensure_data_dir()
+    out: List[dict] = []
+    for root, _, files in os.walk(DATA_DIR):
+        for fn in files:
+            if not fn.endswith(".json"):
+                continue
+            p = os.path.join(root, fn)
+            try:
+                d = read_json(p)
+                d["_path"] = p
+                out.append(d)
+            except Exception:
+                continue
+    # newest first
+    out.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return out
+
+def delete_doc(path: str) -> None:
+    try:
+        os.remove(path)
+    except Exception:
+        pass
+
+def group_by_sector_company_year(docs: List[dict]) -> Dict[str, Dict[str, Dict[str, List[dict]]]]:
+    tree: Dict[str, Dict[str, Dict[str, List[dict]]]] = {}
+    for d in docs:
+        sec = d.get("sector", "Unknown") or "Unknown"
+        comp = d.get("company", "Unknown") or "Unknown"
+        yr = str(d.get("year", "Unknown") or "Unknown")
+        tree.setdefault(sec, {}).setdefault(comp, {}).setdefault(yr, []).append(d)
+    return tree
 
 
-# -----------------------
-# Helpers
-# -----------------------
-def _bytes(uploader) -> bytes:
-    return uploader.getvalue()
+# ----------------------------
+# Extractor bridge
+# ----------------------------
+def _try_import_extractor():
+    try:
+        import extractor  # your repo file: extractor.py
+        return extractor
+    except Exception:
+        return None
 
+EXTRACTOR_MOD = _try_import_extractor()
 
-def render_tables_block(fin_tables: Dict[str, Any]) -> None:
-    st.caption(fin_tables.get("note", ""))
-    for key, label in [
-        ("balance_sheet", "Balance Sheet"),
-        ("income_statement", "Income Statement"),
-        ("cash_flow", "Cash Flow Statement"),
-        ("other_tables", "Other Tables (Unclassified)"),
-    ]:
-        items = fin_tables.get(key, [])
-        with st.expander(f"{label} — {len(items)} table(s)", expanded=False):
-            if not items:
-                st.write("No tables found.")
-            for i, tjson in enumerate(items):
-                cols = tjson.get("columns", [])
-                data = tjson.get("data", [])
-                df = pd.DataFrame(data, columns=cols) if cols and data else pd.DataFrame(data)
-                st.write(f"Table {i+1} (shape={tjson.get('shape')})")
-                st.dataframe(df, use_container_width=True)
+def normalize_extraction_result(
+    result: Dict[str, Any],
+    company: str,
+    year: str,
+    sector: str,
+    source_name: str,
+    doc_id: str,
+) -> Dict[str, Any]:
+    """
+    Standardize keys so UI can display consistently even if extractor returns different names.
+    """
+    r = dict(result or {})
 
+    # Common fields
+    r["company"] = r.get("company") or company
+    r["year"] = str(r.get("year") or year)
+    r["sector"] = r.get("sector") or sector
+    r["source_name"] = r.get("source_name") or source_name
+    r["doc_id"] = r.get("doc_id") or doc_id
 
-def render_risk_blocks(risk_blocks: List[Dict[str, str]]) -> None:
-    if not risk_blocks:
-        st.warning("No risk blocks found. Try using the HTML filing.")
-        return
-    for i, b in enumerate(risk_blocks, start=1):
-        with st.expander(f"{i}. {b['title']}", expanded=False):
-            st.write(b["content"])
+    # Company overview (Item 1)
+    if "company_overview" not in r:
+        # try some alternative names
+        for k in ["item1", "item_1", "business", "business_overview", "overview"]:
+            if k in r:
+                r["company_overview"] = r[k]
+                break
+        r.setdefault("company_overview", {})
 
+    # Risk blocks (Item 1A)
+    if "risk_blocks" not in r:
+        for k in ["risk_factors", "item1a", "item_1a", "risks"]:
+            if k in r:
+                r["risk_blocks"] = r[k]
+                break
+        r.setdefault("risk_blocks", [])
 
-# -----------------------
-# Page 1: Upload & Extract
-# -----------------------
-if page.startswith("1"):
-    st.subheader("Upload & Extract")
+    # Tables
+    if "tables" not in r:
+        for k in ["financial_tables", "financials", "statements", "extracted_tables"]:
+            if k in r:
+                r["tables"] = r[k]
+                break
+        r.setdefault("tables", [])
 
-    c1, c2, c3 = st.columns([2, 1, 1])
-    with c1:
-        file = st.file_uploader("Upload a 10-K file (HTML/PDF/TXT)", type=["html", "htm", "pdf", "txt"])
-    with c2:
-        year = st.text_input("Filing Year", value="2024")
-    with c3:
-        company_name = st.text_input("Company Name (required)", value="")
+    # Normalize risk_blocks format to list[{"title":..., "content":...}]
+    rb = r.get("risk_blocks", [])
+    norm_rb: List[dict] = []
+    if isinstance(rb, dict):
+        # sometimes dict of title->content
+        for t, c in rb.items():
+            norm_rb.append({"title": str(t), "content": str(c)})
+    elif isinstance(rb, list):
+        for item in rb:
+            if isinstance(item, dict):
+                title = item.get("title") or item.get("heading") or item.get("risk_title") or "Untitled"
+                content = item.get("content") or item.get("text") or item.get("body") or ""
+                norm_rb.append({"title": str(title), "content": str(content)})
+            else:
+                norm_rb.append({"title": "Risk", "content": str(item)})
+    r["risk_blocks"] = norm_rb
 
-    sector_override = st.selectbox(
-        "Sector (optional override)",
-        ["(Auto)", "Technology", "Semiconductor", "Retail", "Energy", "Utilities", "Manufacturing", "Other", "Unknown"],
-        index=0,
-    )
+    return r
 
-    run = st.button("🚀 Extract & Save to Library", type="primary", use_container_width=True)
-
-    if run:
-        if not file:
-            st.error("Please upload a file.")
-            st.stop()
-        if not company_name.strip():
-            st.error("Please enter the Company Name (this is used for storage + comparison).")
-            st.stop()
-
-        ext = file.name.split(".")[-1].lower()
-        file_bytes = _bytes(file)
-
-        with st.spinner("Extracting sections & tables..."):
-            extracted = extract_10k(file_bytes, ext)
-
-        sector = extracted.get("sector_inferred", "Unknown")
-        if sector_override != "(Auto)":
-            sector = sector_override
-
-        doc = {
-            "company_name": company_name.strip(),
-            "year": str(year).strip(),
-            "sector": sector,
-            "source_file": {"name": file.name, "type": ext},
-            "extracted": {
-                "company_background": extracted.get("company_background", ""),
-                "risk_blocks": extracted.get("risk_blocks", []),
-                "financial_tables": extracted.get("financial_tables", {}),
-                # optionally keep raw (can be large) - comment out if you prefer smaller JSON
-                "raw": {
-                    "item1_business_text": extracted.get("item1_business_text", "")[:20000],
-                    "item1a_risk_text": extracted.get("item1a_risk_text", "")[:20000],
-                },
-            },
+def extract_10k_bridge(raw_bytes: bytes, filename: str, company: str, year: str, sector_override: Optional[str]) -> Dict[str, Any]:
+    """
+    Calls your extractor.py if present; otherwise returns a placeholder extraction.
+    Supports multiple possible function signatures to avoid crashing.
+    """
+    if EXTRACTOR_MOD is None or not hasattr(EXTRACTOR_MOD, "extract_10k"):
+        # fallback (no extractor)
+        text_snip = raw_bytes[:2000].decode("utf-8", errors="ignore")
+        return {
+            "company_overview": {"note": "Extractor not found. Add extractor.py with extract_10k().", "preview": text_snip[:500]},
+            "risk_blocks": [],
+            "tables": [],
         }
 
-        doc_id = save_document(doc)
-        st.success(f"Saved to Library ✅  doc_id = {doc_id}")
+    fn = getattr(EXTRACTOR_MOD, "extract_10k")
 
-        # Quick preview
-        st.divider()
-        k1, k2, k3, k4 = st.columns(4)
-        k1.markdown(f"<div class='kpi'><div class='small'>Sector</div><div style='font-size:22px;font-weight:800;'>{sector}</div></div>", unsafe_allow_html=True)
-        k2.markdown(f"<div class='kpi'><div class='small'>Risk Blocks</div><div style='font-size:22px;font-weight:800;'>{len(doc['extracted']['risk_blocks'])}</div></div>", unsafe_allow_html=True)
-        ft = doc["extracted"]["financial_tables"]
-        total_tables = sum(len(ft.get(k, [])) for k in ["balance_sheet", "income_statement", "cash_flow", "other_tables"]) if isinstance(ft, dict) else 0
-        k3.markdown(f"<div class='kpi'><div class='small'>Tables Found</div><div style='font-size:22px;font-weight:800;'>{total_tables}</div></div>", unsafe_allow_html=True)
-        bg_len = len(doc["extracted"]["company_background"] or "")
-        k4.markdown(f"<div class='kpi'><div class='small'>Background chars</div><div style='font-size:22px;font-weight:800;'>{bg_len}</div></div>", unsafe_allow_html=True)
-
-        st.subheader("Company Background (from Item 1)")
-        st.write(doc["extracted"]["company_background"] or "—")
-
-        st.subheader("Risk Factors (structured by subheadings)")
-        render_risk_blocks(doc["extracted"]["risk_blocks"])
-
-        st.subheader("Financial Statements Tables (HTML works best)")
-        render_tables_block(doc["extracted"]["financial_tables"])
-
-        st.download_button(
-            "⬇️ Download extracted JSON",
-            data=json.dumps(doc, indent=2).encode("utf-8"),
-            file_name=f"{company_name.strip()}_{year}_extracted.json",
-            mime="application/json",
-            use_container_width=True,
-        )
+    # Try different signatures gracefully
+    # 1) extract_10k(bytes, filename, company, year, sector_override)
+    try:
+        return fn(raw_bytes, filename, company, year, sector_override)
+    except TypeError:
+        pass
+    # 2) extract_10k(bytes, filename, company, year)
+    try:
+        return fn(raw_bytes, filename, company, year)
+    except TypeError:
+        pass
+    # 3) extract_10k(bytes, filename)
+    try:
+        return fn(raw_bytes, filename)
+    except TypeError:
+        pass
+    # 4) extract_10k(text: str)
+    try:
+        text = raw_bytes.decode("utf-8", errors="ignore")
+        return fn(text)
+    except Exception:
+        # As last resort, raise the original
+        raise
 
 
-# -----------------------
-# Page 2: Library
-# -----------------------
-elif page.startswith("2"):
-    st.subheader("Library (Stored Filings)")
+# ----------------------------
+# Compare helpers
+# ----------------------------
+def normalize_title(t: str) -> str:
+    t = (t or "").strip().lower()
+    t = re.sub(r"\s+", " ", t)
+    return t
 
-    docs = list_documents()
-    if not docs:
-        st.info("No documents yet. Go to **Upload & Extract** and save a filing.")
-        st.stop()
+def title_similarity(a: str, b: str) -> float:
+    a = normalize_title(a)
+    b = normalize_title(b)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
 
-    grouped = group_by_sector(docs)
+    if SKLEARN_OK:
+        vec = TfidfVectorizer().fit([a, b])
+        X = vec.transform([a, b])
+        sim = float(cosine_similarity(X[0], X[1])[0][0])
+        return max(0.0, min(1.0, sim))
 
-    left, right = st.columns([1, 2], gap="large")
+    # fallback: simple token overlap
+    sa = set(a.split())
+    sb = set(b.split())
+    inter = len(sa & sb)
+    union = max(1, len(sa | sb))
+    return inter / union
+
+def match_risk_blocks(
+    blocks_a: List[dict],
+    blocks_b: List[dict],
+    threshold: float = 0.55,
+) -> Tuple[List[dict], List[dict], List[dict]]:
+    """
+    Return: matched, new_in_b, removed_from_a
+    matched: [{"a":{...},"b":{...},"title_sim":0.xx}]
+    """
+    used_b = set()
+    matched: List[dict] = []
+
+    for i, a in enumerate(blocks_a):
+        best_j = None
+        best_sim = -1.0
+        for j, b in enumerate(blocks_b):
+            if j in used_b:
+                continue
+            sim = title_similarity(a.get("title", ""), b.get("title", ""))
+            if sim > best_sim:
+                best_sim = sim
+                best_j = j
+        if best_j is not None and best_sim >= threshold:
+            used_b.add(best_j)
+            matched.append({"a": a, "b": blocks_b[best_j], "title_sim": round(best_sim, 4)})
+
+    new_in_b = [b for j, b in enumerate(blocks_b) if j not in used_b]
+    removed = []
+    # removed are those in A that didn't match
+    matched_a_titles = set((m["a"].get("title", "") for m in matched))
+    for a in blocks_a:
+        if a.get("title", "") not in matched_a_titles:
+            # could be false positive if duplicate titles; acceptable for demo
+            removed.append(a)
+
+    return matched, new_in_b, removed
+
+
+# ----------------------------
+# Session state
+# ----------------------------
+if "last_result" not in st.session_state:
+    st.session_state["last_result"] = None
+
+
+# ----------------------------
+# Top tabs (product-like)
+# ----------------------------
+tab_upload, tab_library, tab_compare = st.tabs(["⬆️ Upload & Extract", "📚 Library", "🔎 Compare"])
+
+
+# ==========================================
+# TAB 1: Upload & Extract
+# ==========================================
+with tab_upload:
+    left, right = st.columns([1.05, 1.35], gap="large")
+
     with left:
-        sector = st.selectbox("Sector", sorted(grouped.keys()))
-        sector_docs = grouped[sector]
-        companies = sorted(set(d["company_name"] for d in sector_docs))
-        company = st.selectbox("Company", companies)
-
-        years = [d for d in sector_docs if d["company_name"] == company]
-        years_sorted = sorted(years, key=lambda x: x["year"])
-        year_pick = st.selectbox("Year", [d["year"] for d in years_sorted])
-
-    with right:
-        # find doc_id
-        doc_id = None
-        for d in sector_docs:
-            if d["company_name"] == company and d["year"] == year_pick:
-                doc_id = d["doc_id"]
-                break
-        if not doc_id:
-            st.error("Document not found in index.")
-            st.stop()
-
-        doc = load_document(doc_id)
-        st.markdown(f"**Selected:** {doc['company_name']} — {doc['year']}  <span class='badge'>{doc.get('sector','')}</span>", unsafe_allow_html=True)
-
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.subheader("Upload")
+        uploaded = st.file_uploader("Upload a 10-K file (HTML/PDF/TXT)", type=["html", "htm", "pdf", "txt"])
         c1, c2 = st.columns([1, 1])
         with c1:
-            st.subheader("Company Background")
-            st.write(doc["extracted"].get("company_background", "") or "—")
+            year = st.text_input("Filing Year", value=str(time.gmtime().tm_year - 1))
         with c2:
-            st.subheader("Quick Stats")
-            rb = doc["extracted"].get("risk_blocks", [])
-            ft = doc["extracted"].get("financial_tables", {})
-            total_tables = sum(len(ft.get(k, [])) for k in ["balance_sheet", "income_statement", "cash_flow", "other_tables"]) if isinstance(ft, dict) else 0
-            st.write(f"- Risk blocks: **{len(rb)}**")
-            st.write(f"- Tables found: **{total_tables}**")
-            st.write(f"- Source: **{doc.get('source_file',{}).get('name','')}**")
+            company = st.text_input("Company Name (required)", value="")
 
-        st.subheader("Risk Blocks")
-        render_risk_blocks(doc["extracted"].get("risk_blocks", []))
+        sector = st.selectbox(
+            "Sector (optional override)",
+            ["(Auto)", "Technology", "Semiconductors", "Retail", "Energy", "Financials", "Industrial", "Healthcare", "Other"],
+            index=0,
+        )
 
-        st.subheader("Financial Tables")
-        render_tables_block(doc["extracted"].get("financial_tables", {}))
+        run = st.button("🚀 Extract & Save to Library", type="primary", use_container_width=True)
 
-        st.divider()
-        colA, colB = st.columns([1, 1])
-        with colA:
+        st.markdown('<div class="small">Tip: HTML filings usually give the best extraction quality (risk blocks + tables).</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with right:
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.subheader("Results (Structured JSON)")
+        st.caption("After you click Extract, parsed outputs will appear here.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if run:
+        if not uploaded or not company.strip():
+            st.error("Please upload a file and enter Company Name.")
+        else:
+            ensure_data_dir()
+            raw = uploaded.getvalue()
+            company_clean = company.strip()
+            year_clean = year.strip()
+            sector_override = None if sector == "(Auto)" else sector
+
+            doc_id = stable_id(company_clean, year_clean, uploaded.name, raw)
+
+            # Extract
+            with st.spinner("Extracting..."):
+                extracted = extract_10k_bridge(raw, uploaded.name, company_clean, year_clean, sector_override)
+
+            # Determine sector: override > extracted > Unknown
+            sector_final = sector_override or extracted.get("sector") or "Unknown"
+
+            # Normalize + persist
+            normalized = normalize_extraction_result(
+                extracted,
+                company=company_clean,
+                year=year_clean,
+                sector=sector_final,
+                source_name=uploaded.name,
+                doc_id=doc_id,
+            )
+            normalized["created_at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+            path = doc_path(sector_final, company_clean, year_clean, doc_id)
+            write_json(path, normalized)
+
+            st.session_state["last_result"] = normalized
+            st.success(f"Extracted & saved ✅  (Sector: {sector_final}, Company: {company_clean}, Year: {year_clean})")
+
+    # Right result panel render
+    with right:
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        data = st.session_state.get("last_result")
+
+        if not data:
+            st.info("No extraction yet. Upload a 10-K and click Extract.")
+        else:
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Company", data.get("company", ""))
+            k2.metric("Year", data.get("year", ""))
+            k3.metric("Risk Blocks", len(data.get("risk_blocks", [])))
+            k4.metric("Tables", len(data.get("tables", [])))
+
             st.download_button(
-                "⬇️ Download JSON (this filing)",
-                data=json.dumps(doc, indent=2).encode("utf-8"),
-                file_name=f"{doc['company_name']}_{doc['year']}_stored.json",
+                "⬇️ Download Full JSON",
+                data=json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"),
+                file_name=f"{slugify(data.get('company','company'))}_{data.get('year','year')}_10k.json",
                 mime="application/json",
                 use_container_width=True,
             )
-        with colB:
-            if st.button("🗑 Delete this filing", use_container_width=True):
-                delete_document(doc_id)
-                st.success("Deleted. Refresh the page.")
-                st.stop()
+
+            with st.expander("🏢 Company Overview (Item 1)", expanded=True):
+                st.code(json.dumps(data.get("company_overview", {}), indent=2, ensure_ascii=False), language="json")
+
+            with st.expander("⚠️ Risk Factors (Item 1A) - structured blocks", expanded=True):
+                st.code(json.dumps(data.get("risk_blocks", []), indent=2, ensure_ascii=False), language="json")
+
+            with st.expander("📊 Financial Tables (extracted)", expanded=False):
+                st.code(json.dumps(data.get("tables", []), indent=2, ensure_ascii=False), language="json")
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
-# -----------------------
-# Page 3: Compare (same company across years)
-# -----------------------
-else:
-    st.subheader("Compare (Same Company, Different Years)")
+# ==========================================
+# TAB 2: Library (browse + view + download)
+# ==========================================
+with tab_library:
+    docs = list_all_docs()
+    tree = group_by_sector_company_year(docs)
 
-    docs = list_documents()
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.subheader("Library")
+    st.caption("Browse saved 10-K extractions by Sector → Company → Year. View / download / delete.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
     if not docs:
-        st.info("No documents yet. Upload at least two filings for the same company.")
-        st.stop()
+        st.info("Library is empty. Go to Upload & Extract first.")
+    else:
+        colA, colB, colC = st.columns([1.1, 1.1, 1.2], gap="large")
 
-    companies = sorted(set(d["company_name"] for d in docs))
-    company = st.selectbox("Company", companies)
+        sectors = sorted(tree.keys())
+        with colA:
+            sector_sel = st.selectbox("Sector", ["(All)"] + sectors, index=0)
+        comps = sorted({d.get("company","") for d in docs if d.get("company")})
+        with colB:
+            company_sel = st.selectbox("Company", ["(All)"] + comps, index=0)
+        years = sorted({str(d.get("year","")) for d in docs if d.get("year")})
+        with colC:
+            year_sel = st.selectbox("Year", ["(All)"] + years, index=0)
 
-    company_docs = group_company_years(docs, company)
-    if len(company_docs) < 2:
-        st.warning("Need at least two years stored for this company to compare.")
-        st.stop()
+        # Filter docs
+        filtered = docs
+        if sector_sel != "(All)":
+            filtered = [d for d in filtered if (d.get("sector") or "Unknown") == sector_sel]
+        if company_sel != "(All)":
+            filtered = [d for d in filtered if (d.get("company") or "") == company_sel]
+        if year_sel != "(All)":
+            filtered = [d for d in filtered if str(d.get("year") or "") == year_sel]
 
-    years = [d["year"] for d in company_docs]
-    col1, col2 = st.columns(2)
-    with col1:
-        year_a = st.selectbox("Year A", years, index=0)
-    with col2:
-        year_b = st.selectbox("Year B", years, index=min(1, len(years) - 1))
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.subheader(f"Saved Documents ({len(filtered)})")
 
-    threshold = st.slider("Title similarity threshold (simple baseline)", 0.30, 0.90, 0.60, 0.01)
+        options = []
+        for d in filtered:
+            label = f"{d.get('sector','Unknown')} / {d.get('company','Unknown')} / {d.get('year','')}  —  {d.get('source_name','')}"
+            options.append((label, d.get("_path","")))
 
-    def title_sim(a: str, b: str) -> float:
-        # simple normalized overlap baseline (replace later with embeddings)
-        a_set = set(a.lower().split())
-        b_set = set(b.lower().split())
-        if not a_set or not b_set:
-            return 0.0
-        return len(a_set & b_set) / len(a_set | b_set)
+        if not options:
+            st.info("No documents match your filters.")
+        else:
+            labels = [x[0] for x in options]
+            paths = [x[1] for x in options]
+            sel = st.selectbox("Select a document", labels, index=0)
+            sel_path = paths[labels.index(sel)]
+            doc = read_json(sel_path)
 
-    if st.button("🔎 Compare", type="primary", use_container_width=True):
-        doc_id_a = next(d["doc_id"] for d in company_docs if d["year"] == year_a)
-        doc_id_b = next(d["doc_id"] for d in company_docs if d["year"] == year_b)
-        A = load_document(doc_id_a)
-        B = load_document(doc_id_b)
+            c1, c2, c3 = st.columns([1,1,1])
+            with c1:
+                st.download_button(
+                    "⬇️ Download JSON",
+                    data=json.dumps(doc, indent=2, ensure_ascii=False).encode("utf-8"),
+                    file_name=f"{slugify(doc.get('company','company'))}_{doc.get('year','year')}.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+            with c2:
+                if st.button("⭐ Set as 'Last Result' (preview in Upload tab)", use_container_width=True):
+                    st.session_state["last_result"] = doc
+                    st.success("Set as last result.")
+            with c3:
+                if st.button("🗑️ Delete", use_container_width=True):
+                    delete_doc(sel_path)
+                    st.warning("Deleted. Refresh tab (or rerun).")
+                    st.stop()
 
-        blocks_a = A["extracted"].get("risk_blocks", [])
-        blocks_b = B["extracted"].get("risk_blocks", [])
+            with st.expander("Document JSON", expanded=True):
+                st.code(json.dumps(doc, indent=2, ensure_ascii=False), language="json")
 
-        # greedy match by title similarity (baseline). You can replace with TF-IDF/embeddings later.
-        used_b = set()
-        matched = []
-        removed = []
-        for i, ba in enumerate(blocks_a):
-            best = (-1.0, None)
-            for j, bb in enumerate(blocks_b):
-                if j in used_b:
-                    continue
-                s = title_sim(ba["title"], bb["title"])
-                if s > best[0]:
-                    best = (s, j)
-            if best[1] is not None and best[0] >= threshold:
-                j = best[1]
-                used_b.add(j)
-                matched.append({"sim": best[0], "a": ba, "b": blocks_b[j]})
-            else:
-                removed.append(ba)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        new_blocks = [bb for j, bb in enumerate(blocks_b) if j not in used_b]
 
-        # KPIs
-        k1, k2, k3, k4 = st.columns(4)
-        k1.markdown(f"<div class='kpi'><div class='small'>Risk blocks {year_a}</div><div style='font-size:22px;font-weight:800;'>{len(blocks_a)}</div></div>", unsafe_allow_html=True)
-        k2.markdown(f"<div class='kpi'><div class='small'>Risk blocks {year_b}</div><div style='font-size:22px;font-weight:800;'>{len(blocks_b)}</div></div>", unsafe_allow_html=True)
-        k3.markdown(f"<div class='kpi'><div class='small'>Matched</div><div style='font-size:22px;font-weight:800;'>{len(matched)}</div></div>", unsafe_allow_html=True)
-        k4.markdown(f"<div class='kpi'><div class='small'>New / Removed</div><div style='font-size:22px;font-weight:800;'>{len(new_blocks)} / {len(removed)}</div></div>", unsafe_allow_html=True)
+# ==========================================
+# TAB 3: Compare (same company, different years)
+# ==========================================
+with tab_compare:
+    docs = list_all_docs()
+    if not docs:
+        st.info("Library is empty. Upload at least 2 years of the same company first.")
+    else:
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.subheader("Compare Risk Factors (Year-over-Year)")
+        st.caption("Select a company and two filing years. We match risk blocks by title similarity and show matched / new / removed.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        tab1, tab2, tab3, tab4 = st.tabs(["✅ Matched", "🆕 New", "🗑 Removed", "⬇️ Export"])
-        with tab1:
-            if not matched:
-                st.warning("No matches. Lower the threshold or check risk titles in both years.")
-            else:
-                for m in sorted(matched, key=lambda x: x["sim"], reverse=True):
-                    st.markdown(f"**Title similarity:** `{m['sim']:.2f}`")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.markdown(f"**{year_a} — {m['a']['title']}**")
-                        st.write(m["a"]["content"])
-                    with c2:
-                        st.markdown(f"**{year_b} — {m['b']['title']}**")
-                        st.write(m["b"]["content"])
-                    st.markdown("<hr/>", unsafe_allow_html=True)
+        companies = sorted({d.get("company","") for d in docs if d.get("company")})
+        company = st.selectbox("Company", companies, index=0 if companies else None)
+        company_docs = [d for d in docs if d.get("company") == company]
+        years = sorted({str(d.get("year","")) for d in company_docs})
+        if len(years) < 2:
+            st.warning("This company has fewer than 2 years in the library. Upload another year first.")
+        else:
+            c1, c2, c3 = st.columns([1,1,1.2])
+            with c1:
+                year_a = st.selectbox("Year A (baseline)", years, index=0)
+            with c2:
+                year_b = st.selectbox("Year B (compare)", years, index=min(1, len(years)-1))
+            with c3:
+                threshold = st.slider("Title similarity threshold", min_value=0.30, max_value=0.95, value=0.55, step=0.05)
 
-        with tab2:
-            if not new_blocks:
-                st.success("No new blocks detected at this threshold.")
-            else:
-                for b in new_blocks:
-                    with st.expander(f"NEW — {b['title']}", expanded=False):
-                        st.write(b["content"])
+            def pick_doc(year: str) -> dict:
+                cand = [d for d in company_docs if str(d.get("year")) == str(year)]
+                # choose newest if multiple
+                cand.sort(key=lambda x: x.get("created_at",""), reverse=True)
+                return read_json(cand[0]["_path"])
 
-        with tab3:
-            if not removed:
-                st.success("No removed blocks detected at this threshold.")
-            else:
-                for b in removed:
-                    with st.expander(f"REMOVED — {b['title']}", expanded=False):
-                        st.write(b["content"])
+            docA = pick_doc(year_a)
+            docB = pick_doc(year_b)
 
-       
-        with tab4:
-            payload = {
-                "company": company,
-                "year_a": year_a,
-                "year_b": year_b,
-                "threshold": threshold,
-                "matched_count": len(matched),
-                "new_count": len(new_blocks),
-                "removed_count": len(removed),
-                "matched": matched,
-                "new": new_blocks,
-                "removed": removed,
-            }
-            st.download_button(
-                "⬇️ Download comparison JSON",
-                data=json.dumps(payload, indent=2).encode("utf-8"),
-                file_name=f"{company}_{year_a}_vs_{year_b}_compare.json",
-                mime="application/json",
-                use_container_width=True,
-            )
-            st.code(json.dumps(payload, indent=2), language="json")
+            blocks_a = docA.get("risk_blocks", [])
+            blocks_b = docB.get("risk_blocks", [])
+
+            matched, new_blocks, removed = match_risk_blocks(blocks_a, blocks_b, threshold=float(threshold))
+
+            st.markdown('<div class="panel">', unsafe_allow_html=True)
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Year A blocks", len(blocks_a))
+            k2.metric("Year B blocks", len(blocks_b))
+            k3.metric("Matched", len(matched))
+            k4.metric("New / Removed", f"{len(new_blocks)} / {len(removed)}")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            tab1, tab2, tab3, tab4 = st.tabs(["✅ Matched", "🆕 New in B", "🗑️ Removed from A", "⬇️ Export JSON"])
+
+            with tab1:
+                st.markdown('<div class="panel">', unsafe_allow_html=True)
+                if not matched:
+                    st.info("No matched blocks found at this threshold.")
+                else:
+                    for m in matched:
+                        title = m["b"].get("title", "Untitled")
+                        sim = m.get("title_sim", 0)
+                        with st.expander(f"{title}  —  sim={sim}", expanded=False):
+                            st.markdown(f"**{year_a} — {m['a'].get('title','')}**")
+                            st.write(m["a"].get("content",""))
+                            st.markdown("---")
+                            st.markdown(f"**{year_b} — {m['b'].get('title','')}**")
+                            st.write(m["b"].get("content",""))
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            with tab2:
+                st.markdown('<div class="panel">', unsafe_allow_html=True)
+                if not new_blocks:
+                    st.success("No new blocks detected at this threshold.")
+                else:
+                    for b in new_blocks:
+                        with st.expander(f"NEW — {b.get('title','Untitled')}", expanded=False):
+                            st.write(b.get("content",""))
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            with tab3:
+                st.markdown('<div class="panel">', unsafe_allow_html=True)
+                if not removed:
+                    st.success("No removed blocks detected at this threshold.")
+                else:
+                    for b in removed:
+                        with st.expander(f"REMOVED — {b.get('title','Untitled')}", expanded=False):
+                            st.write(b.get("content",""))
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            with tab4:
+                st.markdown('<div class="panel">', unsafe_allow_html=True)
+                payload = {
+                    "company": company,
+                    "year_a": year_a,
+                    "year_b": year_b,
+                    "threshold": float(threshold),
+                    "matched_count": len(matched),
+                    "new_count": len(new_blocks),
+                    "removed_count": len(removed),
+                    "matched": matched,
+                    "new": new_blocks,
+                    "removed": removed,
+                }
+
+                st.download_button(
+                    "⬇️ Download comparison JSON",
+                    data=json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"),
+                    file_name=f"{slugify(company)}_{year_a}_vs_{year_b}_compare.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+                st.code(json.dumps(payload, indent=2, ensure_ascii=False), language="json")
+                st.markdown('</div>', unsafe_allow_html=True)
