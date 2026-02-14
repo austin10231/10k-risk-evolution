@@ -1,43 +1,31 @@
 # app.py
-# Streamlit UI for SEC 10-K Risk Factors extraction + year-over-year comparison (MVP but "complete" workflow)
-# - Upload two 10-K files (HTML/PDF/TXT)
-# - Extract Item 1A (Risk Factors)
-# - Segment into risk blocks using subheadings
-# - Compare Year A vs Year B with TF-IDF cosine similarity (stable baseline)
-# - Show New / Removed / Matched risks + scores + downloadable JSON
+from __future__ import annotations
 
-import io
-import re
 import json
-from dataclasses import dataclass, asdict
-from typing import List, Tuple, Optional
+from typing import Dict, Any, List, Tuple
 
 import streamlit as st
+import pandas as pd
 
-# Optional imports (PDF parsing + HTML parsing)
-try:
-    import pdfplumber
-except Exception:
-    pdfplumber = None
+from extractors import extract_10k
+from storage import (
+    save_document,
+    load_document,
+    list_documents,
+    delete_document,
+    group_by_sector,
+    group_company_years,
+)
 
-try:
-    from bs4 import BeautifulSoup
-except Exception:
-    BeautifulSoup = None
-
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-
-
-# ----------------------------
-# UI THEME (simple but designed)
-# ----------------------------
+# -----------------------
+# UI setup + styling
+# -----------------------
 st.set_page_config(page_title="10-K Risk Evolution", page_icon="📄", layout="wide")
 
 CSS = """
 <style>
-:root { --card-bg: rgba(255,255,255,0.06); --border: rgba(255,255,255,0.10); }
-.block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
+:root { --card-bg: rgba(255,255,255,0.06); --border: rgba(255,255,255,0.12); }
+.block-container { padding-top: 1.0rem; padding-bottom: 2rem; }
 .hero {
   border: 1px solid var(--border);
   background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(16,185,129,0.12));
@@ -65,17 +53,15 @@ st.markdown(CSS, unsafe_allow_html=True)
 st.markdown(
     """
 <div class="hero">
-  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px;">
-    <div>
-      <div style="font-size:26px; font-weight:800;">📄 10-K Risk Evolution Dashboard</div>
-      <div class="small">Extract <span class="mono">Item 1A — Risk Factors</span>, segment by subheadings, and compare year-over-year changes.</div>
-      <div style="margin-top:8px;">
-        <span class="badge">MVP UI</span>
-        <span class="badge">Risk blocks</span>
-        <span class="badge">YoY matching</span>
-        <span class="badge">Download JSON</span>
-      </div>
-    </div>
+  <div style="font-size:26px; font-weight:800;">📄 10-K Risk Evolution</div>
+  <div class="small">
+    Upload a SEC 10-K (HTML recommended). Extract <span class="mono">Item 1 (Business)</span>,
+    <span class="mono">Item 1A (Risk Factors)</span> into structured JSON, and capture key financial tables.
+  </div>
+  <div style="margin-top:8px;">
+    <span class="badge">Upload → Extract → Store</span>
+    <span class="badge">Library (by Sector/Company/Year)</span>
+    <span class="badge">Compare (same company, different years)</span>
   </div>
 </div>
 """,
@@ -84,404 +70,325 @@ st.markdown(
 
 st.write("")
 
+# -----------------------
+# Sidebar navigation
+# -----------------------
+page = st.sidebar.radio("Navigation", ["1) Upload & Extract", "2) Library", "3) Compare"], index=0)
 
-# ----------------------------
-# Helpers / Data structures
-# ----------------------------
-@dataclass
-class RiskBlock:
-    title: str
-    content: str
-    source_year: str
-    idx: int
+st.sidebar.divider()
+st.sidebar.caption("Tip: HTML filings give the best extraction quality (risk blocks + tables).")
 
 
-BOILERPLATE_PATTERNS = [
-    r"forward-looking statements",
-    r"should be read in conjunction with",
-    r"not be considered to be a reliable indicator of future performance",
-    r"may be materially and adversely affected",
-    r"results of operations and financial condition",
-]
+# -----------------------
+# Helpers
+# -----------------------
+def _bytes(uploader) -> bytes:
+    return uploader.getvalue()
 
 
-def normalize_text(s: str) -> str:
-    s = s.replace("\u00a0", " ")
-    s = re.sub(r"[ \t]+", " ", s)
-    s = re.sub(r"\n{3,}", "\n\n", s)
-    return s.strip()
+def render_tables_block(fin_tables: Dict[str, Any]) -> None:
+    st.caption(fin_tables.get("note", ""))
+    for key, label in [
+        ("balance_sheet", "Balance Sheet"),
+        ("income_statement", "Income Statement"),
+        ("cash_flow", "Cash Flow Statement"),
+        ("other_tables", "Other Tables (Unclassified)"),
+    ]:
+        items = fin_tables.get(key, [])
+        with st.expander(f"{label} — {len(items)} table(s)", expanded=False):
+            if not items:
+                st.write("No tables found.")
+            for i, tjson in enumerate(items):
+                cols = tjson.get("columns", [])
+                data = tjson.get("data", [])
+                df = pd.DataFrame(data, columns=cols) if cols and data else pd.DataFrame(data)
+                st.write(f"Table {i+1} (shape={tjson.get('shape')})")
+                st.dataframe(df, use_container_width=True)
 
 
-def looks_like_boilerplate(par: str) -> bool:
-    p = par.lower()
-    return any(re.search(pat, p) for pat in BOILERPLATE_PATTERNS) or len(p) < 80
+def render_risk_blocks(risk_blocks: List[Dict[str, str]]) -> None:
+    if not risk_blocks:
+        st.warning("No risk blocks found. Try using the HTML filing.")
+        return
+    for i, b in enumerate(risk_blocks, start=1):
+        with st.expander(f"{i}. {b['title']}", expanded=False):
+            st.write(b["content"])
 
 
-def extract_text_from_pdf(file_bytes: bytes) -> str:
-    if pdfplumber is None:
-        raise RuntimeError("pdfplumber is not installed. Add it to requirements.txt to parse PDFs.")
-    text_parts = []
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text() or ""
-            if t.strip():
-                text_parts.append(t)
-    return normalize_text("\n".join(text_parts))
+# -----------------------
+# Page 1: Upload & Extract
+# -----------------------
+if page.startswith("1"):
+    st.subheader("Upload & Extract")
 
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        file = st.file_uploader("Upload a 10-K file (HTML/PDF/TXT)", type=["html", "htm", "pdf", "txt"])
+    with c2:
+        year = st.text_input("Filing Year", value="2024")
+    with c3:
+        company_name = st.text_input("Company Name (required)", value="")
 
-def html_to_text(file_bytes: bytes) -> str:
-    if BeautifulSoup is None:
-        raise RuntimeError("beautifulsoup4 is not installed. Add it to requirements.txt to parse HTML.")
-    soup = BeautifulSoup(file_bytes, "html.parser")
-    # Remove script/style
-    for tag in soup(["script", "style", "noscript"]):
-        tag.decompose()
-    text = soup.get_text("\n")
-    return normalize_text(text)
+    sector_override = st.selectbox(
+        "Sector (optional override)",
+        ["(Auto)", "Technology", "Semiconductor", "Retail", "Energy", "Utilities", "Manufacturing", "Other", "Unknown"],
+        index=0,
+    )
 
+    run = st.button("🚀 Extract & Save to Library", type="primary", use_container_width=True)
 
-def extract_item_1a_risk_section(full_text: str) -> str:
-    """
-    Extract a rough slice of Item 1A Risk Factors section using text anchors.
-    Works best for HTML -> text or well-extracted PDF text.
-    """
-    t = full_text
+    if run:
+        if not file:
+            st.error("Please upload a file.")
+            st.stop()
+        if not company_name.strip():
+            st.error("Please enter the Company Name (this is used for storage + comparison).")
+            st.stop()
 
-    # Common anchors
-    start_patterns = [
-        r"\bItem\s*1A\.*\s*Risk\s*Factors\b",
-        r"\bITEM\s*1A\.*\s*RISK\s*FACTORS\b",
-    ]
-    end_patterns = [
-        r"\bItem\s*1B\.*\s*Unresolved\s*Staff\s*Comments\b",
-        r"\bITEM\s*1B\.*\s*UNRESOLVED\s*STAFF\s*COMMENTS\b",
-        r"\bItem\s*2\.*\s*Properties\b",
-        r"\bITEM\s*2\.*\s*PROPERTIES\b",
-        r"\bPart\s*II\b",
-        r"\bPART\s*II\b",
-    ]
+        ext = file.name.split(".")[-1].lower()
+        file_bytes = _bytes(file)
 
-    start_idx = None
-    for pat in start_patterns:
-        m = re.search(pat, t, flags=re.IGNORECASE)
-        if m:
-            start_idx = m.start()
-            break
+        with st.spinner("Extracting sections & tables..."):
+            extracted = extract_10k(file_bytes, ext)
 
-    if start_idx is None:
-        # Fallback: return full text (still lets you test segmentation)
-        return t
+        sector = extracted.get("sector_inferred", "Unknown")
+        if sector_override != "(Auto)":
+            sector = sector_override
 
-    sub = t[start_idx:]
+        doc = {
+            "company_name": company_name.strip(),
+            "year": str(year).strip(),
+            "sector": sector,
+            "source_file": {"name": file.name, "type": ext},
+            "extracted": {
+                "company_background": extracted.get("company_background", ""),
+                "risk_blocks": extracted.get("risk_blocks", []),
+                "financial_tables": extracted.get("financial_tables", {}),
+                # optionally keep raw (can be large) - comment out if you prefer smaller JSON
+                "raw": {
+                    "item1_business_text": extracted.get("item1_business_text", "")[:20000],
+                    "item1a_risk_text": extracted.get("item1a_risk_text", "")[:20000],
+                },
+            },
+        }
 
-    end_idx = None
-    for pat in end_patterns:
-        m = re.search(pat, sub, flags=re.IGNORECASE)
-        if m and m.start() > 200:  # avoid matching within header lines
-            end_idx = m.start()
-            break
+        doc_id = save_document(doc)
+        st.success(f"Saved to Library ✅  doc_id = {doc_id}")
 
-    return normalize_text(sub[:end_idx] if end_idx else sub)
+        # Quick preview
+        st.divider()
+        k1, k2, k3, k4 = st.columns(4)
+        k1.markdown(f"<div class='kpi'><div class='small'>Sector</div><div style='font-size:22px;font-weight:800;'>{sector}</div></div>", unsafe_allow_html=True)
+        k2.markdown(f"<div class='kpi'><div class='small'>Risk Blocks</div><div style='font-size:22px;font-weight:800;'>{len(doc['extracted']['risk_blocks'])}</div></div>", unsafe_allow_html=True)
+        ft = doc["extracted"]["financial_tables"]
+        total_tables = sum(len(ft.get(k, [])) for k in ["balance_sheet", "income_statement", "cash_flow", "other_tables"]) if isinstance(ft, dict) else 0
+        k3.markdown(f"<div class='kpi'><div class='small'>Tables Found</div><div style='font-size:22px;font-weight:800;'>{total_tables}</div></div>", unsafe_allow_html=True)
+        bg_len = len(doc["extracted"]["company_background"] or "")
+        k4.markdown(f"<div class='kpi'><div class='small'>Background chars</div><div style='font-size:22px;font-weight:800;'>{bg_len}</div></div>", unsafe_allow_html=True)
 
+        st.subheader("Company Background (from Item 1)")
+        st.write(doc["extracted"]["company_background"] or "—")
 
-def segment_risk_blocks(risk_section_text: str, year: str) -> List[RiskBlock]:
-    """
-    Segment Risk Factors section into blocks using heuristic heading detection.
-    We treat lines that look like headings as titles and collect following paragraphs.
-    """
-    lines = [ln.strip() for ln in risk_section_text.splitlines() if ln.strip()]
-    # Remove the first "Item 1A..." header line if present
-    if lines and re.search(r"\bItem\s*1A\b", lines[0], flags=re.IGNORECASE):
-        lines = lines[1:]
+        st.subheader("Risk Factors (structured by subheadings)")
+        render_risk_blocks(doc["extracted"]["risk_blocks"])
 
-    # Heuristic: heading lines are short-ish, mostly Title Case / all caps, no ending period
-    def is_heading(line: str) -> bool:
-        if len(line) < 6 or len(line) > 140:
-            return False
-        if line.endswith("."):
-            return False
-        # Too many digits => likely table/numbered
-        if sum(ch.isdigit() for ch in line) > 4:
-            return False
-        # Looks like a category heading
-        all_caps = (line.upper() == line) and (sum(ch.isalpha() for ch in line) >= 8)
-        titleish = (sum(ch.isupper() for ch in line) >= 3) and ("  " not in line)
-        # Avoid boilerplate headers
-        if "forward-looking" in line.lower():
-            return False
-        return all_caps or titleish
+        st.subheader("Financial Statements Tables (HTML works best)")
+        render_tables_block(doc["extracted"]["financial_tables"])
 
-    blocks: List[RiskBlock] = []
-    current_title = "General"
-    current_body: List[str] = []
-
-    def flush():
-        nonlocal current_title, current_body, blocks
-        body_text = normalize_text("\n".join(current_body))
-        if body_text:
-            # remove boilerplate-y short paragraphs
-            paras = [p.strip() for p in re.split(r"\n\s*\n", body_text) if p.strip()]
-            paras = [p for p in paras if not looks_like_boilerplate(p)]
-            cleaned = normalize_text("\n\n".join(paras))
-            if cleaned:
-                blocks.append(RiskBlock(title=current_title, content=cleaned, source_year=year, idx=len(blocks)))
-
-    for ln in lines:
-        if is_heading(ln):
-            flush()
-            current_title = ln
-            current_body = []
-        else:
-            current_body.append(ln)
-
-    flush()
-
-    # If everything filtered out, at least return one block with raw (so UI still works)
-    if not blocks:
-        blocks = [RiskBlock(title="Risk Factors", content=risk_section_text[:6000], source_year=year, idx=0)]
-    return blocks
-
-
-def build_similarity_matrix(a_texts: List[str], b_texts: List[str]) -> "list[list[float]]":
-    corpus = a_texts + b_texts
-    vec = TfidfVectorizer(stop_words="english", max_features=6000, ngram_range=(1, 2))
-    X = vec.fit_transform(corpus)
-    A = X[: len(a_texts)]
-    B = X[len(a_texts) :]
-    sim = cosine_similarity(A, B)  # shape (len(a), len(b))
-    return sim
-
-
-def match_blocks(
-    blocks_a: List[RiskBlock], blocks_b: List[RiskBlock], threshold: float
-) -> Tuple[List[dict], List[RiskBlock], List[RiskBlock]]:
-    """
-    Greedy matching based on similarity; returns:
-      - matched pairs list with similarity
-      - new in B (unmatched)
-      - removed from A (unmatched)
-    """
-    a_texts = [b.title + "\n" + b.content for b in blocks_a]
-    b_texts = [b.title + "\n" + b.content for b in blocks_b]
-    sim = build_similarity_matrix(a_texts, b_texts)
-
-    used_a, used_b = set(), set()
-    pairs = []
-
-    # Flatten candidates
-    candidates = []
-    for i in range(len(blocks_a)):
-        for j in range(len(blocks_b)):
-            candidates.append((sim[i][j], i, j))
-    candidates.sort(reverse=True, key=lambda x: x[0])
-
-    for s, i, j in candidates:
-        if s < threshold:
-            break
-        if i in used_a or j in used_b:
-            continue
-        used_a.add(i)
-        used_b.add(j)
-        pairs.append(
-            {
-                "similarity": float(s),
-                "year_a": blocks_a[i].source_year,
-                "year_b": blocks_b[j].source_year,
-                "title_a": blocks_a[i].title,
-                "title_b": blocks_b[j].title,
-                "content_a": blocks_a[i].content,
-                "content_b": blocks_b[j].content,
-                "a_idx": blocks_a[i].idx,
-                "b_idx": blocks_b[j].idx,
-            }
+        st.download_button(
+            "⬇️ Download extracted JSON",
+            data=json.dumps(doc, indent=2).encode("utf-8"),
+            file_name=f"{company_name.strip()}_{year}_extracted.json",
+            mime="application/json",
+            use_container_width=True,
         )
 
-    removed = [b for b in blocks_a if b.idx not in used_a]
-    new = [b for b in blocks_b if b.idx not in used_b]
-    return pairs, new, removed
+
+# -----------------------
+# Page 2: Library
+# -----------------------
+elif page.startswith("2"):
+    st.subheader("Library (Stored Filings)")
+
+    docs = list_documents()
+    if not docs:
+        st.info("No documents yet. Go to **Upload & Extract** and save a filing.")
+        st.stop()
+
+    grouped = group_by_sector(docs)
+
+    left, right = st.columns([1, 2], gap="large")
+    with left:
+        sector = st.selectbox("Sector", sorted(grouped.keys()))
+        sector_docs = grouped[sector]
+        companies = sorted(set(d["company_name"] for d in sector_docs))
+        company = st.selectbox("Company", companies)
+
+        years = [d for d in sector_docs if d["company_name"] == company]
+        years_sorted = sorted(years, key=lambda x: x["year"])
+        year_pick = st.selectbox("Year", [d["year"] for d in years_sorted])
+
+    with right:
+        # find doc_id
+        doc_id = None
+        for d in sector_docs:
+            if d["company_name"] == company and d["year"] == year_pick:
+                doc_id = d["doc_id"]
+                break
+        if not doc_id:
+            st.error("Document not found in index.")
+            st.stop()
+
+        doc = load_document(doc_id)
+        st.markdown(f"**Selected:** {doc['company_name']} — {doc['year']}  <span class='badge'>{doc.get('sector','')}</span>", unsafe_allow_html=True)
+
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.subheader("Company Background")
+            st.write(doc["extracted"].get("company_background", "") or "—")
+        with c2:
+            st.subheader("Quick Stats")
+            rb = doc["extracted"].get("risk_blocks", [])
+            ft = doc["extracted"].get("financial_tables", {})
+            total_tables = sum(len(ft.get(k, [])) for k in ["balance_sheet", "income_statement", "cash_flow", "other_tables"]) if isinstance(ft, dict) else 0
+            st.write(f"- Risk blocks: **{len(rb)}**")
+            st.write(f"- Tables found: **{total_tables}**")
+            st.write(f"- Source: **{doc.get('source_file',{}).get('name','')}**")
+
+        st.subheader("Risk Blocks")
+        render_risk_blocks(doc["extracted"].get("risk_blocks", []))
+
+        st.subheader("Financial Tables")
+        render_tables_block(doc["extracted"].get("financial_tables", {}))
+
+        st.divider()
+        colA, colB = st.columns([1, 1])
+        with colA:
+            st.download_button(
+                "⬇️ Download JSON (this filing)",
+                data=json.dumps(doc, indent=2).encode("utf-8"),
+                file_name=f"{doc['company_name']}_{doc['year']}_stored.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+        with colB:
+            if st.button("🗑 Delete this filing", use_container_width=True):
+                delete_document(doc_id)
+                st.success("Deleted. Refresh the page.")
+                st.stop()
 
 
-def safe_decode(file) -> bytes:
-    return file.getvalue() if hasattr(file, "getvalue") else file.read()
+# -----------------------
+# Page 3: Compare (same company across years)
+# -----------------------
+else:
+    st.subheader("Compare (Same Company, Different Years)")
 
+    docs = list_documents()
+    if not docs:
+        st.info("No documents yet. Upload at least two filings for the same company.")
+        st.stop()
 
-def read_document(file, filetype: str) -> str:
-    b = safe_decode(file)
-    if filetype == "pdf":
-        return extract_text_from_pdf(b)
-    if filetype in ("html", "htm"):
-        return html_to_text(b)
-    # txt fallback
-    return normalize_text(b.decode("utf-8", errors="ignore"))
+    companies = sorted(set(d["company_name"] for d in docs))
+    company = st.selectbox("Company", companies)
 
+    company_docs = group_company_years(docs, company)
+    if len(company_docs) < 2:
+        st.warning("Need at least two years stored for this company to compare.")
+        st.stop()
 
-# ----------------------------
-# Sidebar controls
-# ----------------------------
-with st.sidebar:
-    st.header("⚙️ Controls")
+    years = [d["year"] for d in company_docs]
+    col1, col2 = st.columns(2)
+    with col1:
+        year_a = st.selectbox("Year A", years, index=0)
+    with col2:
+        year_b = st.selectbox("Year B", years, index=min(1, len(years) - 1))
 
-    company = st.text_input("Company (optional)", value="(Select / type company)")
-    year_a = st.text_input("Year A", value="2023")
-    year_b = st.text_input("Year B", value="2024")
+    threshold = st.slider("Title similarity threshold (simple baseline)", 0.30, 0.90, 0.60, 0.01)
 
-    st.divider()
-    st.subheader("Matching settings")
-    threshold = st.slider("Similarity threshold (higher = stricter)", 0.30, 0.90, 0.62, 0.01)
-    show_raw = st.toggle("Show raw extracted Item 1A text", value=False)
-    st.caption("Tip: Start around 0.60–0.70. If you get too many 'New/Removed', lower it slightly.")
+    def title_sim(a: str, b: str) -> float:
+        # simple normalized overlap baseline (replace later with embeddings)
+        a_set = set(a.lower().split())
+        b_set = set(b.lower().split())
+        if not a_set or not b_set:
+            return 0.0
+        return len(a_set & b_set) / len(a_set | b_set)
 
+    if st.button("🔎 Compare", type="primary", use_container_width=True):
+        doc_id_a = next(d["doc_id"] for d in company_docs if d["year"] == year_a)
+        doc_id_b = next(d["doc_id"] for d in company_docs if d["year"] == year_b)
+        A = load_document(doc_id_a)
+        B = load_document(doc_id_b)
 
-# ----------------------------
-# Main: Upload + Run
-# ----------------------------
-c1, c2 = st.columns(2)
-with c1:
-    st.subheader(f"📎 Upload 10-K (Year {year_a})")
-    file_a = st.file_uploader("Choose HTML/PDF/TXT", type=["html", "htm", "pdf", "txt"], key="fileA")
+        blocks_a = A["extracted"].get("risk_blocks", [])
+        blocks_b = B["extracted"].get("risk_blocks", [])
 
-with c2:
-    st.subheader(f"📎 Upload 10-K (Year {year_b})")
-    file_b = st.file_uploader("Choose HTML/PDF/TXT", type=["html", "htm", "pdf", "txt"], key="fileB")
+        # greedy match by title similarity (baseline). You can replace with TF-IDF/embeddings later.
+        used_b = set()
+        matched = []
+        removed = []
+        for i, ba in enumerate(blocks_a):
+            best = (-1.0, None)
+            for j, bb in enumerate(blocks_b):
+                if j in used_b:
+                    continue
+                s = title_sim(ba["title"], bb["title"])
+                if s > best[0]:
+                    best = (s, j)
+            if best[1] is not None and best[0] >= threshold:
+                j = best[1]
+                used_b.add(j)
+                matched.append({"sim": best[0], "a": ba, "b": blocks_b[j]})
+            else:
+                removed.append(ba)
 
-run = st.button("🚀 Run Extraction & Comparison", type="primary", use_container_width=True)
+        new_blocks = [bb for j, bb in enumerate(blocks_b) if j not in used_b]
 
-if "results" not in st.session_state:
-    st.session_state.results = None
+        # KPIs
+        k1, k2, k3, k4 = st.columns(4)
+        k1.markdown(f"<div class='kpi'><div class='small'>Risk blocks {year_a}</div><div style='font-size:22px;font-weight:800;'>{len(blocks_a)}</div></div>", unsafe_allow_html=True)
+        k2.markdown(f"<div class='kpi'><div class='small'>Risk blocks {year_b}</div><div style='font-size:22px;font-weight:800;'>{len(blocks_b)}</div></div>", unsafe_allow_html=True)
+        k3.markdown(f"<div class='kpi'><div class='small'>Matched</div><div style='font-size:22px;font-weight:800;'>{len(matched)}</div></div>", unsafe_allow_html=True)
+        k4.markdown(f"<div class='kpi'><div class='small'>New / Removed</div><div style='font-size:22px;font-weight:800;'>{len(new_blocks)} / {len(removed)}</div></div>", unsafe_allow_html=True)
 
-if run:
-    if not file_a or not file_b:
-        st.error("Please upload BOTH Year A and Year B files.")
-    else:
-        try:
-            text_a = read_document(file_a, file_a.name.split(".")[-1].lower())
-            text_b = read_document(file_b, file_b.name.split(".")[-1].lower())
+        tab1, tab2, tab3, tab4 = st.tabs(["✅ Matched", "🆕 New", "🗑 Removed", "⬇️ Export"])
+        with tab1:
+            if not matched:
+                st.warning("No matches. Lower the threshold or check risk titles in both years.")
+            else:
+                for m in sorted(matched, key=lambda x: x["sim"], reverse=True):
+                    st.markdown(f"**Title similarity:** `{m['sim']:.2f}`")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown(f"**{year_a} — {m['a']['title']}**")
+                        st.write(m["a"]["content"])
+                    with c2:
+                        st.markdown(f"**{year_b} — {m['b']['title']}**")
+                        st.write(m["b"]["content"])
+                    st.markdown("<hr/>", unsafe_allow_html=True)
 
-            item1a_a = extract_item_1a_risk_section(text_a)
-            item1a_b = extract_item_1a_risk_section(text_b)
+        with tab2:
+            if not new_blocks:
+                st.success("No new blocks detected at this threshold.")
+            else:
+                for b in new_blocks:
+                    with st.expander(f"NEW — {b['title']}", expanded=False):
+                        st.write(b["content"])
 
-            blocks_a = segment_risk_blocks(item1a_a, year_a)
-            blocks_b = segment_risk_blocks(item1a_b, year_b)
+        with tab3:
+            if not removed:
+                st.success("No removed blocks detected at this threshold.")
+            else:
+                for b in removed:
+                    with st.expander(f"REMOVED — {b['title']}", expanded=False):
+                        st.write(b["content"])
 
-            pairs, new_blocks, removed_blocks = match_blocks(blocks_a, blocks_b, threshold=threshold)
-
-            st.session_state.results = {
+        with tab4:
+            payload = {
                 "company": company,
                 "year_a": year_a,
                 "year_b": year_b,
                 "threshold": threshold,
-                "count_a": len(blocks_a),
-                "count_b": len(blocks_b),
-                "matched": pairs,
-                "new_in_b": [asdict(b) for b in new_blocks],
-                "removed_in_a": [asdict(b) for b in removed_blocks],
-                "blocks_a": [asdict(b) for b in blocks_a],
-                "blocks_b": [asdict(b) for b in blocks_b],
-                "raw_item1a_a": item1a_a if show_raw else None,
-                "raw_item1a_b": item1a_b if show_raw else None,
-            }
-            st.success("Done. Scroll down to view results.")
-        except Exception as e:
-            st.error(f"Failed to process files: {e}")
-
-# ----------------------------
-# Results section
-# ----------------------------
-res = st.session_state.results
-if res is None:
-    st.info("Upload two 10-K files and click **Run Extraction & Comparison**.")
-    st.stop()
-
-# KPIs
-k1, k2, k3, k4 = st.columns(4)
-with k1:
-    st.markdown(f"<div class='kpi'><div class='small'>Risk blocks (Year {res['year_a']})</div><div style='font-size:24px;font-weight:800;'>{res['count_a']}</div></div>", unsafe_allow_html=True)
-with k2:
-    st.markdown(f"<div class='kpi'><div class='small'>Risk blocks (Year {res['year_b']})</div><div style='font-size:24px;font-weight:800;'>{res['count_b']}</div></div>", unsafe_allow_html=True)
-with k3:
-    st.markdown(f"<div class='kpi'><div class='small'>Matched blocks</div><div style='font-size:24px;font-weight:800;'>{len(res['matched'])}</div></div>", unsafe_allow_html=True)
-with k4:
-    st.markdown(f"<div class='kpi'><div class='small'>New / Removed</div><div style='font-size:24px;font-weight:800;'>{len(res['new_in_b'])} / {len(res['removed_in_a'])}</div></div>", unsafe_allow_html=True)
-
-st.write("")
-tab1, tab2, tab3, tab4 = st.tabs(["✅ Matched", "🆕 New in Year B", "🗑 Removed from Year A", "⬇️ Export"])
-
-# Matched
-with tab1:
-    if not res["matched"]:
-        st.warning("No matched blocks at the current threshold. Try lowering the similarity threshold.")
-    else:
-        st.caption("Matched risk blocks based on TF-IDF cosine similarity (title + content).")
-        for p in sorted(res["matched"], key=lambda x: x["similarity"], reverse=True):
-            st.markdown(f"**Similarity:** `{p['similarity']:.3f}`")
-            cL, cR = st.columns(2)
-            with cL:
-                st.markdown(f"**{res['year_a']} — {p['title_a']}**")
-                st.write(p["content_a"])
-            with cR:
-                st.markdown(f"**{res['year_b']} — {p['title_b']}**")
-                st.write(p["content_b"])
-            st.markdown("<hr/>", unsafe_allow_html=True)
-
-# New in B
-with tab2:
-    if not res["new_in_b"]:
-        st.success("No new risk blocks detected in Year B at this threshold.")
-    else:
-        st.caption("Blocks in Year B that did not match any Year A block above threshold.")
-        for b in res["new_in_b"]:
-            st.markdown(f"**{res['year_b']} — {b['title']}**  <span class='badge'>NEW</span>", unsafe_allow_html=True)
-            st.write(b["content"])
-            st.markdown("<hr/>", unsafe_allow_html=True)
-
-# Removed
-with tab3:
-    if not res["removed_in_a"]:
-        st.success("No removed risk blocks detected from Year A at this threshold.")
-    else:
-        st.caption("Blocks in Year A that did not match any Year B block above threshold.")
-        for b in res["removed_in_a"]:
-            st.markdown(f"**{res['year_a']} — {b['title']}**  <span class='badge'>REMOVED</span>", unsafe_allow_html=True)
-            st.write(b["content"])
-            st.markdown("<hr/>", unsafe_allow_html=True)
-
-# Export
-with tab4:
-    st.caption("Download structured outputs for your report / next pipeline steps.")
-    payload = {
-        "company": res["company"],
-        "year_a": res["year_a"],
-        "year_b": res["year_b"],
-        "threshold": res["threshold"],
-        "summary": {
-            "count_a": res["count_a"],
-            "count_b": res["count_b"],
-            "matched": len(res["matched"]),
-            "new_in_b": len(res["new_in_b"]),
-            "removed_in_a": len(res["removed_in_a"]),
-        },
-        "matched": res["matched"],
-        "new_in_b": res["new_in_b"],
-        "removed_in_a": res["removed_in_a"],
-    }
-    st.download_button(
-        "⬇️ Download comparison JSON",
-        data=json.dumps(payload, indent=2).encode("utf-8"),
-        file_name=f"risk_comparison_{res['year_a']}_vs_{res['year_b']}.json",
-        mime="application/json",
-        use_container_width=True,
-    )
-
-    with st.expander("Preview JSON"):
-        st.code(json.dumps(payload, indent=2), language="json")
-
-if res.get("raw_item1a_a") or res.get("raw_item1a_b"):
-    st.write("")
-    st.subheader("Raw extracted Item 1A (optional)")
-    ra, rb = st.columns(2)
-    with ra:
-        st.markdown(f"**Year {res['year_a']} raw Item 1A**")
-        st.text_area(" ", value=res.get("raw_item1a_a") or "", height=260)
-    with rb:
-        st.markdown(f"**Year {res['year_b']} raw Item 1A**")
-        st.text_area("  ", value=res.get("raw_item1a_b") or "", height=260)
+                "matched_count": len(matched),
+                "new_count": len(new_blocks),
+                "removed_count": len(removed)_
