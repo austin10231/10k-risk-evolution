@@ -97,6 +97,48 @@ div[data-baseweb="tab-list"]{ gap: 8px !important; }
 
 /* code blocks */
 pre, code { border-radius: 12px !important; }
+
+/* --- Fix washed-out text on light background --- */
+
+/* General text */
+.stApp, .stApp * {
+  color: #111827;
+}
+
+/* Tabs text */
+button[data-baseweb="tab"] * {
+  color: #111827 !important;
+}
+
+/* Expander header text */
+div[data-testid="stExpander"] summary,
+div[data-testid="stExpander"] summary * {
+  color: #111827 !important;
+}
+
+/* Metric labels + values */
+div[data-testid="stMetricLabel"],
+div[data-testid="stMetricValue"],
+div[data-testid="stMetricDelta"] {
+  color: #111827 !important;
+}
+
+/* Selectbox / input text */
+div[data-baseweb="select"] * ,
+input, textarea {
+  color: #111827 !important;
+}
+
+/* Caption / secondary text */
+small, .small, .stCaption, div[data-testid="stCaptionContainer"] * {
+  color: #4b5563 !important;
+}
+
+/* Code block text already OK, but ensure visible */
+pre, code {
+  color: #111827 !important;
+}
+
 </style>
 """
 st.markdown(LIGHT_CSS, unsafe_allow_html=True)
