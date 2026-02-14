@@ -383,6 +383,7 @@ else:
                     with st.expander(f"REMOVED — {b['title']}", expanded=False):
                         st.write(b["content"])
 
+       
         with tab4:
             payload = {
                 "company": company,
@@ -391,4 +392,16 @@ else:
                 "threshold": threshold,
                 "matched_count": len(matched),
                 "new_count": len(new_blocks),
-                "removed_count": len(removed)_
+                "removed_count": len(removed),
+                "matched": matched,
+                "new": new_blocks,
+                "removed": removed,
+            }
+            st.download_button(
+                "⬇️ Download comparison JSON",
+                data=json.dumps(payload, indent=2).encode("utf-8"),
+                file_name=f"{company}_{year_a}_vs_{year_b}_compare.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+            st.code(json.dumps(payload, indent=2), language="json")
