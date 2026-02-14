@@ -1,12 +1,12 @@
 import streamlit as st
-from services.storage import (
+from functions.storage import (
     ensure_storage, upsert_record_and_save_files,
     list_records, load_report_json, get_record_by_id
 )
-from services.extract_item1a import extract_item_1a_text
-from services.risk_blocks import build_risk_blocks
-from services.exporter import build_report_payload
-from ui.components import info_kv_card, risk_blocks_list, json_viewer, download_json_button
+from functions.extract_item1a import extract_item_1a_text
+from functions.risk_blocks import build_risk_blocks
+from functions.exporter import build_report_payload
+from UI.components import info_kv_card, risk_blocks_list, json_viewer, download_json_button
 
 INDUSTRY_OPTIONS = [
     "Technology - Consumer Electronics",
