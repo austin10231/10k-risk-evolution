@@ -1,7 +1,7 @@
 import streamlit as st
-from ui.page_analyze import render_analyze_page
-from ui.page_compare import render_compare_page
-from ui.components import render_header, render_sidebar_nav
+from UI.page_analyze import render_analyze_page
+from UI.page_compare import render_compare_page
+from UI.components import render_header, render_sidebar_nav
 
 st.set_page_config(page_title="Risk Change Alert", layout="wide")
 
