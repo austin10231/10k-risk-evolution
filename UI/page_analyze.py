@@ -58,7 +58,11 @@ def render_analyze_page():
                 info_kv_card("Company Overview", report.get("company_overview", {}))
                 risk_blocks_list(report.get("risk_blocks", []))
                 json_viewer(report, title="Full JSON")
-                download_json_button(report, filename=f'{chosen["company"]}-{chosen["year"]}-{chosen["filing_type"]}.json')
+                download_json_button(
+                    report,
+                    filename=f'{chosen["company"]}-{chosen["year"]}-{chosen["filing_type"]}.json',
+                    key=f"library-{chosen['record_id']}"
+                )
 
     st.divider()
 
