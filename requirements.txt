@@ -1,8 +1,3 @@
-streamlit
-pandas
-numpy
-beautifulsoup4
-lxml
-scikit-learn
-pdfplumber
-pypdfium2
+streamlit>=1.30.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
