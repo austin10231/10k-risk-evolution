@@ -139,6 +139,51 @@ pre, code {
   color: #111827 !important;
 }
 
+/* --- Fix dark form controls on light theme --- */
+
+/* Text input / number input / textarea */
+div[data-testid="stTextInput"] input,
+div[data-testid="stNumberInput"] input,
+div[data-testid="stTextArea"] textarea {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid #e5e7eb !important;
+}
+
+/* Selectbox + Multiselect (BaseWeb) */
+div[data-baseweb="select"] > div {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+}
+div[data-baseweb="select"] * {
+  color: #111827 !important;
+}
+
+/* The dropdown menu */
+ul[role="listbox"] {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+}
+ul[role="listbox"] * {
+  color: #111827 !important;
+}
+
+/* File uploader */
+div[data-testid="stFileUploader"] section {
+  background: #ffffff !important;
+  border: 1px dashed #d1d5db !important;
+}
+div[data-testid="stFileUploader"] * {
+  color: #111827 !important;
+}
+
+/* Buttons on light background */
+.stButton>button {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  border: 0 !important;
+}
+
 </style>
 """
 st.markdown(LIGHT_CSS, unsafe_allow_html=True)
