@@ -1,4 +1,4 @@
-"""Compare page — NEW / REMOVED risk diff by sub-risk title matching."""
+"""Compare page — NEW / REMOVED risk diff by fuzzy title matching."""
 
 import streamlit as st
 import json
@@ -57,6 +57,9 @@ def render():
         st.error(f"Cannot load {company} {latest_year}.")
         return
 
+    # ── Per prior year ────────────────────────────────────────────────────────
+    all_comparisons = []
+
     for py in sorted(prior_years, reverse=True):
         prior_rec = find_rec(py)
         prior_res = get_result(prior_rec["record_id"]) if prior_rec else None
@@ -85,16 +88,7 @@ def render():
         }
 
         st.json(export)
-
-        # ── Save to S3 ───────────────────────────────────────────────
-        s3_key = save_compare_result(
-            company=company,
-            filing_type=ftype,
-            latest_year=latest_year,
-            prior_years=[py],
-            compare_json=export,
-        )
-        st.caption(f"Saved to S3: `{s3_key}`")
+        all_comparisons.append(export)
 
         st.download_button(
             "⬇️ Download Compare JSON",
@@ -103,3 +97,22 @@ def render():
             mime="application/json",
             key=f"dl_cmp_{latest_year}_{py}_{company}",
         )
+
+    # ── Save combined result to S3 ────────────────────────────────────────
+    if all_comparisons:
+        combined = {
+            "company": company,
+            "filing_type": ftype,
+            "latest_year": latest_year,
+            "prior_years": sorted(prior_years, reverse=True),
+            "comparisons": all_comparisons,
+        }
+        s3_key = save_compare_result(
+            company=company,
+            filing_type=ftype,
+            latest_year=latest_year,
+            prior_years=sorted(prior_years, reverse=True),
+            compare_json=combined,
+        )
+        st.divider()
+        st.success(f"Compare result saved to S3: `{s3_key}`")
