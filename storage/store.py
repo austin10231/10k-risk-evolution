@@ -5,6 +5,7 @@ Layout in S3 bucket:
   index.json
   html/{record_id}.html
   results/{record_id}.json
+  compares/{company}_{latest}_vs_{priors}_{ftype}_{id}.json
 """
 
 import json
@@ -32,8 +33,6 @@ def _s3_read(key: str) -> bytes | None:
     try:
         obj = _get_s3().get_object(Bucket=BUCKET, Key=key)
         return obj["Body"].read()
-    except _get_s3().exceptions.NoSuchKey:
-        return None
     except Exception as e:
         if "NoSuchKey" in str(e) or "404" in str(e):
             return None
@@ -79,7 +78,6 @@ def add_record(
     html_bytes: bytes,
     result_json: dict,
 ) -> str:
-    # Build readable ID: Apple_2024_10-K_a3f1
     safe_company = re.sub(r"[^\w]", "", company.replace(" ", "_"))
     short_id = uuid.uuid4().hex[:4]
     rid = f"{safe_company}_{year}_{filing_type}_{short_id}"
