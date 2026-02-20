@@ -3,7 +3,7 @@
 import streamlit as st
 import json
 
-from storage.store import load_index, get_result
+from storage.store import load_index, get_result, save_compare_result
 from core.comparator import compare_risks
 
 
@@ -85,6 +85,16 @@ def render():
         }
 
         st.json(export)
+
+        # ── Save to S3 ───────────────────────────────────────────────
+        s3_key = save_compare_result(
+            company=company,
+            filing_type=ftype,
+            latest_year=latest_year,
+            prior_years=[py],
+            compare_json=export,
+        )
+        st.caption(f"Saved to S3: `{s3_key}`")
 
         st.download_button(
             "⬇️ Download Compare JSON",
