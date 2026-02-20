@@ -1,39 +1,74 @@
 """
-Local JSON-file persistence layer.
+S3-based persistence layer.
 
-Layout:
-  data/
-    index.json
-    html/{record_id}.html
-    results/{record_id}.json
+Layout in S3 bucket:
+  index.json
+  html/{record_id}.html
+  results/{record_id}.json
 """
 
 import json
 import uuid
-from pathlib import Path
+import streamlit as st
+import boto3
 from datetime import datetime
 
-DATA_DIR = Path("data")
-HTML_DIR = DATA_DIR / "html"
-RESULTS_DIR = DATA_DIR / "results"
-INDEX_FILE = DATA_DIR / "index.json"
+# ── S3 client ─────────────────────────────────────────────────────────────────
+
+def _get_s3():
+    return boto3.client(
+        "s3",
+        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+        region_name=st.secrets["AWS_REGION"],
+    )
+
+BUCKET = st.secrets["S3_BUCKET"]
 
 
-def _init():
-    HTML_DIR.mkdir(parents=True, exist_ok=True)
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    if not INDEX_FILE.exists():
-        INDEX_FILE.write_text("[]")
+def _s3_read(key: str) -> bytes | None:
+    """Read a file from S3. Returns None if not found."""
+    try:
+        obj = _get_s3().get_object(Bucket=BUCKET, Key=key)
+        return obj["Body"].read()
+    except _get_s3().exceptions.NoSuchKey:
+        return None
+    except Exception as e:
+        if "NoSuchKey" in str(e) or "404" in str(e):
+            return None
+        raise
 
+
+def _s3_write(key: str, data: bytes):
+    """Write bytes to S3."""
+    _get_s3().put_object(Bucket=BUCKET, Key=key, Body=data)
+
+
+def _s3_delete(key: str):
+    """Delete a file from S3."""
+    try:
+        _get_s3().delete_object(Bucket=BUCKET, Key=key)
+    except Exception:
+        pass
+
+
+# ── Index operations ──────────────────────────────────────────────────────────
 
 def load_index() -> list[dict]:
-    _init()
-    return json.loads(INDEX_FILE.read_text())
+    data = _s3_read("index.json")
+    if data is None:
+        return []
+    return json.loads(data.decode("utf-8"))
 
 
 def _save_index(index: list[dict]):
-    INDEX_FILE.write_text(json.dumps(index, indent=2, default=str))
+    _s3_write(
+        "index.json",
+        json.dumps(index, indent=2, default=str).encode("utf-8"),
+    )
 
+
+# ── CRUD ──────────────────────────────────────────────────────────────────────
 
 def add_record(
     company: str,
@@ -43,12 +78,14 @@ def add_record(
     html_bytes: bytes,
     result_json: dict,
 ) -> str:
-    _init()
     rid = uuid.uuid4().hex[:10]
-    (HTML_DIR / f"{rid}.html").write_bytes(html_bytes)
-    (RESULTS_DIR / f"{rid}.json").write_text(
-        json.dumps(result_json, indent=2, default=str, ensure_ascii=False)
+
+    _s3_write(f"html/{rid}.html", html_bytes)
+    _s3_write(
+        f"results/{rid}.json",
+        json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
     )
+
     index = load_index()
     index.append({
         "record_id": rid,
@@ -63,32 +100,23 @@ def add_record(
 
 
 def get_result(record_id: str) -> dict | None:
-    path = RESULTS_DIR / f"{record_id}.json"
-    if path.exists():
-        return json.loads(path.read_text())
-    return None
+    data = _s3_read(f"results/{record_id}.json")
+    if data is None:
+        return None
+    return json.loads(data.decode("utf-8"))
 
 
 def get_html(record_id: str) -> bytes | None:
-    path = HTML_DIR / f"{record_id}.html"
-    if path.exists():
-        return path.read_bytes()
-    return None
+    return _s3_read(f"html/{record_id}.html")
 
 
 def delete_record(record_id: str):
-    """Remove a record from the index and delete its files."""
-    _init()
+    """Remove a record from the index and delete its files from S3."""
     index = load_index()
     index = [r for r in index if r["record_id"] != record_id]
     _save_index(index)
-
-    html_path = HTML_DIR / f"{record_id}.html"
-    result_path = RESULTS_DIR / f"{record_id}.json"
-    if html_path.exists():
-        html_path.unlink()
-    if result_path.exists():
-        result_path.unlink()
+    _s3_delete(f"html/{record_id}.html")
+    _s3_delete(f"results/{record_id}.json")
 
 
 def filter_records(
