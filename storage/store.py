@@ -8,6 +8,7 @@ Layout in S3 bucket:
 """
 
 import json
+import re
 import uuid
 import streamlit as st
 import boto3
@@ -78,7 +79,10 @@ def add_record(
     html_bytes: bytes,
     result_json: dict,
 ) -> str:
-    rid = uuid.uuid4().hex[:10]
+    # Build readable ID: Apple_2024_10-K_a3f1
+    safe_company = re.sub(r"[^\w]", "", company.replace(" ", "_"))
+    short_id = uuid.uuid4().hex[:4]
+    rid = f"{safe_company}_{year}_{filing_type}_{short_id}"
 
     _s3_write(f"html/{rid}.html", html_bytes)
     _s3_write(
