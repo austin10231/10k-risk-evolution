@@ -123,6 +123,27 @@ def delete_record(record_id: str):
     _s3_delete(f"results/{record_id}.json")
 
 
+def save_compare_result(
+    company: str,
+    filing_type: str,
+    latest_year: int,
+    prior_years: list[int],
+    compare_json: dict,
+) -> str:
+    """Save a compare result to S3. Returns the file key."""
+    safe_company = re.sub(r"[^\w]", "", company.replace(" ", "_"))
+    prior_str = "&".join(str(y) for y in sorted(prior_years, reverse=True))
+    short_id = uuid.uuid4().hex[:4]
+    safe_ftype = re.sub(r"[^\w\-]", "", filing_type)
+    key = f"compares/{safe_company}_{latest_year}_vs_{prior_str}_{safe_ftype}_{short_id}.json"
+
+    _s3_write(
+        key,
+        json.dumps(compare_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
+    )
+    return key
+
+
 def filter_records(
     industry=None, company=None, year=None, filing_type=None,
 ) -> list[dict]:
