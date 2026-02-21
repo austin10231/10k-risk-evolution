@@ -130,11 +130,14 @@ def render():
             **classified,
         }
 
+        csv_data = _classified_to_csv(classified)
+
         s3_key = save_table_result(
             company=company.strip(),
             year=int(year),
             filing_type=filing_type,
             table_json=result,
+            csv_string=csv_data,
         )
 
         st.session_state["last_table_result"] = result
