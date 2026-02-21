@@ -1,4 +1,4 @@
-"""Tables page — Extract financial tables from PDF using AWS Textract."""
+"""Tables page — Extract & classify financial tables from PDF via Textract."""
 
 import streamlit as st
 import json
@@ -14,27 +14,44 @@ INDUSTRIES = [
     "Materials", "Utilities", "Real Estate", "Telecom", "Other",
 ]
 
+CATEGORY_LABELS = {
+    "income_statement": "📈 Income Statement / Statement of Operations",
+    "balance_sheet": "📊 Balance Sheet / Financial Position",
+    "cash_flow": "💰 Cash Flow Statement",
+    "shareholders_equity": "🏦 Shareholders' Equity",
+    "segment_revenue": "🌍 Segment Revenue / Information",
+    "debt_maturity": "📅 Debt Maturity / Contractual Obligations",
+}
 
-def _tables_to_csv(tables: list[dict]) -> str:
-    """Convert all tables to a single CSV string."""
+
+def _classified_to_csv(classified: dict) -> str:
+    """Convert classified tables to CSV."""
     output = io.StringIO()
     writer = csv.writer(output)
 
-    for t in tables:
-        # Write table title as header row
-        tbl_title = t.get("title", f"Table {t.get('table_index', 0)}")
-        writer.writerow([f"=== {tbl_title} ==="])
-        for row in t.get("rows", []):
-            writer.writerow(row)
-        writer.writerow([])  # blank row between tables
+    for cat_key, label in CATEGORY_LABELS.items():
+        cat_data = classified.get(cat_key, {})
+        if not cat_data.get("found"):
+            continue
+
+        for tbl in cat_data.get("tables", []):
+            writer.writerow([f"=== {label} ==="])
+            writer.writerow([f"Page: {tbl.get('page', '?')} | Confidence: {tbl.get('confidence', 0):.1%}"])
+            for row in tbl.get("rows", []):
+                writer.writerow(row)
+            writer.writerow([])
 
     return output.getvalue()
 
 
+def _count_found(classified: dict) -> int:
+    return sum(1 for v in classified.values() if isinstance(v, dict) and v.get("found"))
+
+
 def render():
     st.markdown(
-        "Upload a **10-K PDF** to extract financial statement tables "
-        "using AWS Textract. Only PDF files are supported for table extraction."
+        "Upload a **10-K PDF** to extract core financial statement tables "
+        "using AWS Textract. Tables are automatically classified into 6 categories."
     )
 
     col_input, col_output = st.columns([2, 3])
@@ -42,9 +59,7 @@ def render():
     with col_input:
         st.markdown("##### Inputs")
         uploaded = st.file_uploader(
-            "Upload 10-K PDF",
-            type=["pdf"],
-            key="tbl_upload",
+            "Upload 10-K PDF", type=["pdf"], key="tbl_upload",
         )
         year = st.selectbox(
             "Filing Year", list(range(2025, 2009, -1)), key="tbl_year",
@@ -54,14 +69,14 @@ def render():
         filing_type = st.selectbox(
             "Filing Type", ["10-K", "10-Q (coming soon)"], key="tbl_ftype",
         )
-
         run = st.button(
             "📊 Extract Tables", type="primary",
             key="btn_extract_tables", use_container_width=True,
         )
         st.caption(
-            "Textract identifies tables in the PDF and returns them as "
-            "structured rows and columns. This may take 1-2 minutes for large filings."
+            "Textract extracts all tables, then classifies them into: "
+            "Income Statement, Balance Sheet, Cash Flows, "
+            "Shareholders' Equity, Segment Revenue, Debt Maturity."
         )
 
     with col_output:
@@ -84,11 +99,12 @@ def render():
 
         pdf_bytes = uploaded.read()
 
-        with st.spinner("Extracting tables via AWS Textract (this may take 1-2 minutes) …"):
-            tables = extract_tables_from_pdf(pdf_bytes)
+        with st.spinner("Extracting & classifying tables via AWS Textract (1-2 minutes) …"):
+            classified = extract_tables_from_pdf(pdf_bytes)
 
-        if not tables:
-            st.error("No tables found in this PDF.")
+        found_count = _count_found(classified)
+        if found_count == 0:
+            st.error("No core financial tables could be identified in this PDF.")
             return
 
         result = {
@@ -96,8 +112,8 @@ def render():
             "industry": industry,
             "year": int(year),
             "filing_type": filing_type,
-            "total_tables": len(tables),
-            "tables": tables,
+            "tables_found": found_count,
+            **classified,
         }
 
         s3_key = save_table_result(
@@ -113,15 +129,21 @@ def render():
 
 
 def _show_table_output(result: dict, key: str):
-    """Display extracted tables with download options."""
-    tables = result.get("tables", [])
+    """Display classified tables."""
+    found = result.get("tables_found", 0)
 
     st.markdown(
         f"**{result.get('company', '—')}** · {result.get('year', '—')} · "
-        f"**{len(tables)}** tables extracted"
+        f"**{found}/6** financial tables identified"
     )
 
     # ── Download buttons ──────────────────────────────────────────────
+    # Build classified-only dict for downloads
+    classified_only = {
+        cat: result.get(cat, {"found": False, "tables": []})
+        for cat in CATEGORY_LABELS
+    }
+
     dl1, dl2 = st.columns(2)
     with dl1:
         st.download_button(
@@ -133,7 +155,7 @@ def _show_table_output(result: dict, key: str):
             use_container_width=True,
         )
     with dl2:
-        csv_data = _tables_to_csv(tables)
+        csv_data = _classified_to_csv(classified_only)
         st.download_button(
             "📥 Download CSV",
             data=csv_data,
@@ -143,26 +165,38 @@ def _show_table_output(result: dict, key: str):
             use_container_width=True,
         )
 
-    # ── Display each table ────────────────────────────────────────────
-    for t in tables:
-        title = t.get("title", f"Table {t.get('table_index', '?')}")
-        rows = t.get("rows", [])
+    # ── Display each category ─────────────────────────────────────────
+    for cat_key, label in CATEGORY_LABELS.items():
+        cat_data = result.get(cat_key, {})
+        found = cat_data.get("found", False)
 
-        with st.expander(f"📋 {title} ({len(rows)} rows)", expanded=False):
-            if rows:
-                # Show as dataframe for nice formatting
-                try:
-                    if len(rows) > 1:
-                        st.dataframe(
-                            data=[dict(zip(rows[0], r)) for r in rows[1:]],
-                            use_container_width=True,
-                        )
-                    else:
+        if found:
+            tables = cat_data.get("tables", [])
+            for ti, tbl in enumerate(tables):
+                conf = tbl.get("confidence", 0)
+                title = tbl.get("title", label)
+                rows = tbl.get("rows", [])
+                conf_pct = f"{conf:.0%}"
+
+                with st.expander(
+                    f"✅ {label} — {conf_pct} confidence ({len(rows)} rows)",
+                    expanded=False,
+                ):
+                    if rows and len(rows) > 1:
+                        try:
+                            headers = rows[0]
+                            data_rows = rows[1:]
+                            st.dataframe(
+                                data=[dict(zip(headers, r)) for r in data_rows],
+                                use_container_width=True,
+                            )
+                        except Exception:
+                            st.table(rows)
+                    elif rows:
                         st.table(rows)
-                except Exception:
-                    # Fallback: show as raw table
-                    st.table(rows)
+        else:
+            st.markdown(f"❌ {label} — *not found*")
 
-    # ── Full JSON preview ─────────────────────────────────────────────
+    # ── Full JSON ─────────────────────────────────────────────────────
     with st.expander("📄 Full JSON Preview", expanded=False):
         st.json(result)
