@@ -11,7 +11,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# ── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown(
     """
     <style>
@@ -22,8 +21,7 @@ st.markdown(
         background:#fff; border:1px solid #e0e3e8; border-radius:10px;
         padding:1.2rem 1.4rem; margin-bottom:1rem; color:#1f2937;
     }
-    .card h4 { color:#111827; }
-    .card p  { color:#374151; }
+    .card h4 { color:#111827; } .card p { color:#374151; }
     [data-testid="stMetricLabel"]  { font-size:.82rem; color:#6b7280!important; }
     [data-testid="stMetricValue"]  { color:#111827!important; }
     .stDownloadButton>button {
@@ -38,10 +36,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Top-bar navigation via st.tabs ──────────────────────────────────────────
 st.markdown("### 🛡️ Risk Change Alert Report")
 
-tab_home, tab_analyze, tab_compare = st.tabs(["🏠 Home", "🔍 Analyze", "⚖️ Compare"])
+tab_home, tab_analyze, tab_compare, tab_tables = st.tabs(
+    ["🏠 Home", "🔍 Analyze", "⚖️ Compare", "📊 Tables"]
+)
 
 with tab_home:
     from views.home import render as render_home
@@ -54,3 +53,7 @@ with tab_analyze:
 with tab_compare:
     from views.compare import render as render_compare
     render_compare()
+
+with tab_tables:
+    from views.tables import render as render_tables
+    render_tables()
