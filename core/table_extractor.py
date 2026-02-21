@@ -1,19 +1,12 @@
 """
-Extract and classify financial tables from PDF using AWS Textract.
+Extract 5 core financial tables from 10-K PDF using AWS Textract.
 
-Two-phase approach:
-  Phase 1: Extract ALL tables via Textract StartDocumentAnalysis(TABLES)
-  Phase 2: Classify & filter into 6 core financial statement categories
-
-Output format:
-{
-  "income_statement":      { "found": bool, "tables": [...] },
-  "balance_sheet":         { "found": bool, "tables": [...] },
-  "cash_flow":             { "found": bool, "tables": [...] },
-  "shareholders_equity":   { "found": bool, "tables": [...] },
-  "segment_revenue":       { "found": bool, "tables": [...] },
-  "debt_maturity":         { "found": bool, "tables": [...] },
-}
+Tables extracted:
+  1. Consolidated Statements of Operations (Income Statement)
+  2. Consolidated Statements of Comprehensive Income
+  3. Consolidated Balance Sheets
+  4. Consolidated Statements of Shareholders' Equity
+  5. Consolidated Statements of Cash Flows
 """
 
 import time
@@ -24,140 +17,114 @@ import boto3
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  CLASSIFICATION KEYWORD DICTIONARIES
+#  5 TABLE CATEGORIES — keyword dictionaries for matching
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Each category: list of (keyword_group, weight)
-# Higher weight = stronger signal. Final score = sum of matched weights.
-
-CATEGORY_KEYWORDS = {
-    "income_statement": [
-        # Primary identifiers
-        ("statement of operations", 5.0),
-        ("statements of operations", 5.0),
-        ("income statement", 5.0),
-        ("statements of income", 5.0),
-        ("statement of income", 5.0),
-        ("statement of earnings", 5.0),
-        ("results of operations", 4.0),
-        ("profit and loss", 4.0),
-        # Column/row keywords (secondary)
-        ("net sales", 2.0),
-        ("net revenue", 2.0),
-        ("total net sales", 2.0),
-        ("cost of sales", 2.0),
-        ("cost of goods sold", 2.0),
-        ("gross margin", 2.0),
-        ("gross profit", 2.0),
-        ("operating income", 1.5),
-        ("operating expenses", 1.5),
-        ("earnings per share", 2.0),
-        ("diluted earnings", 1.5),
-        ("income tax", 1.0),
-        ("net income", 1.5),
-        ("income before", 1.0),
-    ],
-    "balance_sheet": [
-        ("balance sheet", 5.0),
-        ("balance sheets", 5.0),
-        ("statement of financial position", 5.0),
-        ("statements of financial position", 5.0),
-        ("financial position", 4.0),
-        # Row keywords
-        ("total assets", 3.0),
-        ("total liabilities", 3.0),
-        ("current assets", 2.0),
-        ("current liabilities", 2.0),
-        ("stockholders equity", 2.5),
-        ("shareholders equity", 2.5),
-        ("accounts receivable", 1.5),
-        ("accounts payable", 1.5),
-        ("retained earnings", 1.5),
-        ("goodwill", 1.0),
-        ("total equity", 2.0),
-        ("property plant and equipment", 1.5),
-    ],
-    "cash_flow": [
-        ("statement of cash flows", 5.0),
-        ("statements of cash flows", 5.0),
-        ("cash flow statement", 5.0),
-        ("cash flows", 4.0),
-        # Row keywords
-        ("operating activities", 3.0),
-        ("investing activities", 3.0),
-        ("financing activities", 3.0),
-        ("cash and cash equivalents", 2.0),
-        ("depreciation and amortization", 1.5),
-        ("capital expenditures", 1.5),
-        ("purchase of property", 1.0),
-        ("repurchase of common stock", 1.0),
-        ("dividends paid", 1.0),
-        ("net cash", 2.0),
-        ("free cash flow", 2.0),
-    ],
-    "shareholders_equity": [
-        ("shareholders equity", 5.0),
-        ("stockholders equity", 5.0),
-        ("statement of equity", 5.0),
-        ("statements of equity", 5.0),
-        ("changes in equity", 4.0),
-        ("changes in stockholders", 4.0),
-        ("changes in shareholders", 4.0),
-        # Column/row keywords
-        ("common stock", 2.0),
-        ("additional paid-in capital", 2.0),
-        ("accumulated other comprehensive", 2.5),
-        ("retained earnings", 1.5),
-        ("treasury stock", 2.0),
-        ("total stockholders", 2.0),
-        ("total shareholders", 2.0),
-        ("share repurchase", 1.0),
-        ("dividends declared", 1.0),
-    ],
-    "segment_revenue": [
-        ("segment information", 5.0),
-        ("segment reporting", 5.0),
-        ("segment revenue", 5.0),
-        ("reportable segments", 4.0),
-        ("operating segments", 4.0),
-        ("business segments", 4.0),
-        ("products and services", 3.0),
-        ("revenue by product", 3.0),
-        ("revenue by segment", 3.0),
-        ("revenue by geography", 3.0),
-        ("geographic information", 3.0),
-        ("net sales by product", 3.0),
-        ("net sales by reportable segment", 3.0),
-        ("americas", 1.5),
-        ("europe", 1.0),
-        ("asia", 1.0),
-        ("greater china", 1.5),
-    ],
-    "debt_maturity": [
-        ("debt maturity", 5.0),
-        ("debt schedule", 5.0),
-        ("contractual obligations", 5.0),
-        ("long-term debt", 4.0),
-        ("long term debt", 4.0),
-        ("term debt", 3.0),
-        ("commercial paper", 2.5),
-        ("notes payable", 2.0),
-        ("bonds payable", 2.0),
-        ("maturity date", 3.0),
-        ("maturities of", 3.0),
-        ("principal amount", 2.0),
-        ("interest rate", 1.5),
-        ("fixed rate", 1.5),
-        ("floating rate", 1.5),
-        ("due date", 2.0),
-        ("2025", 0.5),
-        ("2026", 0.5),
-        ("2027", 0.5),
-    ],
+TABLE_CATEGORIES = {
+    "income_statement": {
+        "display_name": "Consolidated Statements of Operations (Income Statement)",
+        "keywords": [
+            ("statement of operations", 5.0),
+            ("statements of operations", 5.0),
+            ("income statement", 5.0),
+            ("statements of income", 5.0),
+            ("statement of income", 5.0),
+            ("statement of earnings", 5.0),
+            ("net sales", 2.0),
+            ("total net sales", 2.0),
+            ("cost of sales", 2.0),
+            ("cost of goods sold", 2.0),
+            ("gross margin", 2.0),
+            ("gross profit", 2.0),
+            ("operating income", 1.5),
+            ("operating expenses", 1.5),
+            ("earnings per share", 2.0),
+            ("net income", 1.5),
+            ("provision for income tax", 1.5),
+        ],
+    },
+    "comprehensive_income": {
+        "display_name": "Consolidated Statements of Comprehensive Income",
+        "keywords": [
+            ("comprehensive income", 5.0),
+            ("statements of comprehensive", 5.0),
+            ("statement of comprehensive", 5.0),
+            ("other comprehensive income", 4.0),
+            ("other comprehensive loss", 4.0),
+            ("total comprehensive income", 3.0),
+            ("unrealized gains", 2.0),
+            ("unrealized losses", 2.0),
+            ("foreign currency translation", 2.0),
+            ("derivative instruments", 1.5),
+            ("marketable debt securities", 1.5),
+            ("reclassification", 1.0),
+        ],
+    },
+    "balance_sheet": {
+        "display_name": "Consolidated Balance Sheets",
+        "keywords": [
+            ("balance sheet", 5.0),
+            ("balance sheets", 5.0),
+            ("statement of financial position", 5.0),
+            ("statements of financial position", 5.0),
+            ("financial position", 4.0),
+            ("total assets", 3.0),
+            ("total liabilities", 3.0),
+            ("current assets", 2.0),
+            ("current liabilities", 2.0),
+            ("stockholders equity", 2.5),
+            ("shareholders equity", 2.5),
+            ("accounts receivable", 1.5),
+            ("accounts payable", 1.5),
+            ("retained earnings", 1.5),
+            ("total equity", 2.0),
+            ("property plant and equipment", 1.5),
+        ],
+    },
+    "shareholders_equity": {
+        "display_name": "Consolidated Statements of Shareholders' Equity",
+        "keywords": [
+            ("shareholders equity", 5.0),
+            ("stockholders equity", 5.0),
+            ("statement of equity", 5.0),
+            ("statements of equity", 5.0),
+            ("changes in equity", 4.0),
+            ("changes in stockholders", 4.0),
+            ("changes in shareholders", 4.0),
+            ("common stock", 2.0),
+            ("additional paid-in capital", 2.0),
+            ("accumulated other comprehensive", 2.5),
+            ("treasury stock", 2.0),
+            ("beginning balances", 2.0),
+            ("ending balances", 2.0),
+            ("share repurchase", 1.0),
+            ("dividends declared", 1.0),
+            ("common stock repurchased", 1.5),
+        ],
+    },
+    "cash_flow": {
+        "display_name": "Consolidated Statements of Cash Flows",
+        "keywords": [
+            ("statement of cash flows", 5.0),
+            ("statements of cash flows", 5.0),
+            ("cash flow statement", 5.0),
+            ("cash flows", 4.0),
+            ("operating activities", 3.0),
+            ("investing activities", 3.0),
+            ("financing activities", 3.0),
+            ("cash and cash equivalents", 2.0),
+            ("depreciation and amortization", 1.5),
+            ("capital expenditures", 1.5),
+            ("repurchases of common stock", 1.5),
+            ("dividends and dividend equivalents", 1.0),
+            ("net cash", 2.0),
+            ("cash generated by", 1.5),
+            ("cash used in", 1.5),
+        ],
+    },
 }
 
-# Minimum score to consider a table as a candidate for a category
-MIN_SCORE_THRESHOLD = 4.0
+MIN_SCORE = 4.0
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -172,7 +139,6 @@ def _get_textract():
         region_name=st.secrets["AWS_REGION"],
     )
 
-
 def _get_s3():
     return boto3.client(
         "s3",
@@ -183,67 +149,61 @@ def _get_s3():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PHASE 1: TEXTRACT TABLE EXTRACTION
+#  MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
 def extract_tables_from_pdf(pdf_bytes: bytes) -> dict:
     """
-    Extract and classify financial tables from a PDF.
+    Extract 5 core financial tables from PDF.
 
-    Returns classified dict with 6 categories.
+    Returns:
+    {
+      "income_statement": { "found": bool, "display_name": str, "page": int, "unit": str, "headers": [...], "rows": [...] },
+      "comprehensive_income": { ... },
+      "balance_sheet": { ... },
+      "shareholders_equity": { ... },
+      "cash_flow": { ... },
+    }
     """
     bucket = st.secrets["S3_BUCKET"]
     temp_key = f"_textract_temp/{uuid.uuid4().hex}.pdf"
-
     s3 = _get_s3()
     textract = _get_textract()
 
     try:
-        # 1. Upload PDF to S3
         s3.put_object(Bucket=bucket, Key=temp_key, Body=pdf_bytes)
 
-        # 2. Start async analysis with TABLES
         response = textract.start_document_analysis(
-            DocumentLocation={
-                "S3Object": {"Bucket": bucket, "Name": temp_key}
-            },
+            DocumentLocation={"S3Object": {"Bucket": bucket, "Name": temp_key}},
             FeatureTypes=["TABLES"],
         )
         job_id = response["JobId"]
 
-        # 3. Poll until complete
-        max_wait = 180
+        # Poll
         waited = 0
-        status = ""
-        while waited < max_wait:
+        while waited < 180:
             result = textract.get_document_analysis(JobId=job_id)
-            status = result["JobStatus"]
-            if status in ("SUCCEEDED", "FAILED"):
+            if result["JobStatus"] in ("SUCCEEDED", "FAILED"):
                 break
             time.sleep(4)
             waited += 4
 
-        if status != "SUCCEEDED":
+        if result["JobStatus"] != "SUCCEEDED":
             return _empty_result()
 
-        # 4. Collect ALL blocks
+        # Collect all blocks
         all_blocks = result.get("Blocks", [])
-        next_token = result.get("NextToken")
-        while next_token:
-            result = textract.get_document_analysis(
-                JobId=job_id, NextToken=next_token,
-            )
+        nt = result.get("NextToken")
+        while nt:
+            result = textract.get_document_analysis(JobId=job_id, NextToken=nt)
             all_blocks.extend(result.get("Blocks", []))
-            next_token = result.get("NextToken")
+            nt = result.get("NextToken")
 
-        # 5. Parse all raw tables
         raw_tables = _parse_all_tables(all_blocks)
-
         if not raw_tables:
             return _empty_result()
 
-        # 6. Phase 2: Classify & filter
-        return _classify_tables(raw_tables, all_blocks)
+        return _classify_and_format(raw_tables, all_blocks)
 
     finally:
         try:
@@ -252,65 +212,53 @@ def extract_tables_from_pdf(pdf_bytes: bytes) -> dict:
             pass
 
 
-def _empty_result() -> dict:
-    """Return empty classified result."""
+def _empty_result():
     return {
-        cat: {"found": False, "tables": []}
-        for cat in CATEGORY_KEYWORDS
+        cat: {"found": False, "display_name": info["display_name"], "page": None, "unit": "", "headers": [], "rows": []}
+        for cat, info in TABLE_CATEGORIES.items()
     }
 
 
-def _parse_all_tables(blocks: list[dict]) -> list[dict]:
-    """Parse Textract blocks into raw table structures."""
+# ══════════════════════════════════════════════════════════════════════════════
+#  PHASE 1: PARSE RAW TABLES FROM TEXTRACT BLOCKS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _parse_all_tables(blocks):
     block_map = {b["Id"]: b for b in blocks}
     table_blocks = [b for b in blocks if b["BlockType"] == "TABLE"]
 
     tables = []
     for ti, tb in enumerate(table_blocks):
         page = tb.get("Page", 1)
-
-        # Get CELL children
         cell_ids = []
         for rel in tb.get("Relationships", []):
             if rel["Type"] == "CHILD":
                 cell_ids.extend(rel["Ids"])
 
-        # Parse cells
-        cell_map: dict[tuple[int, int], str] = {}
+        cell_map = {}
         max_row, max_col = 0, 0
-
         for cid in cell_ids:
             cell = block_map.get(cid)
-            if cell is None or cell["BlockType"] != "CELL":
+            if not cell or cell["BlockType"] != "CELL":
                 continue
-            ri = cell.get("RowIndex", 1)
-            ci = cell.get("ColumnIndex", 1)
-            max_row = max(max_row, ri)
-            max_col = max(max_col, ci)
+            ri, ci = cell.get("RowIndex", 1), cell.get("ColumnIndex", 1)
+            max_row, max_col = max(max_row, ri), max(max_col, ci)
             cell_map[(ri, ci)] = _get_cell_text(cell, block_map)
 
-        # Build rows
-        rows = []
-        for r in range(1, max_row + 1):
-            row = [cell_map.get((r, c), "") for c in range(1, max_col + 1)]
-            rows.append(row)
-
-        # Skip tiny tables
         if max_row < 2 or max_col < 2:
             continue
 
-        # Collect all text in the table for classification
-        all_text = " ".join(
-            cell_map.get((r, c), "")
-            for r in range(1, max_row + 1)
-            for c in range(1, max_col + 1)
-        ).lower()
+        rows = []
+        for r in range(1, max_row + 1):
+            rows.append([cell_map.get((r, c), "") for c in range(1, max_col + 1)])
+
+        all_text = " ".join(v for v in cell_map.values()).lower()
 
         tables.append({
             "table_index": ti,
             "page": page,
-            "row_count": max_row,
-            "col_count": max_col,
+            "max_row": max_row,
+            "max_col": max_col,
             "rows": rows,
             "all_text": all_text,
         })
@@ -318,128 +266,95 @@ def _parse_all_tables(blocks: list[dict]) -> list[dict]:
     return tables
 
 
-def _get_cell_text(cell: dict, block_map: dict) -> str:
+def _get_cell_text(cell, block_map):
     words = []
     for rel in cell.get("Relationships", []):
         if rel["Type"] == "CHILD":
             for wid in rel["Ids"]:
-                word = block_map.get(wid)
-                if word and word["BlockType"] == "WORD":
-                    words.append(word.get("Text", ""))
+                w = block_map.get(wid)
+                if w and w["BlockType"] == "WORD":
+                    words.append(w.get("Text", ""))
     return " ".join(words).strip()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PHASE 2: CLASSIFICATION & FILTERING
+#  PHASE 2: CLASSIFY, FILTER, FORMAT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _get_nearby_text(table: dict, all_blocks: list[dict], window: int = 5) -> str:
-    """Get LINE text from nearby blocks (before the table on same page)."""
+def _get_nearby_lines(table, all_blocks, before=10):
+    """Get LINE text near the table on the same page (for title/unit detection)."""
     page = table["page"]
-    table_idx = table["table_index"]
-
-    # Collect LINE blocks on same page
-    page_lines = [
-        b for b in all_blocks
+    lines = [
+        b.get("Text", "")
+        for b in all_blocks
         if b["BlockType"] == "LINE" and b.get("Page", 1) == page
     ]
-
-    # Return last N lines before the table as context
-    texts = [b.get("Text", "") for b in page_lines[:window * 2]]
-    return " ".join(texts).lower()
+    return " ".join(lines).lower()
 
 
-def _score_table(table: dict, category: str, nearby_text: str) -> float:
-    """Score how well a table matches a category."""
-    keywords = CATEGORY_KEYWORDS[category]
-    combined_text = table["all_text"] + " " + nearby_text
+def _detect_unit(nearby_text: str) -> str:
+    """Detect the unit from nearby text."""
+    t = nearby_text.lower()
+    if "in millions" in t:
+        return "In millions"
+    if "in thousands" in t:
+        return "In thousands"
+    if "in billions" in t:
+        return "In billions"
+    return ""
 
-    score = 0.0
-    for kw, weight in keywords:
-        if kw.lower() in combined_text:
-            score += weight
 
-    # Bonus for table size (financial statements tend to be larger)
-    if category in ("income_statement", "balance_sheet", "cash_flow", "shareholders_equity"):
-        if table["row_count"] >= 10:
-            score += 1.0
-        if table["row_count"] >= 20:
-            score += 1.0
-
+def _score_table(table, cat_key, nearby_text):
+    keywords = TABLE_CATEGORIES[cat_key]["keywords"]
+    combined = table["all_text"] + " " + nearby_text
+    score = sum(w for kw, w in keywords if kw in combined)
+    # Bonus for larger tables (real financial statements are big)
+    if table["max_row"] >= 10:
+        score += 1.0
+    if table["max_row"] >= 20:
+        score += 1.0
     return score
 
 
-def _classify_tables(raw_tables: list[dict], all_blocks: list[dict]) -> dict:
-    """Classify tables into 6 categories. Keep top 1-2 per category."""
-
-    # Pre-compute nearby text for each table
+def _classify_and_format(raw_tables, all_blocks):
+    # Pre-compute nearby text
     for t in raw_tables:
-        t["nearby_text"] = _get_nearby_text(t, all_blocks)
+        t["nearby_text"] = _get_nearby_lines(t, all_blocks)
 
-    result = {cat: {"found": False, "tables": []} for cat in CATEGORY_KEYWORDS}
+    result = _empty_result()
+    assigned = set()
 
-    # Score every table for every category
-    category_candidates: dict[str, list[tuple[float, dict]]] = {
-        cat: [] for cat in CATEGORY_KEYWORDS
-    }
+    # Priority: income first (to avoid confusion with comprehensive income)
+    priority = ["income_statement", "comprehensive_income", "balance_sheet", "shareholders_equity", "cash_flow"]
 
-    for t in raw_tables:
-        for cat in CATEGORY_KEYWORDS:
-            score = _score_table(t, cat, t["nearby_text"])
-            if score >= MIN_SCORE_THRESHOLD:
-                confidence = min(score / 15.0, 1.0)  # normalize to 0-1
-                category_candidates[cat].append((confidence, t))
+    for cat in priority:
+        best_score = 0
+        best_table = None
 
-    # For each category, pick top 1-2 tables (highest confidence)
-    # Also track which tables are already assigned to avoid duplicates
-    assigned_tables: set[int] = set()
-
-    # Process categories in priority order (big 4 first)
-    priority_order = [
-        "income_statement", "balance_sheet", "cash_flow",
-        "shareholders_equity", "segment_revenue", "debt_maturity",
-    ]
-
-    for cat in priority_order:
-        candidates = category_candidates[cat]
-        # Sort by confidence descending
-        candidates.sort(key=lambda x: -x[0])
-
-        selected = []
-        for conf, tbl in candidates:
-            if tbl["table_index"] in assigned_tables:
+        for t in raw_tables:
+            if t["table_index"] in assigned:
                 continue
-            selected.append((conf, tbl))
-            assigned_tables.add(tbl["table_index"])
-            if len(selected) >= 2:
-                break
+            sc = _score_table(t, cat, t["nearby_text"])
+            if sc > best_score and sc >= MIN_SCORE:
+                best_score = sc
+                best_table = t
 
-        if selected:
-            result[cat]["found"] = True
-            result[cat]["tables"] = [
-                {
-                    "page": tbl["page"],
-                    "title": _generate_title(cat, tbl),
-                    "confidence": round(conf, 3),
-                    "row_count": tbl["row_count"],
-                    "col_count": tbl["col_count"],
-                    "rows": tbl["rows"],
-                }
-                for conf, tbl in selected
-            ]
+        if best_table:
+            assigned.add(best_table["table_index"])
+            unit = _detect_unit(best_table["nearby_text"])
+            rows = best_table["rows"]
+
+            # Separate headers (first row) from data rows
+            headers = rows[0] if rows else []
+            data_rows = rows[1:] if len(rows) > 1 else []
+
+            result[cat] = {
+                "found": True,
+                "display_name": TABLE_CATEGORIES[cat]["display_name"],
+                "page": best_table["page"],
+                "unit": unit,
+                "headers": headers,
+                "rows": data_rows,
+            }
 
     return result
-
-
-def _generate_title(category: str, table: dict) -> str:
-    """Generate a human-readable title for a classified table."""
-    titles = {
-        "income_statement": "Consolidated Statements of Operations",
-        "balance_sheet": "Consolidated Balance Sheets",
-        "cash_flow": "Consolidated Statements of Cash Flows",
-        "shareholders_equity": "Consolidated Statements of Shareholders' Equity",
-        "segment_revenue": "Segment Information / Revenue Breakdown",
-        "debt_maturity": "Debt Maturity Schedule / Contractual Obligations",
-    }
-    base = titles.get(category, category)
-    return f"{base} (page {table['page']})"
