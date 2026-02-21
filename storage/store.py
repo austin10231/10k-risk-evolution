@@ -70,6 +70,20 @@ def _save_index(index):
 
 
 def add_record(company, industry, year, filing_type, file_bytes, file_ext, result_json):
+    # ── Dedup: remove existing record with same company+year+filing_type ──
+    index = load_index()
+    dupes = [r for r in index if r["company"] == company and r["year"] == int(year) and r["filing_type"] == filing_type]
+    for d in dupes:
+        old_id = d["record_id"]
+        old_ext = d.get("file_ext", "html")
+        old_prefix = PDF_PREFIX if old_ext == "pdf" else HTML_PREFIX
+        old_suffix = "pdf" if old_ext == "pdf" else "html"
+        _s3_delete(f"{old_prefix}/{old_id}.{old_suffix}")
+        _s3_delete(f"{RESULTS_PREFIX}/{old_id}.json")
+    index = [r for r in index if not (r["company"] == company and r["year"] == int(year) and r["filing_type"] == filing_type)]
+    _save_index(index)
+
+    # ── Save new record ───────────────────────────────────────────────
     safe = re.sub(r"[^\w]", "", company.replace(" ", "_"))
     sid = uuid.uuid4().hex[:4]
     rid = f"{safe}_{year}_{filing_type}_{sid}"
