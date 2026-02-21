@@ -12,8 +12,10 @@ Tables extracted:
 import time
 import uuid
 import re
+import io
 import streamlit as st
 import boto3
+from PyPDF2 import PdfReader, PdfWriter
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -149,6 +151,86 @@ def _get_s3():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  PDF TRIMMING — locate Item 8 and extract only relevant pages
+# ══════════════════════════════════════════════════════════════════════════════
+
+_ITEM8_PATTERNS = [
+    re.compile(r"item\s*8[\.\:\s\u2014\u2013\-]+\s*financial\s+statements", re.IGNORECASE),
+    re.compile(r"item\s*8\.", re.IGNORECASE),
+]
+
+_ITEM9_PATTERNS = [
+    re.compile(r"item\s*9[\.\:\s\u2014\u2013\-]", re.IGNORECASE),
+]
+
+
+def _trim_pdf_to_item8(pdf_bytes: bytes, pages_before: int = 0, pages_after: int = 15) -> bytes:
+    """
+    Scan PDF text locally to find Item 8 (Financial Statements).
+    Return a trimmed PDF containing only the relevant pages.
+    Falls back to full PDF if Item 8 cannot be located.
+    """
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        total_pages = len(reader.pages)
+
+        # ── Find Item 8 start page ───────────────────────────────────
+        item8_page = None
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text() or ""
+            # Skip TOC pages (many "Item" references on one page)
+            if len(re.findall(r"item\s*\d", text, re.IGNORECASE)) > 8:
+                continue
+            for pat in _ITEM8_PATTERNS:
+                if pat.search(text):
+                    item8_page = i
+                    break
+            if item8_page is not None:
+                break
+
+        if item8_page is None:
+            # Can't find Item 8 — return full PDF
+            return pdf_bytes
+
+        # ── Find Item 9 start page (optional, for tighter trim) ──────
+        item9_page = None
+        for i in range(item8_page + 3, min(item8_page + 30, total_pages)):
+            text = reader.pages[i].extract_text() or ""
+            if len(re.findall(r"item\s*\d", text, re.IGNORECASE)) > 8:
+                continue
+            for pat in _ITEM9_PATTERNS:
+                if pat.search(text):
+                    item9_page = i
+                    break
+            if item9_page is not None:
+                break
+
+        # ── Calculate page range ─────────────────────────────────────
+        start = max(0, item8_page - pages_before)
+        if item9_page is not None:
+            end = min(total_pages, item9_page + 1)
+        else:
+            end = min(total_pages, item8_page + pages_after)
+
+        # If the range is already most of the document, skip trimming
+        if (end - start) >= total_pages * 0.8:
+            return pdf_bytes
+
+        # ── Write trimmed PDF ────────────────────────────────────────
+        writer = PdfWriter()
+        for i in range(start, end):
+            writer.add_page(reader.pages[i])
+
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
+    except Exception:
+        # Any error in trimming — fall back to full PDF
+        return pdf_bytes
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -171,7 +253,10 @@ def extract_tables_from_pdf(pdf_bytes: bytes) -> dict:
     textract = _get_textract()
 
     try:
-        s3.put_object(Bucket=bucket, Key=temp_key, Body=pdf_bytes)
+        # ── Trim PDF to Item 8 region for faster processing ──────────
+        trimmed_pdf = _trim_pdf_to_item8(pdf_bytes)
+
+        s3.put_object(Bucket=bucket, Key=temp_key, Body=trimmed_pdf)
 
         response = textract.start_document_analysis(
             DocumentLocation={"S3Object": {"Bucket": bucket, "Name": temp_key}},
