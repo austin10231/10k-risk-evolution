@@ -22,7 +22,8 @@ def _tables_to_csv(tables: list[dict]) -> str:
 
     for t in tables:
         # Write table title as header row
-        writer.writerow([f"=== {t.get('title', f'Table {t.get(\"table_index\", 0)}')} ==="])
+        tbl_title = t.get("title", f"Table {t.get('table_index', 0)}")
+        writer.writerow([f"=== {tbl_title} ==="])
         for row in t.get("rows", []):
             writer.writerow(row)
         writer.writerow([])  # blank row between tables
