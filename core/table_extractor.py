@@ -236,6 +236,7 @@ def _parse_all_tables(blocks):
                 cell_ids.extend(rel["Ids"])
 
         cell_map = {}
+        cell_tops = {}  # (row, col) -> top Y coordinate
         max_row, max_col = 0, 0
         for cid in cell_ids:
             cell = block_map.get(cid)
@@ -244,15 +245,28 @@ def _parse_all_tables(blocks):
             ri, ci = cell.get("RowIndex", 1), cell.get("ColumnIndex", 1)
             max_row, max_col = max(max_row, ri), max(max_col, ci)
             cell_map[(ri, ci)] = _get_cell_text(cell, block_map)
+            # Store vertical position for row-label matching
+            geo = cell.get("Geometry", {}).get("BoundingBox", {})
+            cell_tops[(ri, ci)] = geo.get("Top", 0)
 
         if max_row < 2 or max_col < 2:
             continue
 
         rows = []
+        row_tops = {}  # row_index -> top Y
         for r in range(1, max_row + 1):
             rows.append([cell_map.get((r, c), "") for c in range(1, max_col + 1)])
+            # Use first cell's top as row's Y position
+            for c in range(1, max_col + 1):
+                if (r, c) in cell_tops:
+                    row_tops[r] = cell_tops[(r, c)]
+                    break
 
         all_text = " ".join(v for v in cell_map.values()).lower()
+
+        # Get table bounding box
+        tbl_geo = tb.get("Geometry", {}).get("BoundingBox", {})
+        tbl_left = tbl_geo.get("Left", 0)
 
         tables.append({
             "table_index": ti,
@@ -260,6 +274,8 @@ def _parse_all_tables(blocks):
             "max_row": max_row,
             "max_col": max_col,
             "rows": rows,
+            "row_tops": row_tops,
+            "tbl_left": tbl_left,
             "all_text": all_text,
         })
 
@@ -317,14 +333,27 @@ def _score_table(table, cat_key, nearby_text):
 
 
 def _classify_and_format(raw_tables, all_blocks):
-    # Pre-compute nearby text
+    # Pre-compute nearby text and page lines
     for t in raw_tables:
         t["nearby_text"] = _get_nearby_lines(t, all_blocks)
+
+    # Build page LINE index with positions for row-label recovery
+    page_lines_with_pos = {}
+    for b in all_blocks:
+        if b["BlockType"] == "LINE":
+            pg = b.get("Page", 1)
+            geo = b.get("Geometry", {}).get("BoundingBox", {})
+            left = geo.get("Left", 0)
+            top = geo.get("Top", 0)
+            text = b.get("Text", "").strip()
+            if text:
+                if pg not in page_lines_with_pos:
+                    page_lines_with_pos[pg] = []
+                page_lines_with_pos[pg].append({"text": text, "left": left, "top": top})
 
     result = _empty_result()
     assigned = set()
 
-    # Priority: income first (to avoid confusion with comprehensive income)
     priority = ["income_statement", "comprehensive_income", "balance_sheet", "shareholders_equity", "cash_flow"]
 
     for cat in priority:
@@ -344,7 +373,22 @@ def _classify_and_format(raw_tables, all_blocks):
             unit = _detect_unit(best_table["nearby_text"])
             rows = best_table["rows"]
 
-            # Separate headers (first row) from data rows
+            # ── Row-label recovery ────────────────────────────────────
+            # Check if first column is mostly empty/numeric (missing labels)
+            first_col = [r[0] if r else "" for r in rows]
+            non_empty = [v for v in first_col if v.strip()]
+            has_labels = any(
+                not v.replace("$", "").replace(",", "").replace("(", "").replace(")", "").replace(".", "").replace("-", "").strip().isdigit()
+                for v in non_empty if v.strip()
+            ) if non_empty else False
+
+            if not has_labels:
+                # Try to recover labels from LINE blocks to the left of the table
+                rows = _recover_row_labels(
+                    rows, best_table, page_lines_with_pos.get(best_table["page"], [])
+                )
+
+            # Separate headers from data
             headers = rows[0] if rows else []
             data_rows = rows[1:] if len(rows) > 1 else []
 
@@ -358,3 +402,54 @@ def _classify_and_format(raw_tables, all_blocks):
             }
 
     return result
+
+
+def _recover_row_labels(rows, table, page_lines):
+    """
+    Recover missing row labels by matching LINE blocks to the left of the table
+    with each table row based on vertical (Y) position.
+    """
+    if not page_lines or not rows:
+        return rows
+
+    row_tops = table.get("row_tops", {})
+    tbl_left = table.get("tbl_left", 0.5)
+
+    # Only use lines that are to the LEFT of the table
+    left_lines = [ln for ln in page_lines if ln["left"] < tbl_left - 0.02]
+
+    if not left_lines:
+        return rows
+
+    # For each row, find the closest left-side LINE by vertical position
+    new_rows = []
+    for ri, row in enumerate(rows):
+        actual_ri = ri + 1  # 1-based index
+        row_top = row_tops.get(actual_ri)
+
+        if row_top is None:
+            # Estimate position
+            if row_tops:
+                sorted_tops = sorted(row_tops.items())
+                if sorted_tops:
+                    min_ri, min_top = sorted_tops[0]
+                    max_ri, max_top = sorted_tops[-1]
+                    if max_ri > min_ri:
+                        step = (max_top - min_top) / (max_ri - min_ri)
+                        row_top = min_top + (actual_ri - min_ri) * step
+
+        label = ""
+        if row_top is not None:
+            # Find the closest LINE within a small vertical tolerance
+            tolerance = 0.012  # ~1.2% of page height
+            best_dist = tolerance
+            for ln in left_lines:
+                dist = abs(ln["top"] - row_top)
+                if dist < best_dist:
+                    best_dist = dist
+                    label = ln["text"]
+
+        # Prepend label as first column
+        new_rows.append([label] + row)
+
+    return new_rows
