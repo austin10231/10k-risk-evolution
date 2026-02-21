@@ -25,7 +25,6 @@ def _count_sub_risks(risks: list[dict]) -> int:
 
 
 def _show_output(result: dict, key: str):
-    """Render output panel: summary bar + overview JSON + risks JSON + download."""
     ov = result.get("company_overview", {})
     risks = result.get("risks", [])
 
@@ -54,9 +53,6 @@ def _show_output(result: dict, key: str):
 def render():
     tab_lib, tab_new = st.tabs(["📚 Library", "➕ New Analysis"])
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  LIBRARY
-    # ══════════════════════════════════════════════════════════════════════════
     with tab_lib:
         index = load_index()
         if not index:
@@ -68,12 +64,13 @@ def render():
                 company=flt["company"],
                 year=flt["year"],
                 filing_type=flt["filing_type"],
+                fmt=flt["format"],
             )
             if not filtered:
                 st.warning("No records match the current filters.")
             else:
                 labels = [
-                    f"{r['company']} | {r['year']} | {r['filing_type']} | {r['industry']}"
+                    f"{r['company']} | {r['year']} | {r['filing_type']} | {r['industry']} | ({r.get('file_ext', 'html').upper()})"
                     for r in filtered
                 ]
                 sel = st.selectbox(
@@ -98,9 +95,6 @@ def render():
                     st.divider()
                     _show_output(result, key=f"lib_{rec['record_id']}")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  NEW ANALYSIS — left/right layout
-    # ══════════════════════════════════════════════════════════════════════════
     with tab_new:
         col_input, col_output = st.columns([2, 3])
 
@@ -150,20 +144,16 @@ def render():
             file_name = uploaded.name.lower()
             is_pdf = file_name.endswith(".pdf")
 
-            # ── Route: PDF vs HTML ────────────────────────────────────────
             if is_pdf:
-                with st.spinner("Extracting text from PDF via AWS Textract (this may take 30-60 seconds) …"):
+                with st.spinner("Extracting text from PDF via AWS Textract …"):
                     pdf_text = extract_text_from_pdf(file_bytes)
-
                 if not pdf_text:
                     st.error("Textract could not extract text from this PDF.")
                     return
-
                 with st.spinner("Parsing Item 1 overview …"):
                     overview = extract_item1_overview_from_text(
                         pdf_text, company.strip(), industry,
                     )
-
                 with st.spinner("Parsing Item 1A risks …"):
                     risks = extract_item1a_risks_from_text(pdf_text)
             else:
@@ -171,7 +161,6 @@ def render():
                     overview = extract_item1_overview(
                         file_bytes, company.strip(), industry,
                     )
-
                 with st.spinner("Extracting Item 1A risks …"):
                     risks = extract_item1a_risks(file_bytes)
 
