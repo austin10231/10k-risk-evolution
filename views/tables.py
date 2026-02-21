@@ -88,6 +88,7 @@ def render():
             key="btn_extract_tables", use_container_width=True,
         )
         st.caption(
+            "PDF is auto-trimmed to Item 8 (Financial Statements) before extraction. "
             "Extracts: Income Statement, Comprehensive Income, "
             "Balance Sheet, Shareholders' Equity, Cash Flows."
         )
