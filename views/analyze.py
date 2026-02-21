@@ -1,4 +1,4 @@
-"""Analyze page — Library + New Analysis.  Left=input, Right=output."""
+"""Analyze page — Library + New Analysis. Supports HTML & PDF."""
 
 import streamlit as st
 import json
@@ -6,7 +6,11 @@ import json
 from storage.store import (
     load_index, add_record, get_result, filter_records, delete_record,
 )
-from core.extractor import extract_item1_overview, extract_item1a_risks
+from core.extractor import (
+    extract_item1_overview, extract_item1a_risks,
+    extract_text_from_pdf, extract_item1_overview_from_text,
+    extract_item1a_risks_from_text,
+)
 from components.filters import library_filters
 
 INDUSTRIES = [
@@ -25,14 +29,12 @@ def _show_output(result: dict, key: str):
     ov = result.get("company_overview", {})
     risks = result.get("risks", [])
 
-    # ── Summary bar ───────────────────────────────────────────────────
     st.markdown(
         f"**{ov.get('company', '—')}** · {ov.get('year', '—')} · "
         f"**{len(risks)}** categories · "
         f"**{_count_sub_risks(risks)}** risk blocks"
     )
 
-    # ── Download at top ───────────────────────────────────────────────
     st.download_button(
         "📥 Download Full JSON",
         data=json.dumps(result, indent=2, ensure_ascii=False),
@@ -42,11 +44,9 @@ def _show_output(result: dict, key: str):
         use_container_width=True,
     )
 
-    # ── Company Overview JSON ─────────────────────────────────────────
     st.markdown("##### 🏢 Company Overview")
     st.json(ov)
 
-    # ── Risks JSON ────────────────────────────────────────────────────
     st.markdown(f"##### ⚠️ Risk Factors ({len(risks)} categories)")
     st.json(risks)
 
@@ -82,7 +82,6 @@ def render():
                 )
                 rec = filtered[sel]
 
-                # Delete button
                 if st.button(
                     "🗑️ Delete this record",
                     key=f"del_{rec['record_id']}",
@@ -108,7 +107,9 @@ def render():
         with col_input:
             st.markdown("##### Inputs")
             uploaded = st.file_uploader(
-                "Upload filing HTML", type=["html", "htm"], key="new_upload",
+                "Upload filing (HTML or PDF)",
+                type=["html", "htm", "pdf"],
+                key="new_upload",
             )
             year = st.selectbox(
                 "Filing Year", list(range(2025, 2009, -1)), key="new_year",
@@ -123,12 +124,11 @@ def render():
                 key="btn_run_analyze", use_container_width=True,
             )
             st.caption(
-                "Tip: EDGAR HTML usually gives best results for "
-                "Item 1A headings + bold sub-risk titles."
+                "Tip: HTML works best for structured extraction. "
+                "PDF uses AWS Textract for text extraction."
             )
 
         with col_output:
-            # Only show output after Run
             if "last_analyze_result" in st.session_state:
                 _show_output(
                     st.session_state["last_analyze_result"],
@@ -140,26 +140,45 @@ def render():
                 st.error("Please enter a company name.")
                 return
             if uploaded is None:
-                st.error("Please upload an HTML file.")
+                st.error("Please upload a file.")
                 return
             if "coming soon" in filing_type:
                 st.warning("10-Q support is not yet available.")
                 return
 
-            html_bytes = uploaded.read()
+            file_bytes = uploaded.read()
+            file_name = uploaded.name.lower()
+            is_pdf = file_name.endswith(".pdf")
 
-            with st.spinner("Extracting Item 1 overview …"):
-                overview = extract_item1_overview(
-                    html_bytes, company.strip(), industry,
-                )
+            # ── Route: PDF vs HTML ────────────────────────────────────────
+            if is_pdf:
+                with st.spinner("Extracting text from PDF via AWS Textract (this may take 30-60 seconds) …"):
+                    pdf_text = extract_text_from_pdf(file_bytes)
 
-            with st.spinner("Extracting Item 1A risks …"):
-                risks = extract_item1a_risks(html_bytes)
+                if not pdf_text:
+                    st.error("Textract could not extract text from this PDF.")
+                    return
+
+                with st.spinner("Parsing Item 1 overview …"):
+                    overview = extract_item1_overview_from_text(
+                        pdf_text, company.strip(), industry,
+                    )
+
+                with st.spinner("Parsing Item 1A risks …"):
+                    risks = extract_item1a_risks_from_text(pdf_text)
+            else:
+                with st.spinner("Extracting Item 1 overview …"):
+                    overview = extract_item1_overview(
+                        file_bytes, company.strip(), industry,
+                    )
+
+                with st.spinner("Extracting Item 1A risks …"):
+                    risks = extract_item1a_risks(file_bytes)
 
             if not risks:
                 st.error(
                     "Could not extract risks from Item 1A. "
-                    "Check that the HTML is a valid SEC 10-K filing."
+                    "Check that the file is a valid SEC 10-K filing."
                 )
                 return
 
@@ -176,7 +195,8 @@ def render():
                 industry=industry,
                 year=int(year),
                 filing_type=filing_type,
-                html_bytes=html_bytes,
+                file_bytes=file_bytes,
+                file_ext="pdf" if is_pdf else "html",
                 result_json=result,
             )
 
