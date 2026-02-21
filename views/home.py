@@ -8,7 +8,6 @@ def render():
         "**Automatically extract, structure, and compare SEC 10-K Risk Factors "
         "(Item 1A) across filing years — producing a memo-ready risk change report.**"
     )
-
     st.divider()
 
     st.subheader("How It Works")
@@ -16,13 +15,14 @@ def render():
     with c1:
         st.markdown(
             '<div class="card"><h4>① Upload</h4>'
-            "<p>Upload a 10-K filing HTML from SEC EDGAR.</p></div>",
+            "<p>Upload a 10-K filing (HTML or PDF) from SEC EDGAR.</p></div>",
             unsafe_allow_html=True,
         )
     with c2:
         st.markdown(
             '<div class="card"><h4>② Extract</h4>'
-            "<p>Item 1 overview & Item 1A risks are extracted and structured.</p></div>",
+            "<p>Item 1 overview & Item 1A risks are extracted into structured JSON. "
+            "HTML uses BeautifulSoup; PDF uses AWS Textract.</p></div>",
             unsafe_allow_html=True,
         )
     with c3:
@@ -33,20 +33,21 @@ def render():
         )
 
     st.divider()
-
     col_a, col_b = st.columns(2)
     with col_a:
-        st.markdown("##### ✅ MVP Scope")
+        st.markdown("##### ✅ Current Features")
         st.markdown(
-            "- 10-K filing HTML upload\n"
-            "- Item 1 overview + Item 1A risk extraction\n"
+            "- 10-K filing upload (HTML & PDF)\n"
+            "- Item 1 overview + Item 1A hierarchical risk extraction\n"
+            "- PDF text extraction via AWS Textract\n"
             "- YoY / multi-year NEW & REMOVED comparison\n"
-            "- Structured JSON export"
+            "- Structured JSON export\n"
+            "- AWS S3 persistent storage"
         )
     with col_b:
         st.markdown("##### 🔮 Phase 2")
         st.markdown(
-            "- 10-Q support & PDF parsing\n"
+            "- 10-Q support\n"
             "- Financial statement table extraction\n"
             "- LLM-powered risk summarization\n"
             "- EDGAR direct download by CIK / ticker"
