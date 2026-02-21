@@ -133,7 +133,7 @@ def save_table_result(company, year, filing_type, table_json):
     return key
 
 
-def filter_records(industry=None, company=None, year=None, filing_type=None):
+def filter_records(industry=None, company=None, year=None, filing_type=None, fmt=None):
     recs = load_index()
     if industry and industry != "All":
         recs = [r for r in recs if r["industry"] == industry]
@@ -143,4 +143,6 @@ def filter_records(industry=None, company=None, year=None, filing_type=None):
         recs = [r for r in recs if str(r["year"]) == str(year)]
     if filing_type and filing_type != "All":
         recs = [r for r in recs if r["filing_type"] == filing_type]
+    if fmt and fmt != "All":
+        recs = [r for r in recs if r.get("file_ext", "html").upper() == fmt]
     return recs
