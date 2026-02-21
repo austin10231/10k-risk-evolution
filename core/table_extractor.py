@@ -374,16 +374,26 @@ def _classify_and_format(raw_tables, all_blocks):
             rows = best_table["rows"]
 
             # ── Row-label recovery ────────────────────────────────────
-            # Check if first column is mostly empty/numeric (missing labels)
-            first_col = [r[0] if r else "" for r in rows]
-            non_empty = [v for v in first_col if v.strip()]
-            has_labels = any(
-                not v.replace("$", "").replace(",", "").replace("(", "").replace(")", "").replace(".", "").replace("-", "").strip().isdigit()
-                for v in non_empty if v.strip()
-            ) if non_empty else False
+            # Check if first column is mostly empty or only has numbers (missing labels)
+            first_col = [r[0].strip() if r else "" for r in rows]
+            non_empty_first = [v for v in first_col if v]
+
+            # Count how many first-col values are purely numeric (dollar amounts)
+            def is_numeric_cell(v):
+                cleaned = v.replace("$", "").replace(",", "").replace("(", "").replace(")", "").replace(".", "").replace("-", "").replace(" ", "")
+                return cleaned.isdigit() or cleaned == ""
+
+            numeric_count = sum(1 for v in non_empty_first if is_numeric_cell(v))
+
+            # If >60% of non-empty first-col values are numeric, labels are missing
+            has_labels = True
+            if non_empty_first:
+                if numeric_count / len(non_empty_first) > 0.6:
+                    has_labels = False
+            else:
+                has_labels = False  # first column entirely empty
 
             if not has_labels:
-                # Try to recover labels from LINE blocks to the left of the table
                 rows = _recover_row_labels(
                     rows, best_table, page_lines_with_pos.get(best_table["page"], [])
                 )
@@ -415,39 +425,51 @@ def _recover_row_labels(rows, table, page_lines):
     row_tops = table.get("row_tops", {})
     tbl_left = table.get("tbl_left", 0.5)
 
-    # Only use lines that are to the LEFT of the table
-    left_lines = [ln for ln in page_lines if ln["left"] < tbl_left - 0.02]
+    # Use lines that are to the LEFT of the table (with some margin)
+    # Also include lines that slightly overlap the table left edge
+    left_lines = [ln for ln in page_lines if ln["left"] < tbl_left + 0.01]
 
     if not left_lines:
         return rows
 
+    # Sort left lines by vertical position
+    left_lines.sort(key=lambda x: x["top"])
+
     # For each row, find the closest left-side LINE by vertical position
     new_rows = []
+    used_lines = set()
+
     for ri, row in enumerate(rows):
         actual_ri = ri + 1  # 1-based index
         row_top = row_tops.get(actual_ri)
 
-        if row_top is None:
-            # Estimate position
-            if row_tops:
-                sorted_tops = sorted(row_tops.items())
-                if sorted_tops:
-                    min_ri, min_top = sorted_tops[0]
-                    max_ri, max_top = sorted_tops[-1]
-                    if max_ri > min_ri:
-                        step = (max_top - min_top) / (max_ri - min_ri)
-                        row_top = min_top + (actual_ri - min_ri) * step
+        # Estimate position if not available
+        if row_top is None and row_tops:
+            sorted_tops = sorted(row_tops.items())
+            if len(sorted_tops) >= 2:
+                min_ri, min_top = sorted_tops[0]
+                max_ri, max_top = sorted_tops[-1]
+                if max_ri > min_ri:
+                    step = (max_top - min_top) / (max_ri - min_ri)
+                    row_top = min_top + (actual_ri - min_ri) * step
 
         label = ""
         if row_top is not None:
-            # Find the closest LINE within a small vertical tolerance
-            tolerance = 0.012  # ~1.2% of page height
+            # Find the closest LINE within vertical tolerance
+            tolerance = 0.025  # ~2.5% of page height
             best_dist = tolerance
-            for ln in left_lines:
+            best_idx = -1
+            for idx, ln in enumerate(left_lines):
+                if idx in used_lines:
+                    continue
                 dist = abs(ln["top"] - row_top)
                 if dist < best_dist:
                     best_dist = dist
+                    best_idx = idx
                     label = ln["text"]
+
+            if best_idx >= 0:
+                used_lines.add(best_idx)
 
         # Prepend label as first column
         new_rows.append([label] + row)
