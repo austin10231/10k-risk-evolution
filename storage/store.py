@@ -1,11 +1,12 @@
 """
 S3-based persistence layer.
 
-Layout in S3 bucket:
-  index.json
-  html/{record_id}.html
-  results/{record_id}.json
-  compares/{company}_{latest}_vs_{priors}_{ftype}_{id}.json
+S3 layout (v5):
+  filing_records_index.json
+  10k_html_datasets/{rid}.html
+  10k_pdf_datasets/{rid}.pdf
+  analysis_results/{rid}.json
+  compare_reports/{company}_{latest}_vs_{priors}_{ftype}_{id}.json
 """
 
 import json
@@ -15,7 +16,6 @@ import streamlit as st
 import boto3
 from datetime import datetime
 
-# ── S3 client ─────────────────────────────────────────────────────────────────
 
 def _get_s3():
     return boto3.client(
@@ -25,11 +25,18 @@ def _get_s3():
         region_name=st.secrets["AWS_REGION"],
     )
 
+
 BUCKET = st.secrets["S3_BUCKET"]
+
+# ── S3 path constants ─────────────────────────────────────────────────────────
+INDEX_KEY = "filing_records_index.json"
+HTML_PREFIX = "10k_html_datasets"
+PDF_PREFIX = "10k_pdf_datasets"
+RESULTS_PREFIX = "analysis_results"
+COMPARES_PREFIX = "compare_reports"
 
 
 def _s3_read(key: str) -> bytes | None:
-    """Read a file from S3. Returns None if not found."""
     try:
         obj = _get_s3().get_object(Bucket=BUCKET, Key=key)
         return obj["Body"].read()
@@ -40,22 +47,20 @@ def _s3_read(key: str) -> bytes | None:
 
 
 def _s3_write(key: str, data: bytes):
-    """Write bytes to S3."""
     _get_s3().put_object(Bucket=BUCKET, Key=key, Body=data)
 
 
 def _s3_delete(key: str):
-    """Delete a file from S3."""
     try:
         _get_s3().delete_object(Bucket=BUCKET, Key=key)
     except Exception:
         pass
 
 
-# ── Index operations ──────────────────────────────────────────────────────────
+# ── Index ─────────────────────────────────────────────────────────────────────
 
 def load_index() -> list[dict]:
-    data = _s3_read("index.json")
+    data = _s3_read(INDEX_KEY)
     if data is None:
         return []
     return json.loads(data.decode("utf-8"))
@@ -63,7 +68,7 @@ def load_index() -> list[dict]:
 
 def _save_index(index: list[dict]):
     _s3_write(
-        "index.json",
+        INDEX_KEY,
         json.dumps(index, indent=2, default=str).encode("utf-8"),
     )
 
@@ -75,16 +80,23 @@ def add_record(
     industry: str,
     year: int,
     filing_type: str,
-    html_bytes: bytes,
+    file_bytes: bytes,
+    file_ext: str,
     result_json: dict,
 ) -> str:
     safe_company = re.sub(r"[^\w]", "", company.replace(" ", "_"))
     short_id = uuid.uuid4().hex[:4]
     rid = f"{safe_company}_{year}_{filing_type}_{short_id}"
 
-    _s3_write(f"html/{rid}.html", html_bytes)
+    # Save original file to appropriate folder
+    if file_ext == "pdf":
+        _s3_write(f"{PDF_PREFIX}/{rid}.pdf", file_bytes)
+    else:
+        _s3_write(f"{HTML_PREFIX}/{rid}.html", file_bytes)
+
+    # Save analysis result
     _s3_write(
-        f"results/{rid}.json",
+        f"{RESULTS_PREFIX}/{rid}.json",
         json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
     )
 
@@ -95,6 +107,7 @@ def add_record(
         "industry": industry,
         "year": int(year),
         "filing_type": filing_type,
+        "file_ext": file_ext,
         "created_at": datetime.now().isoformat(),
     })
     _save_index(index)
@@ -102,23 +115,32 @@ def add_record(
 
 
 def get_result(record_id: str) -> dict | None:
-    data = _s3_read(f"results/{record_id}.json")
+    data = _s3_read(f"{RESULTS_PREFIX}/{record_id}.json")
     if data is None:
         return None
     return json.loads(data.decode("utf-8"))
 
 
-def get_html(record_id: str) -> bytes | None:
-    return _s3_read(f"html/{record_id}.html")
+def get_original_file(record_id: str, file_ext: str = "html") -> bytes | None:
+    if file_ext == "pdf":
+        return _s3_read(f"{PDF_PREFIX}/{record_id}.pdf")
+    return _s3_read(f"{HTML_PREFIX}/{record_id}.html")
 
 
 def delete_record(record_id: str):
-    """Remove a record from the index and delete its files from S3."""
     index = load_index()
+    # Find file_ext before removing
+    rec = next((r for r in index if r["record_id"] == record_id), None)
+    file_ext = rec.get("file_ext", "html") if rec else "html"
+
     index = [r for r in index if r["record_id"] != record_id]
     _save_index(index)
-    _s3_delete(f"html/{record_id}.html")
-    _s3_delete(f"results/{record_id}.json")
+
+    if file_ext == "pdf":
+        _s3_delete(f"{PDF_PREFIX}/{record_id}.pdf")
+    else:
+        _s3_delete(f"{HTML_PREFIX}/{record_id}.html")
+    _s3_delete(f"{RESULTS_PREFIX}/{record_id}.json")
 
 
 def save_compare_result(
@@ -128,12 +150,11 @@ def save_compare_result(
     prior_years: list[int],
     compare_json: dict,
 ) -> str:
-    """Save a compare result to S3. Returns the file key."""
     safe_company = re.sub(r"[^\w]", "", company.replace(" ", "_"))
     prior_str = "&".join(str(y) for y in sorted(prior_years, reverse=True))
     short_id = uuid.uuid4().hex[:4]
     safe_ftype = re.sub(r"[^\w\-]", "", filing_type)
-    key = f"compares/{safe_company}_{latest_year}_vs_{prior_str}_{safe_ftype}_{short_id}.json"
+    key = f"{COMPARES_PREFIX}/{safe_company}_{latest_year}_vs_{prior_str}_{safe_ftype}_{short_id}.json"
 
     _s3_write(
         key,
