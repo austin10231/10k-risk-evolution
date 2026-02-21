@@ -1,13 +1,13 @@
 """
-S3-based persistence layer with deduplication.
+S3-based persistence layer.
 
-S3 layout:
+S3 layout (v6):
   filing_records_index.json
   10k_html_datasets/{rid}.html
   10k_pdf_datasets/{rid}.pdf
   analysis_results/{rid}.json
-  table_results/{company}_{year}_{ftype}_{id}.json
-  compare_reports/{company}_{latest}_vs_{priors}_{ftype}_{id}.json
+  table_results/{company}_{year}_{ftype}_{id}.json     ★ NEW
+  compare_reports/{...}.json
 """
 
 import json
@@ -32,8 +32,8 @@ BUCKET = st.secrets["S3_BUCKET"]
 INDEX_KEY = "filing_records_index.json"
 HTML_PREFIX = "10k_html_datasets"
 PDF_PREFIX = "10k_pdf_datasets"
-RESULTS_PREFIX = "analysis_results"
-TABLES_PREFIX = "table_results"
+RESULTS_PREFIX = "risk_analysis_results"
+TABLES_PREFIX = "tables_extraction"
 COMPARES_PREFIX = "compare_reports"
 
 
@@ -58,20 +58,6 @@ def _s3_delete(key):
         pass
 
 
-def _delete_by_prefix(prefix):
-    """Delete ALL S3 objects whose key starts with prefix."""
-    try:
-        s3 = _get_s3()
-        paginator = s3.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=BUCKET, Prefix=prefix):
-            for obj in page.get("Contents", []):
-                s3.delete_object(Bucket=BUCKET, Key=obj["Key"])
-    except Exception:
-        pass
-
-
-# ── Index ─────────────────────────────────────────────────────────────────────
-
 def load_index():
     data = _s3_read(INDEX_KEY)
     if data is None:
@@ -83,42 +69,35 @@ def _save_index(index):
     _s3_write(INDEX_KEY, json.dumps(index, indent=2, default=str).encode("utf-8"))
 
 
-# ── CRUD ──────────────────────────────────────────────────────────────────────
-
 def add_record(company, industry, year, filing_type, file_bytes, file_ext, result_json):
-    year = int(year)
-
-    # ── Dedup: remove ALL existing records with same company+year+filing_type
+    # ── Dedup: remove existing record with same company+year+filing_type ──
     index = load_index()
-    dupes = [r for r in index
-             if r["company"] == company and r["year"] == year and r["filing_type"] == filing_type]
+    dupes = [r for r in index if r["company"] == company and r["year"] == int(year) and r["filing_type"] == filing_type]
     for d in dupes:
-        oid = d["record_id"]
-        oext = d.get("file_ext", "html")
-        opfx = PDF_PREFIX if oext == "pdf" else HTML_PREFIX
-        osuf = "pdf" if oext == "pdf" else "html"
-        _s3_delete(f"{opfx}/{oid}.{osuf}")
-        _s3_delete(f"{RESULTS_PREFIX}/{oid}.json")
+        old_id = d["record_id"]
+        old_ext = d.get("file_ext", "html")
+        old_prefix = PDF_PREFIX if old_ext == "pdf" else HTML_PREFIX
+        old_suffix = "pdf" if old_ext == "pdf" else "html"
+        _s3_delete(f"{old_prefix}/{old_id}.{old_suffix}")
+        _s3_delete(f"{RESULTS_PREFIX}/{old_id}.json")
+    index = [r for r in index if not (r["company"] == company and r["year"] == int(year) and r["filing_type"] == filing_type)]
+    _save_index(index)
 
-    index = [r for r in index
-             if not (r["company"] == company and r["year"] == year and r["filing_type"] == filing_type)]
-
-    # ── Save new ──────────────────────────────────────────────────────
+    # ── Save new record ───────────────────────────────────────────────
     safe = re.sub(r"[^\w]", "", company.replace(" ", "_"))
     sid = uuid.uuid4().hex[:4]
     rid = f"{safe}_{year}_{filing_type}_{sid}"
-    pfx = PDF_PREFIX if file_ext == "pdf" else HTML_PREFIX
+    prefix = PDF_PREFIX if file_ext == "pdf" else HTML_PREFIX
     ext = "pdf" if file_ext == "pdf" else "html"
-
-    _s3_write(f"{pfx}/{rid}.{ext}", file_bytes)
+    _s3_write(f"{prefix}/{rid}.{ext}", file_bytes)
     _s3_write(
         f"{RESULTS_PREFIX}/{rid}.json",
         json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
     )
-
+    index = load_index()
     index.append({
         "record_id": rid, "company": company, "industry": industry,
-        "year": year, "filing_type": filing_type, "file_ext": file_ext,
+        "year": int(year), "filing_type": filing_type, "file_ext": file_ext,
         "created_at": datetime.now().isoformat(),
     })
     _save_index(index)
@@ -131,9 +110,9 @@ def get_result(record_id):
 
 
 def get_original_file(record_id, file_ext="html"):
-    pfx = PDF_PREFIX if file_ext == "pdf" else HTML_PREFIX
+    prefix = PDF_PREFIX if file_ext == "pdf" else HTML_PREFIX
     ext = "pdf" if file_ext == "pdf" else "html"
-    return _s3_read(f"{pfx}/{record_id}.{ext}")
+    return _s3_read(f"{prefix}/{record_id}.{ext}")
 
 
 def delete_record(record_id):
@@ -142,36 +121,29 @@ def delete_record(record_id):
     fe = rec.get("file_ext", "html") if rec else "html"
     index = [r for r in index if r["record_id"] != record_id]
     _save_index(index)
-    pfx = PDF_PREFIX if fe == "pdf" else HTML_PREFIX
+    prefix = PDF_PREFIX if fe == "pdf" else HTML_PREFIX
     ext = "pdf" if fe == "pdf" else "html"
-    _s3_delete(f"{pfx}/{record_id}.{ext}")
+    _s3_delete(f"{prefix}/{record_id}.{ext}")
     _s3_delete(f"{RESULTS_PREFIX}/{record_id}.json")
-
-
-def save_table_result(company, year, filing_type, table_json):
-    safe = re.sub(r"[^\w]", "", company.replace(" ", "_"))
-    sf = re.sub(r"[^\w\-]", "", filing_type)
-
-    # Dedup: delete ALL old table results for same company+year+ftype
-    _delete_by_prefix(f"{TABLES_PREFIX}/{safe}_{year}_{sf}_")
-
-    sid = uuid.uuid4().hex[:4]
-    key = f"{TABLES_PREFIX}/{safe}_{year}_{sf}_{sid}.json"
-    _s3_write(key, json.dumps(table_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"))
-    return key
 
 
 def save_compare_result(company, filing_type, latest_year, prior_years, compare_json):
     safe = re.sub(r"[^\w]", "", company.replace(" ", "_"))
     ps = "&".join(str(y) for y in sorted(prior_years, reverse=True))
-    sf = re.sub(r"[^\w\-]", "", filing_type)
-
-    # Dedup: delete ALL old compare results for same company+years+ftype
-    _delete_by_prefix(f"{COMPARES_PREFIX}/{safe}_{latest_year}_vs_{ps}_{sf}_")
-
     sid = uuid.uuid4().hex[:4]
+    sf = re.sub(r"[^\w\-]", "", filing_type)
     key = f"{COMPARES_PREFIX}/{safe}_{latest_year}_vs_{ps}_{sf}_{sid}.json"
     _s3_write(key, json.dumps(compare_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"))
+    return key
+
+
+def save_table_result(company, year, filing_type, table_json):
+    """Save extracted table data to S3. Returns the S3 key."""
+    safe = re.sub(r"[^\w]", "", company.replace(" ", "_"))
+    sid = uuid.uuid4().hex[:4]
+    sf = re.sub(r"[^\w\-]", "", filing_type)
+    key = f"{TABLES_PREFIX}/{safe}_{year}_{sf}_{sid}.json"
+    _s3_write(key, json.dumps(table_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"))
     return key
 
 
