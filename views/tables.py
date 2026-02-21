@@ -1,11 +1,11 @@
-"""Tables page — Extract & classify financial tables from PDF via Textract."""
+"""Tables page — Extract 5 core financial tables from PDF via Textract."""
 
 import streamlit as st
 import json
 import csv
 import io
 
-from core.table_extractor import extract_tables_from_pdf
+from core.table_extractor import extract_tables_from_pdf, TABLE_CATEGORIES
 from storage.store import save_table_result
 
 INDUSTRIES = [
@@ -14,44 +14,58 @@ INDUSTRIES = [
     "Materials", "Utilities", "Real Estate", "Telecom", "Other",
 ]
 
-CATEGORY_LABELS = {
-    "income_statement": "📈 Income Statement / Statement of Operations",
-    "balance_sheet": "📊 Balance Sheet / Financial Position",
-    "cash_flow": "💰 Cash Flow Statement",
-    "shareholders_equity": "🏦 Shareholders' Equity",
-    "segment_revenue": "🌍 Segment Revenue / Information",
-    "debt_maturity": "📅 Debt Maturity / Contractual Obligations",
-}
+# Display order
+DISPLAY_ORDER = [
+    "income_statement",
+    "comprehensive_income",
+    "balance_sheet",
+    "shareholders_equity",
+    "cash_flow",
+]
 
 
-def _classified_to_csv(classified: dict) -> str:
+def _classified_to_csv(result: dict) -> str:
     """Convert classified tables to CSV."""
     output = io.StringIO()
     writer = csv.writer(output)
 
-    for cat_key, label in CATEGORY_LABELS.items():
-        cat_data = classified.get(cat_key, {})
+    for cat_key in DISPLAY_ORDER:
+        cat_data = result.get(cat_key, {})
         if not cat_data.get("found"):
             continue
 
-        for tbl in cat_data.get("tables", []):
-            writer.writerow([f"=== {label} ==="])
-            writer.writerow([f"Page: {tbl.get('page', '?')} | Confidence: {tbl.get('confidence', 0):.1%}"])
-            for row in tbl.get("rows", []):
-                writer.writerow(row)
-            writer.writerow([])
+        name = cat_data.get("display_name", cat_key)
+        unit = cat_data.get("unit", "")
+
+        writer.writerow([f"=== {name} ==="])
+        if unit:
+            writer.writerow([f"({unit})"])
+        writer.writerow([])
+
+        headers = cat_data.get("headers", [])
+        if headers:
+            writer.writerow(headers)
+
+        for row in cat_data.get("rows", []):
+            writer.writerow(row)
+
+        writer.writerow([])
+        writer.writerow([])
 
     return output.getvalue()
 
 
-def _count_found(classified: dict) -> int:
-    return sum(1 for v in classified.values() if isinstance(v, dict) and v.get("found"))
+def _count_found(result: dict) -> int:
+    return sum(
+        1 for k in DISPLAY_ORDER
+        if result.get(k, {}).get("found")
+    )
 
 
 def render():
     st.markdown(
-        "Upload a **10-K PDF** to extract core financial statement tables "
-        "using AWS Textract. Tables are automatically classified into 6 categories."
+        "Upload a **10-K PDF** to extract the 5 core financial statement tables "
+        "using AWS Textract."
     )
 
     col_input, col_output = st.columns([2, 3])
@@ -74,9 +88,8 @@ def render():
             key="btn_extract_tables", use_container_width=True,
         )
         st.caption(
-            "Textract extracts all tables, then classifies them into: "
-            "Income Statement, Balance Sheet, Cash Flows, "
-            "Shareholders' Equity, Segment Revenue, Debt Maturity."
+            "Extracts: Income Statement, Comprehensive Income, "
+            "Balance Sheet, Shareholders' Equity, Cash Flows."
         )
 
     with col_output:
@@ -99,7 +112,7 @@ def render():
 
         pdf_bytes = uploaded.read()
 
-        with st.spinner("Extracting & classifying tables via AWS Textract (1-2 minutes) …"):
+        with st.spinner("Extracting tables via AWS Textract (1-2 minutes) …"):
             classified = extract_tables_from_pdf(pdf_bytes)
 
         found_count = _count_found(classified)
@@ -129,21 +142,15 @@ def render():
 
 
 def _show_table_output(result: dict, key: str):
-    """Display classified tables."""
+    """Display classified financial tables."""
     found = result.get("tables_found", 0)
 
     st.markdown(
         f"**{result.get('company', '—')}** · {result.get('year', '—')} · "
-        f"**{found}/6** financial tables identified"
+        f"**{found}/5** financial tables identified"
     )
 
     # ── Download buttons ──────────────────────────────────────────────
-    # Build classified-only dict for downloads
-    classified_only = {
-        cat: result.get(cat, {"found": False, "tables": []})
-        for cat in CATEGORY_LABELS
-    }
-
     dl1, dl2 = st.columns(2)
     with dl1:
         st.download_button(
@@ -155,7 +162,7 @@ def _show_table_output(result: dict, key: str):
             use_container_width=True,
         )
     with dl2:
-        csv_data = _classified_to_csv(classified_only)
+        csv_data = _classified_to_csv(result)
         st.download_button(
             "📥 Download CSV",
             data=csv_data,
@@ -165,38 +172,52 @@ def _show_table_output(result: dict, key: str):
             use_container_width=True,
         )
 
-    # ── Display each category ─────────────────────────────────────────
-    for cat_key, label in CATEGORY_LABELS.items():
+    # ── Display each table category ───────────────────────────────────
+    for cat_key in DISPLAY_ORDER:
         cat_data = result.get(cat_key, {})
         found = cat_data.get("found", False)
+        name = cat_data.get("display_name", cat_key)
 
-        if found:
-            tables = cat_data.get("tables", [])
-            for ti, tbl in enumerate(tables):
-                conf = tbl.get("confidence", 0)
-                title = tbl.get("title", label)
-                rows = tbl.get("rows", [])
-                conf_pct = f"{conf:.0%}"
+        if not found:
+            st.markdown(f"❌ **{name}** — *not found*")
+            continue
 
-                with st.expander(
-                    f"✅ {label} — {conf_pct} confidence ({len(rows)} rows)",
-                    expanded=False,
-                ):
-                    if rows and len(rows) > 1:
-                        try:
-                            headers = rows[0]
-                            data_rows = rows[1:]
-                            st.dataframe(
-                                data=[dict(zip(headers, r)) for r in data_rows],
-                                use_container_width=True,
-                            )
-                        except Exception:
-                            st.table(rows)
-                    elif rows:
-                        st.table(rows)
-        else:
-            st.markdown(f"❌ {label} — *not found*")
+        page = cat_data.get("page", "?")
+        unit = cat_data.get("unit", "")
+        headers = cat_data.get("headers", [])
+        rows = cat_data.get("rows", [])
 
-    # ── Full JSON ─────────────────────────────────────────────────────
+        # Build expander label
+        label = f"✅ {name}"
+
+        with st.expander(label, expanded=False):
+            # Title line
+            st.markdown(f"**{name}**")
+            if unit:
+                st.caption(f"({unit})")
+            st.caption(f"Page {page}")
+
+            # Render table
+            if headers and rows:
+                try:
+                    # Build dataframe-friendly dicts
+                    df_data = []
+                    for row in rows:
+                        row_dict = {}
+                        for ci, val in enumerate(row):
+                            col_name = headers[ci] if ci < len(headers) else f"Col {ci+1}"
+                            row_dict[col_name] = val
+                        df_data.append(row_dict)
+                    st.dataframe(df_data, use_container_width=True, hide_index=True)
+                except Exception:
+                    # Fallback
+                    all_rows = [headers] + rows
+                    st.table(all_rows)
+            elif rows:
+                st.table(rows)
+            else:
+                st.info("Table found but no data rows extracted.")
+
+    # ── Full JSON preview ─────────────────────────────────────────────
     with st.expander("📄 Full JSON Preview", expanded=False):
         st.json(result)
