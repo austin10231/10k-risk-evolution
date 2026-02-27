@@ -65,7 +65,7 @@ st.markdown(
         color: #2563eb;
     }
     .stTabs [aria-selected="true"] {
-        background: #60a5fa !important;
+        background: #7dd3fc !important;
         color: #ffffff !important;
         font-weight: 600;
     }
