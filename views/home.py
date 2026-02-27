@@ -89,7 +89,7 @@ def render():
         st.markdown(
             """
             <div class="card">
-                <h4>🔮 Phase 2</h4>
+                <h4>🔮 Future Features</h4>
                 <p>
                     • 10-Q support<br>
                     • Cross-company risk comparison<br>
@@ -107,9 +107,8 @@ def render():
         """
         <div style="background:#f0f4ff; border-radius:10px; padding:0.8rem 1.2rem; text-align:center;">
             <span style="font-size:0.8rem; color:#6b7280;">
-                <strong>Tech Stack:</strong> Python · Streamlit · BeautifulSoup · PyPDF2 · boto3 &nbsp;|&nbsp;
-                <strong>AWS:</strong> S3 · Textract · Bedrock · IAM &nbsp;|&nbsp;
-                <strong>Deploy:</strong> Streamlit Cloud + GitHub
+                © 2026 · AWS Team 1 &nbsp;|&nbsp;
+                Mutian He · Yuhan Luan · Jiaoqing Lu · Jiayi Yan
             </span>
         </div>
         """,
