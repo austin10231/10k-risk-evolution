@@ -147,14 +147,16 @@ def render():
                     st.error("Result JSON not found.")
                 else:
                     st.divider()
-                    _show_output(result, key=f"lib_{rec['record_id']}")
 
+                    # AI button at top
                     if not result.get("ai_summary"):
                         if st.button(
                             "🤖 AI Summarize",
                             key=f"ai_lib_{rec['record_id']}",
                         ):
                             _run_ai(result, rec["record_id"])
+
+                    _show_output(result, key=f"lib_{rec['record_id']}")
 
     with tab_new:
         col_input, col_output = st.columns([2, 3])
@@ -187,14 +189,16 @@ def render():
             if "last_analyze_result" in st.session_state:
                 res = st.session_state["last_analyze_result"]
                 rid = st.session_state.get("last_analyze_rid", "x")
-                _show_output(res, key=f"new_{rid}")
 
+                # AI button at top
                 if not res.get("ai_summary"):
                     if st.button(
                         "🤖 AI Summarize",
                         key=f"ai_new_{rid}",
                     ):
                         _run_ai(res, rid)
+
+                _show_output(res, key=f"new_{rid}")
 
         if run:
             if not company.strip():
