@@ -1,3 +1,8 @@
+"""
+AWS Bedrock integration — risk classification, summarization, change analysis.
+Uses Amazon Nova Lite for fast, low-cost inference.
+"""
+
 import json
 import streamlit as st
 import boto3
@@ -21,6 +26,7 @@ def _get_bedrock():
 
 
 def _invoke(prompt, max_tokens=1024):
+    """Call Amazon Nova Lite via Bedrock and return text response."""
     client = _get_bedrock()
     body = json.dumps({
         "inferenceConfig": {"maxTokens": max_tokens},
