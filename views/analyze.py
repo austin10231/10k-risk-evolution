@@ -39,11 +39,11 @@ def _show_output(result, key):
 
     # AI Summary at top
     if ai_summary:
-        st.markdown("##### 🤖 AI Executive Summary")
+        st.markdown('<div class="section-header">🤖 AI Executive Summary</div>', unsafe_allow_html=True)
         st.info(ai_summary)
 
     # Company Overview
-    st.markdown("##### 🏢 Company Overview")
+    st.markdown('<div class="section-header">🏢 Company Overview</div>', unsafe_allow_html=True)
     st.markdown(f"**Company:** {ov.get('company', '—')}")
     st.markdown(f"**Industry:** {ov.get('industry', '—')}")
     st.markdown(f"**Year:** {ov.get('year', '—')} · **Filing:** {ov.get('filing_type', '—')}")
@@ -52,7 +52,8 @@ def _show_output(result, key):
         st.markdown(f"**Background:** {bg}")
 
     # Risk Categories
-    st.markdown(f"##### ⚠️ Risk Categories ({len(risks)})")
+    # Risk Categories
+    st.markdown(f'<div class="section-header">⚠️ Risk Categories ({len(risks)})</div>', unsafe_allow_html=True)
     for cat_block in risks:
         cat_name = cat_block.get("category", "Unknown")
         subs = cat_block.get("sub_risks", [])
