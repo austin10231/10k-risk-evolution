@@ -14,7 +14,6 @@ INDUSTRIES = [
     "Materials", "Utilities", "Real Estate", "Telecom", "Other",
 ]
 
-# Display order
 DISPLAY_ORDER = [
     "income_statement",
     "comprehensive_income",
@@ -24,42 +23,31 @@ DISPLAY_ORDER = [
 ]
 
 
-def _classified_to_csv(result: dict) -> str:
-    """Convert classified tables to CSV."""
+def _classified_to_csv(result):
     output = io.StringIO()
     writer = csv.writer(output)
-
     for cat_key in DISPLAY_ORDER:
         cat_data = result.get(cat_key, {})
         if not cat_data.get("found"):
             continue
-
         name = cat_data.get("display_name", cat_key)
         unit = cat_data.get("unit", "")
-
         writer.writerow([f"=== {name} ==="])
         if unit:
             writer.writerow([f"({unit})"])
         writer.writerow([])
-
         headers = cat_data.get("headers", [])
         if headers:
             writer.writerow(headers)
-
         for row in cat_data.get("rows", []):
             writer.writerow(row)
-
         writer.writerow([])
         writer.writerow([])
-
     return output.getvalue()
 
 
-def _count_found(result: dict) -> int:
-    return sum(
-        1 for k in DISPLAY_ORDER
-        if result.get(k, {}).get("found")
-    )
+def _count_found(result):
+    return sum(1 for k in DISPLAY_ORDER if result.get(k, {}).get("found"))
 
 
 def render():
@@ -72,19 +60,15 @@ def render():
 
     with col_input:
         st.markdown("##### Inputs")
-        uploaded = st.file_uploader(
-            "Upload 10-K PDF", type=["pdf"], key="tbl_upload",
-        )
-        year = st.selectbox(
-            "Filing Year", list(range(2025, 2009, -1)), key="tbl_year",
-        )
+        uploaded = st.file_uploader("Upload 10-K PDF", type=["pdf"], key="tbl_upload")
+        year = st.selectbox("Filing Year", list(range(2025, 2009, -1)), key="tbl_year")
         company = st.text_input("Company Name", key="tbl_company")
         industry = st.selectbox("Industry", INDUSTRIES, key="tbl_industry")
         filing_type = st.selectbox(
             "Filing Type", ["10-K", "10-Q (coming soon)"], key="tbl_ftype",
         )
         run = st.button(
-            "📊 Extract Tables", type="primary",
+            "📊 Extract Tables",
             key="btn_extract_tables", use_container_width=True,
         )
         st.caption(
@@ -113,7 +97,7 @@ def render():
 
         pdf_bytes = uploaded.read()
 
-        with st.spinner("Extracting tables via AWS Textract (1-2 minutes) …"):
+        with st.spinner("Locating Item 8 & extracting tables via AWS Textract …"):
             classified = extract_tables_from_pdf(pdf_bytes)
 
         found_count = _count_found(classified)
@@ -145,8 +129,7 @@ def render():
         st.rerun()
 
 
-def _show_table_output(result: dict, key: str):
-    """Display classified financial tables."""
+def _show_table_output(result, key):
     found = result.get("tables_found", 0)
 
     st.markdown(
@@ -154,7 +137,6 @@ def _show_table_output(result: dict, key: str):
         f"**{found}/5** financial tables identified"
     )
 
-    # ── Download buttons ──────────────────────────────────────────────
     dl1, dl2 = st.columns(2)
     with dl1:
         st.download_button(
@@ -166,7 +148,8 @@ def _show_table_output(result: dict, key: str):
             use_container_width=True,
         )
     with dl2:
-        csv_data = _classified_to_csv(result)
+        classified_only = {k: result.get(k, {"found": False}) for k in DISPLAY_ORDER}
+        csv_data = _classified_to_csv(classified_only)
         st.download_button(
             "📥 Download CSV",
             data=csv_data,
@@ -176,13 +159,12 @@ def _show_table_output(result: dict, key: str):
             use_container_width=True,
         )
 
-    # ── Display each table category ───────────────────────────────────
     for cat_key in DISPLAY_ORDER:
         cat_data = result.get(cat_key, {})
-        found = cat_data.get("found", False)
-        name = cat_data.get("display_name", cat_key)
+        found_flag = cat_data.get("found", False)
+        name = cat_data.get("display_name", TABLE_CATEGORIES.get(cat_key, {}).get("display_name", cat_key))
 
-        if not found:
+        if not found_flag:
             st.markdown(f"❌ **{name}** — *not found*")
             continue
 
@@ -191,20 +173,14 @@ def _show_table_output(result: dict, key: str):
         headers = cat_data.get("headers", [])
         rows = cat_data.get("rows", [])
 
-        # Build expander label
-        label = f"✅ {name}"
-
-        with st.expander(label, expanded=False):
-            # Title line
+        with st.expander(f"✅ {name}", expanded=False):
             st.markdown(f"**{name}**")
             if unit:
                 st.caption(f"({unit})")
             st.caption(f"Page {page}")
 
-            # Render table
             if headers and rows:
                 try:
-                    # Build dataframe-friendly dicts
                     df_data = []
                     for row in rows:
                         row_dict = {}
@@ -214,7 +190,6 @@ def _show_table_output(result: dict, key: str):
                         df_data.append(row_dict)
                     st.dataframe(df_data, use_container_width=True, hide_index=True)
                 except Exception:
-                    # Fallback
                     all_rows = [headers] + rows
                     st.table(all_rows)
             elif rows:
@@ -222,6 +197,5 @@ def _show_table_output(result: dict, key: str):
             else:
                 st.info("Table found but no data rows extracted.")
 
-    # ── Full JSON preview ─────────────────────────────────────────────
     with st.expander("📄 Full JSON Preview", expanded=False):
         st.json(result)
