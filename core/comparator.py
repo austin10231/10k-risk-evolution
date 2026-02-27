@@ -1,89 +1,139 @@
-"""
-Compare two analysis results by sub-risk title matching.
-Uses fuzzy matching (SequenceMatcher) to handle minor wording changes.
-Works with hierarchical risks: [ { category, sub_risks: [str, ...] }, ... ]
-"""
+"""Compare page — NEW / REMOVED risk diff. Readable text display."""
 
-import re
-import difflib
+import streamlit as st
+import json
 
-
-def _normalize(title: str) -> str:
-    t = title.lower()
-    t = re.sub(r"[^\w\s]", "", t)
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
+from storage.store import load_index, get_result, save_compare_result
+from core.comparator import compare_risks
+from core.bedrock import analyze_changes
 
 
-def _flatten_sub_risks(result: dict) -> list[dict]:
-    """Flatten hierarchical risks into [{category, title, norm}]."""
-    items = []
-    for cat_block in result.get("risks", []):
-        cat = cat_block.get("category", "Unknown")
-        for sr in cat_block.get("sub_risks", []):
-            items.append({
-                "category": cat,
-                "title": sr,
-                "norm": _normalize(sr),
-            })
-    return items
+def render():
+    index = load_index()
+    if not index:
+        st.info("No records yet. Go to **Analyze → New Analysis** first.")
+        return
 
+    companies = sorted(set(r["company"] for r in index))
+    company = st.selectbox("Company", companies, key="cmp_company")
 
-def _find_best_match(norm: str, candidates: list[dict], threshold: float = 0.80) -> dict | None:
-    """Find the best fuzzy match for norm among candidates."""
-    best = None
-    best_ratio = 0.0
-    for c in candidates:
-        ratio = difflib.SequenceMatcher(None, norm, c["norm"]).ratio()
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best = c
-    if best_ratio >= threshold:
-        return best
-    return None
+    co_recs = [r for r in index if r["company"] == company]
+    ftypes = sorted(set(r["filing_type"] for r in co_recs))
+    ftype = st.selectbox("Filing Type", ftypes, key="cmp_ftype")
 
+    type_recs = [r for r in co_recs if r["filing_type"] == ftype]
+    years = sorted(set(r["year"] for r in type_recs))
 
-def compare_risks(prior_result: dict, latest_result: dict) -> dict:
-    """
-    Returns {
-        new_risks:     [{ category, title }],
-        removed_risks: [{ category, title }],
-    }
-    """
-    prior = _flatten_sub_risks(prior_result)
-    latest = _flatten_sub_risks(latest_result)
+    if len(years) < 2:
+        st.warning(f"Need at least 2 years for **{company}** / **{ftype}**.")
+        return
 
-    # Track which items have been matched
-    matched_prior: set[int] = set()
-    matched_latest: set[int] = set()
+    c1, c2 = st.columns(2)
+    with c1:
+        latest_year = st.selectbox("Latest year (t)", years[::-1], key="cmp_latest")
+    with c2:
+        prior_opts = [y for y in years if y < latest_year]
+        if not prior_opts:
+            st.warning("No prior year available.")
+            return
+        prior_years = st.multiselect(
+            "Prior year(s)", prior_opts[::-1],
+            default=[prior_opts[-1]], key="cmp_prior",
+        )
 
-    # For each latest risk, try to find a match in prior
-    for li, lr in enumerate(latest):
-        unmatched_prior = [
-            (pi, pr) for pi, pr in enumerate(prior) if pi not in matched_prior
-        ]
-        if not unmatched_prior:
-            break
-        best = None
-        best_ratio = 0.0
-        best_pi = -1
-        for pi, pr in unmatched_prior:
-            ratio = difflib.SequenceMatcher(None, lr["norm"], pr["norm"]).ratio()
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_pi = pi
-        if best_ratio >= 0.75:
-            matched_latest.add(li)
-            matched_prior.add(best_pi)
+    if not prior_years:
+        st.warning("Select at least one prior year.")
+        return
 
-    # Unmatched latest = NEW, unmatched prior = REMOVED
-    new_risks = [
-        {"category": latest[i]["category"], "title": latest[i]["title"]}
-        for i in range(len(latest)) if i not in matched_latest
-    ]
-    removed_risks = [
-        {"category": prior[i]["category"], "title": prior[i]["title"]}
-        for i in range(len(prior)) if i not in matched_prior
-    ]
+    run = st.button("🚀 Run Compare", key="btn_cmp")
+    if not run:
+        return
 
-    return {"new_risks": new_risks, "removed_risks": removed_risks}
+    def find_rec(yr):
+        return next((r for r in type_recs if r["year"] == yr), None)
+
+    latest_rec = find_rec(latest_year)
+    latest_res = get_result(latest_rec["record_id"]) if latest_rec else None
+    if latest_res is None:
+        st.error(f"Cannot load {company} {latest_year}.")
+        return
+
+    all_comparisons = []
+
+    for py in sorted(prior_years, reverse=True):
+        prior_rec = find_rec(py)
+        prior_res = get_result(prior_rec["record_id"]) if prior_rec else None
+        if prior_res is None:
+            st.error(f"Cannot load {company} {py}.")
+            continue
+
+        st.divider()
+        st.subheader(f"{latest_year} vs {py}")
+
+        cmp = compare_risks(prior_res, latest_res)
+
+        m1, m2 = st.columns(2)
+        m1.metric("🟢 New Risks", len(cmp["new_risks"]))
+        m2.metric("🔴 Removed Risks", len(cmp["removed_risks"]))
+
+        if cmp["new_risks"]:
+            st.markdown(f"**🟢 New Risks in {latest_year}** (not in {py})")
+            for r in cmp["new_risks"]:
+                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
+
+        if cmp["removed_risks"]:
+            st.markdown(f"**🔴 Removed Risks** (in {py}, not in {latest_year})")
+            for r in cmp["removed_risks"]:
+                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
+
+        if not cmp["new_risks"] and not cmp["removed_risks"]:
+            st.success("No new or removed risks detected.")
+
+        export = {
+            "company": company,
+            "filing_type": ftype,
+            "prior_year": py,
+            "latest_year": latest_year,
+            "new_risks": cmp["new_risks"],
+            "removed_risks": cmp["removed_risks"],
+        }
+        all_comparisons.append(export)
+
+        if st.button(
+            "🤖 AI Change Analysis",
+            key=f"ai_cmp_{latest_year}_{py}_{company}",
+        ):
+            with st.spinner("🤖 Analyzing changes …"):
+                ai_text = analyze_changes(
+                    company, latest_year, py,
+                    cmp["new_risks"], cmp["removed_risks"],
+                )
+            st.markdown("##### 🤖 AI Analysis")
+            st.info(ai_text)
+            export["ai_analysis"] = ai_text
+
+        st.download_button(
+            "⬇️ Download Compare JSON",
+            data=json.dumps(export, indent=2, ensure_ascii=False),
+            file_name=f"{company}_compare_{latest_year}_vs_{py}.json",
+            mime="application/json",
+            key=f"dl_cmp_{latest_year}_{py}_{company}",
+        )
+
+    if all_comparisons:
+        combined = {
+            "company": company,
+            "filing_type": ftype,
+            "latest_year": latest_year,
+            "prior_years": sorted(prior_years, reverse=True),
+            "comparisons": all_comparisons,
+        }
+        s3_key = save_compare_result(
+            company=company,
+            filing_type=ftype,
+            latest_year=latest_year,
+            prior_years=sorted(prior_years, reverse=True),
+            compare_json=combined,
+        )
+        st.divider()
+        st.success(f"Compare result saved to S3: `{s3_key}`")
