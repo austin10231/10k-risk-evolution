@@ -3,87 +3,115 @@
 import streamlit as st
 
 
-def _run_ai(result, record_id):
-    """Run AI classification + summary, update result in S3."""
-    ov = result.get("company_overview", {})
-    risks = result.get("risks", [])
-
-    with st.spinner("🤖 Classifying risks with AI …"):
-        classified = classify_risks(risks)
-    result["risks"] = classified
-
-    with st.spinner("🤖 Generating executive summary …"):
-        summary = generate_summary(
-            ov.get("company", ""), ov.get("year", 0), classified
-        )
-    result["ai_summary"] = summary
-
-    # Save updated result back to S3
-    from storage.store import _s3_write, RESULTS_PREFIX
-    import json as _json
-    _s3_write(
-        f"{RESULTS_PREFIX}/{record_id}.json",
-        _json.dumps(result, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
-    )
-
-    st.session_state["last_analyze_result"] = result
-    st.rerun()
-
-
 def render():
+    # Hero section
     st.markdown(
-        "**Automatically extract, structure, and compare SEC 10-K Risk Factors "
-        "(Item 1A) across filing years — producing a memo-ready risk change report.**"
+        """
+        <div style="text-align:center; padding: 1.5rem 0 1rem 0;">
+            <p style="font-size:1.1rem; color:#374151; max-width:700px; margin:0 auto; line-height:1.6;">
+                Automatically extract, structure, and compare SEC 10-K Risk Factors (Item 1A)
+                across filing years — producing a memo-ready risk change report.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
+
     st.divider()
 
-    st.subheader("How It Works")
+    # How it works - 4 steps
+    st.markdown('<p style="font-size:1.2rem; font-weight:700; color:#1f2937; margin-bottom:0.8rem;">How It Works</p>', unsafe_allow_html=True)
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown(
-            '<div class="card"><h4>① Upload</h4>'
-            "<p>Upload a 10-K filing (HTML or PDF) from SEC EDGAR.</p></div>",
+            '<div class="feature-card">'
+            '<div class="step">📤</div>'
+            "<h4>① Upload</h4>"
+            "<p>Upload a 10-K filing (HTML or PDF) from SEC EDGAR.</p>"
+            "</div>",
             unsafe_allow_html=True,
         )
     with c2:
         st.markdown(
-            '<div class="card"><h4>② Extract</h4>'
-            "<p>Item 1 overview & Item 1A risks are extracted into structured JSON.</p></div>",
+            '<div class="feature-card">'
+            '<div class="step">🔍</div>'
+            "<h4>② Extract</h4>"
+            "<p>Item 1 overview & Item 1A risks are extracted into structured JSON.</p>"
+            "</div>",
             unsafe_allow_html=True,
         )
     with c3:
         st.markdown(
-            '<div class="card"><h4>③ Compare</h4>'
-            "<p>Compare years to find NEW and REMOVED risks, then export JSON.</p></div>",
+            '<div class="feature-card">'
+            '<div class="step">⚖️</div>'
+            "<h4>③ Compare</h4>"
+            "<p>Compare years to find NEW and REMOVED risks, then export JSON.</p>"
+            "</div>",
             unsafe_allow_html=True,
         )
     with c4:
         st.markdown(
-            '<div class="card"><h4>④ Tables</h4>'
-            "<p>Extract financial tables from PDF filings via AWS Textract.</p></div>",
+            '<div class="feature-card">'
+            '<div class="step">📊</div>'
+            "<h4>④ Tables</h4>"
+            "<p>Extract financial tables from PDF filings via AWS Textract.</p>"
+            "</div>",
             unsafe_allow_html=True,
         )
 
+    st.markdown("<br>", unsafe_allow_html=True)
     st.divider()
+
+    # Features
     col_a, col_b = st.columns(2)
     with col_a:
-        st.markdown("##### ✅ Current Features")
         st.markdown(
-            "- 10-K filing upload (HTML & PDF)\n"
-            "- Item 1 overview + Item 1A hierarchical risk extraction\n"
-            "- PDF text extraction via AWS Textract\n"
-            "- Financial statement table extraction (PDF)\n"
-            "- AI-powered risk classification & summarization (AWS Bedrock)\n"
-            "- YoY / multi-year NEW & REMOVED comparison\n"
-            "- AI-powered change analysis\n"
-            "- JSON & CSV export\n"
-            "- AWS S3 persistent storage"
+            """
+            <div class="card">
+                <h4>✅ Current Features</h4>
+                <p>
+                    • 10-K filing upload (HTML & PDF)<br>
+                    • Item 1 overview + Item 1A hierarchical risk extraction<br>
+                    • PDF text extraction via AWS Textract<br>
+                    • Financial statement table extraction (PDF)<br>
+                    • AI-powered risk summarization (AWS Bedrock)<br>
+                    • YoY / multi-year NEW & REMOVED comparison<br>
+                    • AI-powered change analysis<br>
+                    • JSON & CSV export<br>
+                    • AWS S3 persistent storage
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
     with col_b:
-        st.markdown("##### 🔮 Phase 2")
         st.markdown(
-            "- 10-Q support\n"
-            "- Cross-company risk comparison\n"
-            "- Risk trend dashboard\n"
-            "- EDGAR direct download by CIK / ticker"
+            """
+            <div class="card">
+                <h4>🔮 Phase 2</h4>
+                <p>
+                    • 10-Q support<br>
+                    • Cross-company risk comparison<br>
+                    • Risk trend dashboard<br>
+                    • EDGAR direct download by CIK / ticker
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
+
+    # Tech stack footer
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div style="background:#f0f4ff; border-radius:10px; padding:0.8rem 1.2rem; text-align:center;">
+            <span style="font-size:0.8rem; color:#6b7280;">
+                <strong>Tech Stack:</strong> Python · Streamlit · BeautifulSoup · PyPDF2 · boto3 &nbsp;|&nbsp;
+                <strong>AWS:</strong> S3 · Textract · Bedrock · IAM &nbsp;|&nbsp;
+                <strong>Deploy:</strong> Streamlit Cloud + GitHub
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
