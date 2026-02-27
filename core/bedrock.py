@@ -7,7 +7,7 @@ import json
 import streamlit as st
 import boto3
 
-MODEL_ID = "amazon.nova-lite-v1:0"
+MODEL_ID = "us.amazon.nova-lite-v1:0"
 
 RISK_CATEGORIES = [
     "cybersecurity", "regulatory", "supply_chain", "geopolitical",
