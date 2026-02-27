@@ -5,6 +5,7 @@ import json
 
 from storage.store import load_index, get_result, save_compare_result
 from core.comparator import compare_risks
+from core.bedrock import analyze_changes
 
 
 def render():
@@ -57,7 +58,6 @@ def render():
         st.error(f"Cannot load {company} {latest_year}.")
         return
 
-    # ── Per prior year ────────────────────────────────────────────────────────
     all_comparisons = []
 
     for py in sorted(prior_years, reverse=True):
@@ -72,12 +72,24 @@ def render():
 
         cmp = compare_risks(prior_res, latest_res)
 
-        # ── Stats ─────────────────────────────────────────────────────────
         m1, m2 = st.columns(2)
         m1.metric("🟢 New Risks", len(cmp["new_risks"]))
         m2.metric("🔴 Removed Risks", len(cmp["removed_risks"]))
 
-        # ── Output as JSON ────────────────────────────────────────────────
+        # ── Display as readable text ──────────────────────────────
+        if cmp["new_risks"]:
+            st.markdown(f"**🟢 New Risks in {latest_year}** (not in {py})")
+            for r in cmp["new_risks"]:
+                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
+
+        if cmp["removed_risks"]:
+            st.markdown(f"**🔴 Removed Risks** (in {py}, not in {latest_year})")
+            for r in cmp["removed_risks"]:
+                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
+
+        if not cmp["new_risks"] and not cmp["removed_risks"]:
+            st.success("No new or removed risks detected.")
+
         export = {
             "company": company,
             "filing_type": ftype,
@@ -86,9 +98,22 @@ def render():
             "new_risks": cmp["new_risks"],
             "removed_risks": cmp["removed_risks"],
         }
-
-        st.json(export)
         all_comparisons.append(export)
+
+        # ── AI Change Analysis button ─────────────────────────────
+        if st.button(
+            "🤖 AI Change Analysis",
+            key=f"ai_cmp_{latest_year}_{py}_{company}",
+            type="primary",
+        ):
+            with st.spinner("🤖 Analyzing changes …"):
+                ai_text = analyze_changes(
+                    company, latest_year, py,
+                    cmp["new_risks"], cmp["removed_risks"],
+                )
+            st.markdown("##### 🤖 AI Analysis")
+            st.info(ai_text)
+            export["ai_analysis"] = ai_text
 
         st.download_button(
             "⬇️ Download Compare JSON",
@@ -99,6 +124,8 @@ def render():
         )
 
     # ── Save combined result to S3 ────────────────────────────────────────
+    if all_comparisons:
+
     if all_comparisons:
         combined = {
             "company": company,
