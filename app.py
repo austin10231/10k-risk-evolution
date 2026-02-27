@@ -21,8 +21,8 @@ st.markdown(
 
     /* ── Top header bar ───────────────────────────────── */
     .top-bar {
-        background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
-        padding: 1rem 2rem;
+        background: linear-gradient(135deg, #60a5fa 0%, #93c5fd 50%, #bfdbfe 100%);
+        padding: 1.4rem 2rem;
         border-radius: 12px;
         margin-bottom: 1rem;
         display: flex;
@@ -31,14 +31,16 @@ st.markdown(
     }
     .top-bar h1 {
         color: #ffffff !important;
-        font-size: 1.5rem;
+        font-size: 2rem;
         margin: 0;
-        font-weight: 700;
+        font-weight: 800;
+        text-shadow: 0 1px 4px rgba(30,58,138,0.25);
     }
     .top-bar .subtitle {
-        color: #93c5fd;
-        font-size: 0.85rem;
+        color: #eff6ff;
+        font-size: 1rem;
         margin: 0;
+        font-weight: 500;
     }
 
     /* ── Navigation tabs ──────────────────────────────── */
@@ -63,7 +65,7 @@ st.markdown(
         color: #2563eb;
     }
     .stTabs [aria-selected="true"] {
-        background: #2563eb !important;
+        background: #60a5fa !important;
         color: #ffffff !important;
         font-weight: 600;
     }
