@@ -1,10 +1,11 @@
-"""Analyze page — Library + New Analysis. Supports HTML & PDF."""
+"""Analyze page — Library + New Analysis. Readable text display."""
 
 import streamlit as st
 import json
 
 from storage.store import (
     load_index, add_record, get_result, filter_records, delete_record,
+    _s3_write, RESULTS_PREFIX,
 )
 from core.extractor import (
     extract_item1_overview, extract_item1a_risks,
@@ -21,12 +22,12 @@ INDUSTRIES = [
 ]
 
 
-def _count_sub_risks(risks: list[dict]) -> int:
+def _count_sub_risks(risks):
     return sum(len(c.get("sub_risks", [])) for c in risks)
 
 
-def _show_output(result: dict, key: str):
-    """Render output as readable text (not JSON). JSON still available for download."""
+def _show_output(result, key):
+    """Render output as readable text. JSON available for download only."""
     ov = result.get("company_overview", {})
     risks = result.get("risks", [])
     ai_summary = result.get("ai_summary", "")
@@ -67,7 +68,6 @@ def _show_output(result: dict, key: str):
         subs = cat_block.get("sub_risks", [])
         sub_count = len(subs)
 
-        # Check if sub_risks are classified (dicts with labels) or plain strings
         if subs and isinstance(subs[0], dict):
             # Classified — show labels
             with st.expander(f"**{cat_name}** ({sub_count} risks)", expanded=False):
@@ -83,9 +83,37 @@ def _show_output(result: dict, key: str):
             st.markdown(f"- **{cat_name}** — {sub_count} risk items")
 
 
+def _run_ai(result, record_id):
+    """Run AI classification + summary, update result in S3."""
+    ov = result.get("company_overview", {})
+    risks = result.get("risks", [])
+
+    with st.spinner("🤖 Classifying risks with AI …"):
+        classified = classify_risks(risks)
+    result["risks"] = classified
+
+    with st.spinner("🤖 Generating executive summary …"):
+        summary = generate_summary(
+            ov.get("company", ""), ov.get("year", 0), classified
+        )
+    result["ai_summary"] = summary
+
+    # Save updated result back to S3
+    _s3_write(
+        f"{RESULTS_PREFIX}/{record_id}.json",
+        json.dumps(result, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
+    )
+
+    st.session_state["last_analyze_result"] = result
+    st.rerun()
+
+
 def render():
     tab_lib, tab_new = st.tabs(["📚 Library", "➕ New Analysis"])
 
+    # ══════════════════════════════════════════════════════════════════════════
+    #  LIBRARY
+    # ══════════════════════════════════════════════════════════════════════════
     with tab_lib:
         index = load_index()
         if not index:
@@ -128,16 +156,17 @@ def render():
                     st.divider()
                     _show_output(result, key=f"lib_{rec['record_id']}")
 
-                    # ── AI Classify & Summarize button ────────────────
+                    # AI button (only if not yet classified)
                     if not result.get("ai_summary"):
                         if st.button(
                             "🤖 AI Classify & Summarize",
                             key=f"ai_lib_{rec['record_id']}",
-                            type="primary",
-                            use_container_width=True,
                         ):
                             _run_ai(result, rec["record_id"])
 
+    # ══════════════════════════════════════════════════════════════════════════
+    #  NEW ANALYSIS
+    # ══════════════════════════════════════════════════════════════════════════
     with tab_new:
         col_input, col_output = st.columns([2, 3])
 
@@ -157,7 +186,7 @@ def render():
                 "Filing Type", ["10-K", "10-Q (coming soon)"], key="new_ftype",
             )
             run = st.button(
-                "🚀 Extract & Save", type="primary",
+                "🚀 Extract & Save",
                 key="btn_run_analyze", use_container_width=True,
             )
             st.caption(
@@ -175,8 +204,6 @@ def render():
                     if st.button(
                         "🤖 AI Classify & Summarize",
                         key=f"ai_new_{rid}",
-                        type="primary",
-                        use_container_width=True,
                     ):
                         _run_ai(res, rid)
 
