@@ -1,0 +1,191 @@
+"""
+AWS Bedrock integration for risk classification, summarization, and change analysis.
+Uses Claude 3 Haiku for fast, low-cost inference.
+"""
+
+import json
+import streamlit as st
+import boto3
+
+
+MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
+
+RISK_CATEGORIES = [
+    "cybersecurity",
+    "regulatory",
+    "supply_chain",
+    "geopolitical",
+    "competition",
+    "macroeconomic",
+    "financial",
+    "environmental",
+    "litigation",
+    "talent",
+    "technology",
+    "reputational",
+    "operational",
+]
+
+
+def _get_bedrock():
+    return boto3.client(
+        "bedrock-runtime",
+        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+        region_name=st.secrets["BEDROCK_REGION"],
+    )
+
+
+def _invoke(prompt: str, max_tokens: int = 1024) -> str:
+    """Call Claude 3 Haiku via Bedrock and return text response."""
+    client = _get_bedrock()
+
+    body = json.dumps({
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": max_tokens,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+    })
+
+    response = client.invoke_model(
+        modelId=MODEL_ID,
+        contentType="application/json",
+        accept="application/json",
+        body=body,
+    )
+
+    result = json.loads(response["body"].read())
+    return result["content"][0]["text"].strip()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  1. RISK CLASSIFICATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+def classify_risks(risks: list[dict]) -> list[dict]:
+    """
+    Classify each sub_risk with 1-2 labels.
+
+    Input: [{ "category": "...", "sub_risks": ["...", ...] }, ...]
+    Output: same structure but sub_risks become [{ "title": "...", "labels": [...] }, ...]
+    """
+    categories_str = ", ".join(RISK_CATEGORIES)
+
+    classified = []
+    for cat_block in risks:
+        cat_name = cat_block.get("category", "Unknown")
+        new_sub_risks = []
+
+        for title in cat_block.get("sub_risks", []):
+            # Truncate very long titles to save tokens
+            text = title[:500] if len(title) > 500 else title
+
+            prompt = f"""Classify this SEC 10-K risk factor into 1-2 categories from this list:
+{categories_str}
+
+Risk text: "{text}"
+
+Return ONLY a JSON array of 1-2 category strings, nothing else. Example: ["regulatory", "litigation"]"""
+
+            try:
+                raw = _invoke(prompt, max_tokens=50)
+                # Parse the JSON array
+                raw = raw.strip()
+                if raw.startswith("["):
+                    labels = json.loads(raw)
+                    # Validate labels
+                    labels = [l for l in labels if l in RISK_CATEGORIES]
+                    if not labels:
+                        labels = ["other"]
+                else:
+                    labels = ["other"]
+            except Exception:
+                labels = ["other"]
+
+            new_sub_risks.append({
+                "title": title,
+                "labels": labels,
+            })
+
+        classified.append({
+            "category": cat_name,
+            "sub_risks": new_sub_risks,
+        })
+
+    return classified
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  2. RISK SUMMARY
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_summary(company: str, year: int, risks: list[dict]) -> str:
+    """
+    Generate a 3-5 sentence executive summary of all risk factors.
+    """
+    # Build a compact representation of risks
+    risk_lines = []
+    for cat_block in risks:
+        cat = cat_block.get("category", "")
+        subs = cat_block.get("sub_risks", [])
+        if isinstance(subs, list) and subs:
+            if isinstance(subs[0], dict):
+                titles = [s.get("title", "")[:100] for s in subs]
+            else:
+                titles = [s[:100] for s in subs]
+            risk_lines.append(f"{cat}: {'; '.join(titles)}")
+
+    risk_text = "\n".join(risk_lines)
+
+    prompt = f"""You are a financial analyst. Based on the following risk factors from {company}'s {year} 10-K filing, write a concise executive summary in 3-5 sentences.
+
+Focus on: the most critical risks, notable themes, and anything unusual or new compared to typical 10-K filings in this industry.
+
+Risk factors:
+{risk_text}
+
+Write the summary directly, no headers or bullet points."""
+
+    try:
+        return _invoke(prompt, max_tokens=500)
+    except Exception as e:
+        return f"(Summary generation failed: {str(e)})"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  3. CHANGE ANALYSIS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def analyze_changes(
+    company: str,
+    latest_year: int,
+    prior_year: int,
+    new_risks: list[dict],
+    removed_risks: list[dict],
+) -> str:
+    """
+    Generate a 3-5 sentence analysis explaining why risks were added or removed.
+    """
+    new_titles = [r.get("title", "")[:120] for r in new_risks]
+    removed_titles = [r.get("title", "")[:120] for r in removed_risks]
+
+    prompt = f"""You are a financial analyst comparing {company}'s 10-K risk factors between {prior_year} and {latest_year}.
+
+NEW risks added in {latest_year} (not in {prior_year}):
+{chr(10).join(f'- {t}' for t in new_titles) if new_titles else '- None'}
+
+REMOVED risks (in {prior_year} but not in {latest_year}):
+{chr(10).join(f'- {t}' for t in removed_titles) if removed_titles else '- None'}
+
+Write a concise 3-5 sentence analysis explaining:
+1. What major themes emerged or disappeared
+2. Possible reasons for these changes (industry trends, regulatory changes, company events)
+3. What this signals about the company's risk landscape
+
+Write directly, no headers or bullet points."""
+
+    try:
+        return _invoke(prompt, max_tokens=500)
+    except Exception as e:
+        return f"(Change analysis failed: {str(e)})"
