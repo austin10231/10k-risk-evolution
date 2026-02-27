@@ -25,10 +25,9 @@ st.markdown(
     [data-testid="stMetricLabel"]  { font-size:.82rem; color:#6b7280!important; }
     [data-testid="stMetricValue"]  { color:#111827!important; }
     .stDownloadButton>button {
-        background:#2563eb; color:#fff!important; border:none; border-radius:6px;
+        background:#60a5fa; color:#fff!important; border:none; border-radius:6px;
     }
-    .stDownloadButton>button:hover { background:#1d4ed8; }
-    /* All action buttons: light blue with white text */
+    .stDownloadButton>button:hover { background:#3b82f6; }
     div.stButton>button[kind="primary"],
     div.stButton>button[data-testid="stBaseButton-primary"] {
         background: #60a5fa !important;
