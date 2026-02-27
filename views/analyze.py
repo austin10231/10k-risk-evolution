@@ -11,6 +11,7 @@ from core.extractor import (
     extract_text_from_pdf, extract_item1_overview_from_text,
     extract_item1a_risks_from_text,
 )
+from core.bedrock import classify_risks, generate_summary
 from components.filters import library_filters
 
 INDUSTRIES = [
@@ -25,13 +26,15 @@ def _count_sub_risks(risks: list[dict]) -> int:
 
 
 def _show_output(result: dict, key: str):
+    """Render output as readable text (not JSON). JSON still available for download."""
     ov = result.get("company_overview", {})
     risks = result.get("risks", [])
+    ai_summary = result.get("ai_summary", "")
 
     st.markdown(
         f"**{ov.get('company', '—')}** · {ov.get('year', '—')} · "
-        f"**{len(risks)}** categories · "
-        f"**{_count_sub_risks(risks)}** risk blocks"
+        f"**{len(risks)}** risk categories · "
+        f"**{_count_sub_risks(risks)}** risk items"
     )
 
     st.download_button(
@@ -43,11 +46,41 @@ def _show_output(result: dict, key: str):
         use_container_width=True,
     )
 
-    st.markdown("##### 🏢 Company Overview")
-    st.json(ov)
+    # ── AI Summary ────────────────────────────────────────────────
+    if ai_summary:
+        st.markdown("##### 🤖 AI Executive Summary")
+        st.info(ai_summary)
 
-    st.markdown(f"##### ⚠️ Risk Factors ({len(risks)} categories)")
-    st.json(risks)
+    # ── Company Overview (readable) ───────────────────────────────
+    st.markdown("##### 🏢 Company Overview")
+    st.markdown(f"**Company:** {ov.get('company', '—')}")
+    st.markdown(f"**Industry:** {ov.get('industry', '—')}")
+    st.markdown(f"**Year:** {ov.get('year', '—')} · **Filing:** {ov.get('filing_type', '—')}")
+    bg = ov.get("background", "")
+    if bg:
+        st.markdown(f"**Background:** {bg}")
+
+    # ── Risk Categories (titles only) ─────────────────────────────
+    st.markdown(f"##### ⚠️ Risk Categories ({len(risks)})")
+    for cat_block in risks:
+        cat_name = cat_block.get("category", "Unknown")
+        subs = cat_block.get("sub_risks", [])
+        sub_count = len(subs)
+
+        # Check if sub_risks are classified (dicts with labels) or plain strings
+        if subs and isinstance(subs[0], dict):
+            # Classified — show labels
+            with st.expander(f"**{cat_name}** ({sub_count} risks)", expanded=False):
+                for s in subs:
+                    labels = s.get("labels", [])
+                    label_str = " · ".join(f"`{l}`" for l in labels) if labels else ""
+                    title = s.get("title", "")[:150]
+                    st.markdown(f"- {title}")
+                    if label_str:
+                        st.caption(f"   Labels: {label_str}")
+        else:
+            # Not classified — just show category with count
+            st.markdown(f"- **{cat_name}** — {sub_count} risk items")
 
 
 def render():
@@ -95,6 +128,16 @@ def render():
                     st.divider()
                     _show_output(result, key=f"lib_{rec['record_id']}")
 
+                    # ── AI Classify & Summarize button ────────────────
+                    if not result.get("ai_summary"):
+                        if st.button(
+                            "🤖 AI Classify & Summarize",
+                            key=f"ai_lib_{rec['record_id']}",
+                            type="primary",
+                            use_container_width=True,
+                        ):
+                            _run_ai(result, rec["record_id"])
+
     with tab_new:
         col_input, col_output = st.columns([2, 3])
 
@@ -124,10 +167,18 @@ def render():
 
         with col_output:
             if "last_analyze_result" in st.session_state:
-                _show_output(
-                    st.session_state["last_analyze_result"],
-                    key=f"new_{st.session_state.get('last_analyze_rid', 'x')}",
-                )
+                res = st.session_state["last_analyze_result"]
+                rid = st.session_state.get("last_analyze_rid", "x")
+                _show_output(res, key=f"new_{rid}")
+
+                if not res.get("ai_summary"):
+                    if st.button(
+                        "🤖 AI Classify & Summarize",
+                        key=f"ai_new_{rid}",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        _run_ai(res, rid)
 
         if run:
             if not company.strip():
