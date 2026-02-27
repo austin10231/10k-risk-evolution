@@ -3,6 +3,33 @@
 import streamlit as st
 
 
+def _run_ai(result, record_id):
+    """Run AI classification + summary, update result in S3."""
+    ov = result.get("company_overview", {})
+    risks = result.get("risks", [])
+
+    with st.spinner("🤖 Classifying risks with AI …"):
+        classified = classify_risks(risks)
+    result["risks"] = classified
+
+    with st.spinner("🤖 Generating executive summary …"):
+        summary = generate_summary(
+            ov.get("company", ""), ov.get("year", 0), classified
+        )
+    result["ai_summary"] = summary
+
+    # Save updated result back to S3
+    from storage.store import _s3_write, RESULTS_PREFIX
+    import json as _json
+    _s3_write(
+        f"{RESULTS_PREFIX}/{record_id}.json",
+        _json.dumps(result, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
+    )
+
+    st.session_state["last_analyze_result"] = result
+    st.rerun()
+
+
 def render():
     st.markdown(
         "**Automatically extract, structure, and compare SEC 10-K Risk Factors "
@@ -46,7 +73,9 @@ def render():
             "- Item 1 overview + Item 1A hierarchical risk extraction\n"
             "- PDF text extraction via AWS Textract\n"
             "- Financial statement table extraction (PDF)\n"
+            "- AI-powered risk classification & summarization (AWS Bedrock)\n"
             "- YoY / multi-year NEW & REMOVED comparison\n"
+            "- AI-powered change analysis\n"
             "- JSON & CSV export\n"
             "- AWS S3 persistent storage"
         )
@@ -54,7 +83,7 @@ def render():
         st.markdown("##### 🔮 Phase 2")
         st.markdown(
             "- 10-Q support\n"
-            "- LLM-powered risk summarization (AWS Bedrock)\n"
             "- Cross-company risk comparison\n"
+            "- Risk trend dashboard\n"
             "- EDGAR direct download by CIK / ticker"
         )
