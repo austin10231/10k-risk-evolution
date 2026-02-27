@@ -47,6 +47,9 @@ def render():
 
     run = st.button("🚀 Run Compare", key="btn_run_cmp")
     if not run:
+        # Show previous results if available
+        if "cmp_results" in st.session_state:
+            _display_compare_results(st.session_state["cmp_results"], company, ftype)
         return
 
     def find_rec(yr):
@@ -67,72 +70,90 @@ def render():
             st.error(f"Cannot load {company} {py}.")
             continue
 
-        st.divider()
-        st.subheader(f"{latest_year} vs {py}")
-
         cmp = compare_risks(prior_res, latest_res)
 
-        m1, m2 = st.columns(2)
-        m1.metric("🟢 New Risks", len(cmp["new_risks"]))
-        m2.metric("🔴 Removed Risks", len(cmp["removed_risks"]))
-
-        if cmp["new_risks"]:
-            st.markdown(f"**🟢 New Risks in {latest_year}** (not in {py})")
-            for r in cmp["new_risks"]:
-                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
-
-        if cmp["removed_risks"]:
-            st.markdown(f"**🔴 Removed Risks** (in {py}, not in {latest_year})")
-            for r in cmp["removed_risks"]:
-                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
-
-        if not cmp["new_risks"] and not cmp["removed_risks"]:
-            st.success("No new or removed risks detected.")
-
-        export = {
+        all_comparisons.append({
             "company": company,
             "filing_type": ftype,
             "prior_year": py,
             "latest_year": latest_year,
             "new_risks": cmp["new_risks"],
             "removed_risks": cmp["removed_risks"],
-        }
-        all_comparisons.append(export)
+        })
 
-        if st.button(
-            "🤖 AI Change Analysis",
-            key=f"ai_cmp_{latest_year}_{py}_{company}",
-        ):
-            with st.spinner("🤖 Analyzing changes …"):
-                ai_text = analyze_changes(
-                    company, latest_year, py,
-                    cmp["new_risks"], cmp["removed_risks"],
-                )
+    # Store in session state and display
+    st.session_state["cmp_results"] = all_comparisons
+    _display_compare_results(all_comparisons, company, ftype)
+
+
+def _display_compare_results(all_comparisons, company, ftype):
+    """Display compare results with AI analysis support."""
+
+    # Initialize AI results storage
+    if "cmp_ai_texts" not in st.session_state:
+        st.session_state["cmp_ai_texts"] = {}
+
+    for export in all_comparisons:
+        py = export["prior_year"]
+        latest_year = export["latest_year"]
+
+        st.divider()
+        st.subheader(f"{latest_year} vs {py}")
+
+        m1, m2 = st.columns(2)
+        m1.metric("🟢 New Risks", len(export["new_risks"]))
+        m2.metric("🔴 Removed Risks", len(export["removed_risks"]))
+
+        if export["new_risks"]:
+            st.markdown(f"**🟢 New Risks in {latest_year}** (not in {py})")
+            for r in export["new_risks"]:
+                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
+
+        if export["removed_risks"]:
+            st.markdown(f"**🔴 Removed Risks** (in {py}, not in {latest_year})")
+            for r in export["removed_risks"]:
+                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
+
+        if not export["new_risks"] and not export["removed_risks"]:
+            st.success("No new or removed risks detected.")
+
+        # AI Change Analysis
+        ai_key = f"{company}_{latest_year}_{py}"
+
+        if ai_key in st.session_state["cmp_ai_texts"]:
             st.markdown("##### 🤖 AI Analysis")
-            st.info(ai_text)
-            export["ai_analysis"] = ai_text
+            st.info(st.session_state["cmp_ai_texts"][ai_key])
+        else:
+            if st.button("🤖 AI Change Analysis", key=f"ai_cmp_{latest_year}_{py}"):
+                with st.spinner("🤖 Analyzing changes …"):
+                    ai_text = analyze_changes(
+                        company, latest_year, py,
+                        export["new_risks"], export["removed_risks"],
+                    )
+                st.session_state["cmp_ai_texts"][ai_key] = ai_text
+                st.rerun()
 
         st.download_button(
             "⬇️ Download Compare JSON",
             data=json.dumps(export, indent=2, ensure_ascii=False),
             file_name=f"{company}_compare_{latest_year}_vs_{py}.json",
             mime="application/json",
-            key=f"dl_cmp_{latest_year}_{py}_{company}",
+            key=f"dl_cmp_{latest_year}_{py}",
         )
 
     if all_comparisons:
         combined = {
             "company": company,
             "filing_type": ftype,
-            "latest_year": latest_year,
-            "prior_years": sorted(prior_years, reverse=True),
+            "latest_year": all_comparisons[0]["latest_year"],
+            "prior_years": [c["prior_year"] for c in all_comparisons],
             "comparisons": all_comparisons,
         }
         s3_key = save_compare_result(
             company=company,
             filing_type=ftype,
-            latest_year=latest_year,
-            prior_years=sorted(prior_years, reverse=True),
+            latest_year=all_comparisons[0]["latest_year"],
+            prior_years=[c["prior_year"] for c in all_comparisons],
             compare_json=combined,
         )
         st.divider()
