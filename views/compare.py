@@ -15,11 +15,11 @@ def render():
         return
 
     companies = sorted(set(r["company"] for r in index))
-    company = st.selectbox("Company", companies, key="cmp_company")
+    company = st.selectbox("Company", companies, key="cmp_co")
 
     co_recs = [r for r in index if r["company"] == company]
     ftypes = sorted(set(r["filing_type"] for r in co_recs))
-    ftype = st.selectbox("Filing Type", ftypes, key="cmp_ftype")
+    ftype = st.selectbox("Filing Type", ftypes, key="cmp_ft")
 
     type_recs = [r for r in co_recs if r["filing_type"] == ftype]
     years = sorted(set(r["year"] for r in type_recs))
@@ -30,7 +30,7 @@ def render():
 
     c1, c2 = st.columns(2)
     with c1:
-        latest_year = st.selectbox("Latest year (t)", years[::-1], key="cmp_latest")
+        latest_year = st.selectbox("Latest year (t)", years[::-1], key="cmp_ly")
     with c2:
         prior_opts = [y for y in years if y < latest_year]
         if not prior_opts:
@@ -38,14 +38,14 @@ def render():
             return
         prior_years = st.multiselect(
             "Prior year(s)", prior_opts[::-1],
-            default=[prior_opts[-1]], key="cmp_prior",
+            default=[prior_opts[-1]], key="cmp_py",
         )
 
     if not prior_years:
         st.warning("Select at least one prior year.")
         return
 
-    run = st.button("🚀 Run Compare", key="btn_cmp")
+    run = st.button("🚀 Run Compare", key="btn_run_cmp")
     if not run:
         return
 
@@ -76,7 +76,6 @@ def render():
         m1.metric("🟢 New Risks", len(cmp["new_risks"]))
         m2.metric("🔴 Removed Risks", len(cmp["removed_risks"]))
 
-        # ── Display as readable text ──────────────────────────────
         if cmp["new_risks"]:
             st.markdown(f"**🟢 New Risks in {latest_year}** (not in {py})")
             for r in cmp["new_risks"]:
@@ -100,7 +99,6 @@ def render():
         }
         all_comparisons.append(export)
 
-        # ── AI Change Analysis button ─────────────────────────────
         if st.button(
             "🤖 AI Change Analysis",
             key=f"ai_cmp_{latest_year}_{py}_{company}",
@@ -122,7 +120,6 @@ def render():
             key=f"dl_cmp_{latest_year}_{py}_{company}",
         )
 
-    # ── Save combined result to S3 ────────────────────────────────────────
     if all_comparisons:
         combined = {
             "company": company,
