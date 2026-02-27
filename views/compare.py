@@ -1,4 +1,4 @@
-"""Compare page — NEW / REMOVED risk diff by fuzzy title matching."""
+"""Compare page — NEW / REMOVED risk diff. Readable text display."""
 
 import streamlit as st
 import json
@@ -45,7 +45,7 @@ def render():
         st.warning("Select at least one prior year.")
         return
 
-    run = st.button("🚀 Run Compare", type="primary", key="btn_cmp")
+    run = st.button("🚀 Run Compare", key="btn_cmp")
     if not run:
         return
 
@@ -104,7 +104,6 @@ def render():
         if st.button(
             "🤖 AI Change Analysis",
             key=f"ai_cmp_{latest_year}_{py}_{company}",
-            type="primary",
         ):
             with st.spinner("🤖 Analyzing changes …"):
                 ai_text = analyze_changes(
@@ -124,8 +123,6 @@ def render():
         )
 
     # ── Save combined result to S3 ────────────────────────────────────────
-    if all_comparisons:
-
     if all_comparisons:
         combined = {
             "company": company,
