@@ -28,6 +28,18 @@ st.markdown(
         background:#2563eb; color:#fff!important; border:none; border-radius:6px;
     }
     .stDownloadButton>button:hover { background:#1d4ed8; }
+    /* All action buttons: light blue with white text */
+    div.stButton>button[kind="primary"],
+    div.stButton>button[data-testid="stBaseButton-primary"] {
+        background: #60a5fa !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 6px;
+    }
+    div.stButton>button[kind="primary"]:hover,
+    div.stButton>button[data-testid="stBaseButton-primary"]:hover {
+        background: #3b82f6 !important;
+    }
     .stSelectbox label,.stTextInput label,.stFileUploader label { color:#374151!important; }
     .stTabs [data-baseweb="tab"] { color:#374151; }
     [data-testid="stAlert"] { color:#1f2937; }
