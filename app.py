@@ -21,7 +21,7 @@ st.markdown(
 
     /* ── Top header bar ───────────────────────────────── */
     .top-bar {
-        background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 40%, #7dd3fc 100%);
+        background: linear-gradient(135deg, #7dd3fc 0%, #3b82f6 40%, #2563eb 100%);
         padding: 1.4rem 2rem;
         border-radius: 12px;
         margin-bottom: 1rem;
