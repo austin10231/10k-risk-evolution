@@ -21,7 +21,7 @@ st.markdown(
 
     /* ── Top header bar ───────────────────────────────── */
     .top-bar {
-        background: linear-gradient(135deg, #7dd3fc 0%, #3b82f6 40%, #2563eb 100%);
+        background: linear-gradient(135deg, #1e40af 0%, #4f46e5 55%, #818cf8 100%);
         padding: 1.4rem 2rem;
         border-radius: 12px;
         margin-bottom: 1rem;
@@ -99,7 +99,12 @@ st.markdown(
         border-radius: 12px;
         padding: 1.5rem;
         text-align: center;
-        min-height: 140px;
+        min-height: 180px;
+        height: 180px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
     }
     .feature-card .step {
         font-size: 2rem;
