@@ -36,7 +36,7 @@ def render():
     with c2:
         st.markdown(
             '<div class="feature-card">'
-            '<div class="step">🔍</div>'
+            '<div class="step" style="margin-top:0.6rem;">🔍</div>'
             "<h4>② Extract</h4>"
             "<p>Item 1 overview & Item 1A risks are extracted into structured JSON, with AI-powered executive summary.</p>"
             "</div>",
@@ -45,7 +45,7 @@ def render():
     with c3:
         st.markdown(
             '<div class="feature-card">'
-            '<div class="step">⚖️</div>'
+            '<div class="step" style="margin-top:0.6rem;">⚖️</div>'
             "<h4>③ Compare</h4>"
             "<p>Compare years to find NEW and REMOVED risks, with AI-powered change analysis, then export JSON.</p>"
             "</div>",
@@ -70,8 +70,8 @@ def render():
         st.markdown(
             """
             <div class="card" style="min-height:260px;">
-                <h4>✅ Current Features</h4>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.4rem 1.2rem; font-size:0.88rem; color:#6b7280; line-height:2;">
+                <h4 style="text-align:center;">✅ Current Features</h4>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 1.2rem; font-size:0.88rem; color:#6b7280; line-height:2.2;">
                     <span>• 10-K upload (HTML &amp; PDF)</span>
                     <span>• Item 1 &amp; 1A risk extraction</span>
                     <span>• AI risk summarization</span>
@@ -89,12 +89,12 @@ def render():
         st.markdown(
             """
             <div class="card" style="min-height:260px;">
-                <h4>🔮 Future Features</h4>
-                <div style="font-size:0.88rem; color:#6b7280; line-height:2;">
-                    <p style="margin:0;">• 10-Q support</p>
-                    <p style="margin:0;">• Cross-company risk comparison</p>
-                    <p style="margin:0;">• Risk trend dashboard</p>
-                    <p style="margin:0;">• EDGAR direct download by CIK / ticker</p>
+                <h4 style="text-align:center;">🔮 Future Features</h4>
+                <div style="font-size:0.88rem; color:#6b7280; line-height:2.2;">
+                    <div>• 10-Q support</div>
+                    <div>• Cross-company risk comparison</div>
+                    <div>• Risk trend dashboard</div>
+                    <div>• EDGAR direct download by CIK / ticker</div>
                 </div>
             </div>
             """,
