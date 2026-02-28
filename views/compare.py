@@ -1,4 +1,4 @@
-"""Compare page — NEW / REMOVED risk diff. Readable text display."""
+"""Compare page — YoY and Cross-Company risk diff."""
 
 import streamlit as st
 import json
@@ -14,6 +14,24 @@ def render():
         st.info("No records yet. Go to **Analyze → New Analysis** first.")
         return
 
+    # ── Mode toggle ──────────────────────────────────────
+    mode = st.radio(
+        "Comparison Mode",
+        ["📅 Year-over-Year", "🏢 Cross-Company"],
+        horizontal=True,
+        key="cmp_mode",
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    if mode == "📅 Year-over-Year":
+        _render_yoy(index)
+    else:
+        _render_cross(index)
+
+
+# ── Year-over-Year ───────────────────────────────────────
+def _render_yoy(index):
     companies = sorted(set(r["company"] for r in index))
     company = st.selectbox("Company", companies, key="cmp_co")
 
@@ -45,11 +63,16 @@ def render():
         st.warning("Select at least one prior year.")
         return
 
-    run = st.button("🚀 Run Compare", key="btn_run_cmp")
+    run = st.button("🚀 Run Compare", key="btn_run_yoy")
     if not run:
-        # Show previous results if available
-        if "cmp_results" in st.session_state:
-            _display_compare_results(st.session_state["cmp_results"], company, ftype)
+        if "cmp_results" in st.session_state and st.session_state.get("cmp_last_mode") == "yoy":
+            _display_compare_results(
+                st.session_state["cmp_results"],
+                st.session_state.get("cmp_last_label_a", company),
+                st.session_state.get("cmp_last_label_b", ""),
+                ftype,
+                mode="yoy",
+            )
         return
 
     def find_rec(yr):
@@ -62,73 +85,151 @@ def render():
         return
 
     all_comparisons = []
-
     for py in sorted(prior_years, reverse=True):
         prior_rec = find_rec(py)
         prior_res = get_result(prior_rec["record_id"]) if prior_rec else None
         if prior_res is None:
             st.error(f"Cannot load {company} {py}.")
             continue
-
         cmp = compare_risks(prior_res, latest_res)
-
         all_comparisons.append({
             "company": company,
             "filing_type": ftype,
             "prior_year": py,
             "latest_year": latest_year,
+            "label_a": f"{company} {py}",
+            "label_b": f"{company} {latest_year}",
             "new_risks": cmp["new_risks"],
             "removed_risks": cmp["removed_risks"],
         })
 
-    # Store in session state and display
     st.session_state["cmp_results"] = all_comparisons
-    _display_compare_results(all_comparisons, company, ftype)
+    st.session_state["cmp_last_mode"] = "yoy"
+    st.session_state["cmp_last_label_a"] = company
+    st.session_state["cmp_last_label_b"] = ""
+    _display_compare_results(all_comparisons, company, "", ftype, mode="yoy")
 
 
-def _display_compare_results(all_comparisons, company, ftype):
-    """Display compare results with AI analysis support."""
+# ── Cross-Company ────────────────────────────────────────
+def _render_cross(index):
+    companies = sorted(set(r["company"] for r in index))
 
-    # Initialize AI results storage
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.markdown("##### 🅰️ Company A")
+        co_a = st.selectbox("Company A", companies, key="cmp_co_a")
+        recs_a = [r for r in index if r["company"] == co_a]
+        ftypes_a = sorted(set(r["filing_type"] for r in recs_a))
+        ft_a = st.selectbox("Filing Type A", ftypes_a, key="cmp_ft_a")
+        years_a = sorted(set(r["year"] for r in recs_a if r["filing_type"] == ft_a), reverse=True)
+        yr_a = st.selectbox("Year A", years_a, key="cmp_yr_a")
+
+    with col_b:
+        st.markdown("##### 🅱️ Company B")
+        co_b = st.selectbox("Company B", companies, key="cmp_co_b")
+        recs_b = [r for r in index if r["company"] == co_b]
+        ftypes_b = sorted(set(r["filing_type"] for r in recs_b))
+        ft_b = st.selectbox("Filing Type B", ftypes_b, key="cmp_ft_b")
+        years_b = sorted(set(r["year"] for r in recs_b if r["filing_type"] == ft_b), reverse=True)
+        yr_b = st.selectbox("Year B", years_b, key="cmp_yr_b")
+
+    run = st.button("🚀 Run Compare", key="btn_run_cross")
+    if not run:
+        if "cmp_results" in st.session_state and st.session_state.get("cmp_last_mode") == "cross":
+            _display_compare_results(
+                st.session_state["cmp_results"],
+                st.session_state.get("cmp_last_label_a", ""),
+                st.session_state.get("cmp_last_label_b", ""),
+                "",
+                mode="cross",
+            )
+        return
+
+    rec_a = next((r for r in index if r["company"] == co_a and r["filing_type"] == ft_a and r["year"] == yr_a), None)
+    rec_b = next((r for r in index if r["company"] == co_b and r["filing_type"] == ft_b and r["year"] == yr_b), None)
+
+    if not rec_a or not rec_b:
+        st.error("Could not find one or both selected records.")
+        return
+
+    res_a = get_result(rec_a["record_id"])
+    res_b = get_result(rec_b["record_id"])
+
+    if res_a is None or res_b is None:
+        st.error("Could not load result JSON for one or both records.")
+        return
+
+    cmp = compare_risks(res_a, res_b)
+    label_a = f"{co_a} {yr_a}"
+    label_b = f"{co_b} {yr_b}"
+
+    all_comparisons = [{
+        "company": f"{co_a} vs {co_b}",
+        "filing_type": f"{ft_a} / {ft_b}",
+        "prior_year": yr_a,
+        "latest_year": yr_b,
+        "label_a": label_a,
+        "label_b": label_b,
+        "new_risks": cmp["new_risks"],
+        "removed_risks": cmp["removed_risks"],
+    }]
+
+    st.session_state["cmp_results"] = all_comparisons
+    st.session_state["cmp_last_mode"] = "cross"
+    st.session_state["cmp_last_label_a"] = label_a
+    st.session_state["cmp_last_label_b"] = label_b
+    _display_compare_results(all_comparisons, label_a, label_b, "", mode="cross")
+
+
+# ── Display results ──────────────────────────────────────
+def _display_compare_results(all_comparisons, label_a, label_b, ftype, mode="yoy"):
     if "cmp_ai_texts" not in st.session_state:
         st.session_state["cmp_ai_texts"] = {}
 
     for export in all_comparisons:
-        py = export["prior_year"]
-        latest_year = export["latest_year"]
+        la = export.get("label_a", label_a)
+        lb = export.get("label_b", label_b)
 
         st.divider()
-        st.subheader(f"{latest_year} vs {py}")
+        if mode == "yoy":
+            st.subheader(f"{export['latest_year']} vs {export['prior_year']}")
+            analysis_title = f"{export['company']} · {export['latest_year']} vs {export['prior_year']}"
+        else:
+            st.subheader(f"{lb}  vs  {la}")
+            analysis_title = f"{lb} vs {la}"
 
         m1, m2 = st.columns(2)
-        m1.metric("🟢 New Risks", len(export["new_risks"]))
-        m2.metric("🔴 Removed Risks", len(export["removed_risks"]))
+        m1.metric(f"🟢 Only in {lb}", len(export["new_risks"]))
+        m2.metric(f"🔴 Only in {la}", len(export["removed_risks"]))
 
         if export["new_risks"]:
-            st.markdown(f"**🟢 New Risks in {latest_year}** (not in {py})")
+            st.markdown(f"**🟢 Risks unique to {lb}**")
             for r in export["new_risks"]:
                 st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
 
         if export["removed_risks"]:
-            st.markdown(f"**🔴 Removed Risks** (in {py}, not in {latest_year})")
+            st.markdown(f"**🔴 Risks unique to {la}**")
             for r in export["removed_risks"]:
                 st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
 
         if not export["new_risks"] and not export["removed_risks"]:
-            st.success("No new or removed risks detected.")
+            st.success("No differing risks detected between the two selections.")
 
         # AI Change Analysis
-        ai_key = f"{company}_{latest_year}_{py}"
-
+        ai_key = f"{la}_vs_{lb}"
         if ai_key in st.session_state["cmp_ai_texts"]:
             st.markdown("##### 🤖 AI Analysis")
             st.info(st.session_state["cmp_ai_texts"][ai_key])
         else:
-            if st.button("🤖 AI Change Analysis", key=f"ai_cmp_{latest_year}_{py}"):
-                with st.spinner("🤖 Analyzing changes …"):
+            if st.button("🤖 AI Change Analysis", key=f"ai_cmp_{ai_key}"):
+                with st.spinner("🤖 Analyzing differences …"):
                     ai_text = analyze_changes(
-                        company, latest_year, py,
-                        export["new_risks"], export["removed_risks"],
+                        analysis_title,
+                        lb, la,
+                        export["new_risks"],
+                        export["removed_risks"],
+                        mode=mode,
                     )
                 st.session_state["cmp_ai_texts"][ai_key] = ai_text
                 st.rerun()
@@ -136,21 +237,21 @@ def _display_compare_results(all_comparisons, company, ftype):
         st.download_button(
             "⬇️ Download Compare JSON",
             data=json.dumps(export, indent=2, ensure_ascii=False),
-            file_name=f"{company}_compare_{latest_year}_vs_{py}.json",
+            file_name=f"compare_{la}_vs_{lb}.json".replace(" ", "_"),
             mime="application/json",
-            key=f"dl_cmp_{latest_year}_{py}",
+            key=f"dl_cmp_{ai_key}",
         )
 
-    if all_comparisons:
+    if all_comparisons and mode == "yoy":
         combined = {
-            "company": company,
+            "company": all_comparisons[0]["company"],
             "filing_type": ftype,
             "latest_year": all_comparisons[0]["latest_year"],
             "prior_years": [c["prior_year"] for c in all_comparisons],
             "comparisons": all_comparisons,
         }
         s3_key = save_compare_result(
-            company=company,
+            company=all_comparisons[0]["company"],
             filing_type=ftype,
             latest_year=all_comparisons[0]["latest_year"],
             prior_years=[c["prior_year"] for c in all_comparisons],
