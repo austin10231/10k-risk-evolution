@@ -1,261 +1,116 @@
-"""Compare page — YoY and Cross-Company risk diff."""
+"""Home / Introduction page."""
 
 import streamlit as st
-import json
-
-from storage.store import load_index, get_result, save_compare_result
-from core.comparator import compare_risks
-from core.bedrock import analyze_changes
 
 
 def render():
-    index = load_index()
-    if not index:
-        st.info("No records yet. Go to **Analyze → New Analysis** first.")
-        return
-
-    # ── Mode toggle ──────────────────────────────────────
-    mode = st.radio(
-        "Comparison Mode",
-        ["📅 Year-over-Year", "🏢 Cross-Company"],
-        horizontal=True,
-        key="cmp_mode",
+    # Hero section
+    st.markdown(
+        """
+        <div style="text-align:center; padding: 1.5rem 0 1rem 0;">
+            <p style="font-size:1.1rem; color:#374151; max-width:750px; margin:0 auto; line-height:1.6;">
+                Upload SEC 10-K filings to automatically extract Item 1A risk factors,
+                generate AI-powered summaries, compare year-over-year risk changes,
+                and extract core financial tables — all in one place.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.divider()
 
-    if mode == "📅 Year-over-Year":
-        _render_yoy(index)
-    else:
-        _render_cross(index)
+    # How it works - 4 steps
+    st.markdown('<p style="font-size:1.5rem; font-weight:700; color:#1f2937; margin-bottom:0.8rem;">How It Works</p>', unsafe_allow_html=True)
 
-
-# ── Year-over-Year ───────────────────────────────────────
-def _render_yoy(index):
-    companies = sorted(set(r["company"] for r in index))
-    company = st.selectbox("Company", companies, key="cmp_co")
-
-    co_recs = [r for r in index if r["company"] == company]
-    ftypes = sorted(set(r["filing_type"] for r in co_recs))
-    ftype = st.selectbox("Filing Type", ftypes, key="cmp_ft")
-
-    type_recs = [r for r in co_recs if r["filing_type"] == ftype]
-    years = sorted(set(r["year"] for r in type_recs))
-
-    if len(years) < 2:
-        st.warning(f"Need at least 2 years for **{company}** / **{ftype}**.")
-        return
-
-    c1, c2 = st.columns(2)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
-        latest_year = st.selectbox("Latest year (t)", years[::-1], key="cmp_ly")
+        st.markdown(
+            '<div class="feature-card">'
+            '<div class="step">📤</div>'
+            "<h4>① Upload</h4>"
+            "<p>Upload a 10-K filing (HTML or PDF) from SEC EDGAR.</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
     with c2:
-        prior_opts = [y for y in years if y < latest_year]
-        if not prior_opts:
-            st.warning("No prior year available.")
-            return
-        prior_years = st.multiselect(
-            "Prior year(s)", prior_opts[::-1],
-            default=[prior_opts[-1]], key="cmp_py",
+        st.markdown(
+            '<div class="feature-card">'
+            '<div class="step" style="margin-top:0.6rem;">🔍</div>'
+            "<h4>② Extract</h4>"
+            "<p>Item 1 overview & Item 1A risks are extracted into structured JSON, with AI-powered executive summary.</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            '<div class="feature-card">'
+            '<div class="step" style="margin-top:0.6rem;">⚖️</div>'
+            "<h4>③ Compare</h4>"
+            "<p>Compare years to find NEW and REMOVED risks, with AI-powered change analysis, then export JSON.</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    with c4:
+        st.markdown(
+            '<div class="feature-card">'
+            '<div class="step">📊</div>'
+            "<h4>④ Tables</h4>"
+            "<p>Extract financial tables from PDF filings via AWS Textract.</p>"
+            "</div>",
+            unsafe_allow_html=True,
         )
 
-    if not prior_years:
-        st.warning("Select at least one prior year.")
-        return
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.divider()
 
-    run = st.button("🚀 Run Compare", key="btn_run_yoy")
-    if not run:
-        if "cmp_results" in st.session_state and st.session_state.get("cmp_last_mode") == "yoy":
-            _display_compare_results(
-                st.session_state["cmp_results"],
-                st.session_state.get("cmp_last_label_a", company),
-                st.session_state.get("cmp_last_label_b", ""),
-                ftype,
-                mode="yoy",
-            )
-        return
-
-    def find_rec(yr):
-        return next((r for r in type_recs if r["year"] == yr), None)
-
-    latest_rec = find_rec(latest_year)
-    latest_res = get_result(latest_rec["record_id"]) if latest_rec else None
-    if latest_res is None:
-        st.error(f"Cannot load {company} {latest_year}.")
-        return
-
-    all_comparisons = []
-    for py in sorted(prior_years, reverse=True):
-        prior_rec = find_rec(py)
-        prior_res = get_result(prior_rec["record_id"]) if prior_rec else None
-        if prior_res is None:
-            st.error(f"Cannot load {company} {py}.")
-            continue
-        cmp = compare_risks(prior_res, latest_res)
-        all_comparisons.append({
-            "company": company,
-            "filing_type": ftype,
-            "prior_year": py,
-            "latest_year": latest_year,
-            "label_a": f"{company} {py}",
-            "label_b": f"{company} {latest_year}",
-            "new_risks": cmp["new_risks"],
-            "removed_risks": cmp["removed_risks"],
-        })
-
-    st.session_state["cmp_results"] = all_comparisons
-    st.session_state["cmp_last_mode"] = "yoy"
-    st.session_state["cmp_last_label_a"] = company
-    st.session_state["cmp_last_label_b"] = ""
-    _display_compare_results(all_comparisons, company, "", ftype, mode="yoy")
-
-
-# ── Cross-Company ────────────────────────────────────────
-def _render_cross(index):
-    companies = sorted(set(r["company"] for r in index))
-
+    # Features
     col_a, col_b = st.columns(2)
-
     with col_a:
-        st.markdown("##### 🅰️ Company A")
-        co_a = st.selectbox("Company A", companies, key="cmp_co_a")
-        recs_a = [r for r in index if r["company"] == co_a]
-        ftypes_a = sorted(set(r["filing_type"] for r in recs_a))
-        ft_a = st.selectbox("Filing Type A", ftypes_a, key="cmp_ft_a")
-        years_a = sorted(set(r["year"] for r in recs_a if r["filing_type"] == ft_a), reverse=True)
-        yr_a = st.selectbox("Year A", years_a, key="cmp_yr_a")
-
+        st.markdown(
+            """
+            <div class="card" style="min-height:260px;">
+                <h4 style="text-align:center;">✅ Current Features</h4>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 1.2rem; font-size:0.95rem; color:#6b7280; line-height:2.2;">
+                    <span>• 10-K upload (HTML &amp; PDF)</span>
+                    <span>• Item 1 &amp; 1A risk extraction</span>
+                    <span>• AI risk summarization</span>
+                    <span>• YoY / multi-year comparison</span>
+                    <span>• Cross-company comparison</span>
+                    <span>• AI-powered change analysis</span>
+                    <span>• Financial table extraction</span>
+                    <span>• JSON &amp; CSV export</span>
+                    <span>• AWS S3 persistent storage</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     with col_b:
-        st.markdown("##### 🅱️ Company B")
-        co_b = st.selectbox("Company B", companies, key="cmp_co_b")
-        recs_b = [r for r in index if r["company"] == co_b]
-        ftypes_b = sorted(set(r["filing_type"] for r in recs_b))
-        ft_b = st.selectbox("Filing Type B", ftypes_b, key="cmp_ft_b")
-        years_b = sorted(set(r["year"] for r in recs_b if r["filing_type"] == ft_b), reverse=True)
-        yr_b = st.selectbox("Year B", years_b, key="cmp_yr_b")
-
-    run = st.button("🚀 Run Compare", key="btn_run_cross")
-    if not run:
-        if "cmp_results" in st.session_state and st.session_state.get("cmp_last_mode") == "cross":
-            _display_compare_results(
-                st.session_state["cmp_results"],
-                st.session_state.get("cmp_last_label_a", ""),
-                st.session_state.get("cmp_last_label_b", ""),
-                "",
-                mode="cross",
-            )
-        return
-
-    rec_a = next((r for r in index if r["company"] == co_a and r["filing_type"] == ft_a and r["year"] == yr_a), None)
-    rec_b = next((r for r in index if r["company"] == co_b and r["filing_type"] == ft_b and r["year"] == yr_b), None)
-
-    if not rec_a or not rec_b:
-        st.error("Could not find one or both selected records.")
-        return
-
-    res_a = get_result(rec_a["record_id"])
-    res_b = get_result(rec_b["record_id"])
-
-    if res_a is None or res_b is None:
-        st.error("Could not load result JSON for one or both records.")
-        return
-
-    cmp = compare_risks(res_a, res_b)
-    label_a = f"{co_a} {yr_a}"
-    label_b = f"{co_b} {yr_b}"
-
-    all_comparisons = [{
-        "company": f"{co_a} vs {co_b}",
-        "filing_type": f"{ft_a} / {ft_b}",
-        "prior_year": yr_a,
-        "latest_year": yr_b,
-        "label_a": label_a,
-        "label_b": label_b,
-        "new_risks": cmp["new_risks"],
-        "removed_risks": cmp["removed_risks"],
-    }]
-
-    st.session_state["cmp_results"] = all_comparisons
-    st.session_state["cmp_last_mode"] = "cross"
-    st.session_state["cmp_last_label_a"] = label_a
-    st.session_state["cmp_last_label_b"] = label_b
-    _display_compare_results(all_comparisons, label_a, label_b, "", mode="cross")
-
-
-# ── Display results ──────────────────────────────────────
-def _display_compare_results(all_comparisons, label_a, label_b, ftype, mode="yoy"):
-    if "cmp_ai_texts" not in st.session_state:
-        st.session_state["cmp_ai_texts"] = {}
-
-    for export in all_comparisons:
-        la = export.get("label_a", label_a)
-        lb = export.get("label_b", label_b)
-
-        st.divider()
-        if mode == "yoy":
-            st.subheader(f"{export['latest_year']} vs {export['prior_year']}")
-            analysis_title = f"{export['company']} · {export['latest_year']} vs {export['prior_year']}"
-        else:
-            st.subheader(f"{lb}  vs  {la}")
-            analysis_title = f"{lb} vs {la}"
-
-        m1, m2 = st.columns(2)
-        m1.metric(f"🟢 Only in {lb}", len(export["new_risks"]))
-        m2.metric(f"🔴 Only in {la}", len(export["removed_risks"]))
-
-        if export["new_risks"]:
-            st.markdown(f"**🟢 Risks unique to {lb}**")
-            for r in export["new_risks"]:
-                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
-
-        if export["removed_risks"]:
-            st.markdown(f"**🔴 Risks unique to {la}**")
-            for r in export["removed_risks"]:
-                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
-
-        if not export["new_risks"] and not export["removed_risks"]:
-            st.success("No differing risks detected between the two selections.")
-
-        # AI Change Analysis
-        ai_key = f"{la}_vs_{lb}"
-        if ai_key in st.session_state["cmp_ai_texts"]:
-            st.markdown("##### 🤖 AI Analysis")
-            st.info(st.session_state["cmp_ai_texts"][ai_key])
-        else:
-            if st.button("🤖 AI Change Analysis", key=f"ai_cmp_{ai_key}"):
-                with st.spinner("🤖 Analyzing differences …"):
-                    ai_text = analyze_changes(
-                        analysis_title,
-                        lb, la,
-                        export["new_risks"],
-                        export["removed_risks"],
-                        mode=mode,
-                    )
-                st.session_state["cmp_ai_texts"][ai_key] = ai_text
-                st.rerun()
-
-        st.download_button(
-            "⬇️ Download Compare JSON",
-            data=json.dumps(export, indent=2, ensure_ascii=False),
-            file_name=f"compare_{la}_vs_{lb}.json".replace(" ", "_"),
-            mime="application/json",
-            key=f"dl_cmp_{ai_key}",
+        st.markdown(
+            """
+            <div class="card" style="min-height:260px;">
+                <h4 style="text-align:center;">🔮 Future Features</h4>
+                <div style="font-size:0.95rem; color:#6b7280; line-height:2.2;">
+                    <div>• 10-Q support</div>
+                    <div>• Risk trend dashboard</div>
+                    <div>• EDGAR direct download by CIK / ticker</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-    if all_comparisons and mode == "yoy":
-        combined = {
-            "company": all_comparisons[0]["company"],
-            "filing_type": ftype,
-            "latest_year": all_comparisons[0]["latest_year"],
-            "prior_years": [c["prior_year"] for c in all_comparisons],
-            "comparisons": all_comparisons,
-        }
-        s3_key = save_compare_result(
-            company=all_comparisons[0]["company"],
-            filing_type=ftype,
-            latest_year=all_comparisons[0]["latest_year"],
-            prior_years=[c["prior_year"] for c in all_comparisons],
-            compare_json=combined,
-        )
-        st.divider()
-        st.success(f"Compare result saved to S3: `{s3_key}`")
+    # Copyright footer
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div style="background:#f0f4ff; border-radius:10px; padding:0.8rem 1.2rem; text-align:center;">
+            <span style="font-size:0.8rem; color:#6b7280;">
+                © 2026 · SCU · AWS Team 1 &nbsp;|&nbsp;
+                Mutian He · Yuhan Luan · Jiaoqing Lu · Jiayi Yan
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
