@@ -8,9 +8,10 @@ def render():
     st.markdown(
         """
         <div style="text-align:center; padding: 1.5rem 0 1rem 0;">
-            <p style="font-size:1.1rem; color:#374151; max-width:700px; margin:0 auto; line-height:1.6;">
-                Automatically extract, structure, and compare SEC 10-K Risk Factors (Item 1A)
-                across filing years — producing a memo-ready risk change report.
+            <p style="font-size:1.1rem; color:#374151; max-width:750px; margin:0 auto; line-height:1.6;">
+                Upload SEC 10-K filings to automatically extract Item 1A risk factors,
+                generate AI-powered summaries, compare year-over-year risk changes,
+                and extract core financial tables — all in one place.
             </p>
         </div>
         """,
@@ -20,7 +21,7 @@ def render():
     st.divider()
 
     # How it works - 4 steps
-    st.markdown('<p style="font-size:1.2rem; font-weight:700; color:#1f2937; margin-bottom:0.8rem;">How It Works</p>', unsafe_allow_html=True)
+    st.markdown('<p style="font-size:1.5rem; font-weight:700; color:#1f2937; margin-bottom:0.8rem;">How It Works</p>', unsafe_allow_html=True)
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -37,7 +38,7 @@ def render():
             '<div class="feature-card">'
             '<div class="step">🔍</div>'
             "<h4>② Extract</h4>"
-            "<p>Item 1 overview & Item 1A risks are extracted into structured JSON.</p>"
+            "<p>Item 1 overview & Item 1A risks are extracted into structured JSON, with AI-powered executive summary.</p>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -46,7 +47,7 @@ def render():
             '<div class="feature-card">'
             '<div class="step">⚖️</div>'
             "<h4>③ Compare</h4>"
-            "<p>Compare years to find NEW and REMOVED risks, then export JSON.</p>"
+            "<p>Compare years to find NEW and REMOVED risks, with AI-powered change analysis, then export JSON.</p>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -68,19 +69,18 @@ def render():
     with col_a:
         st.markdown(
             """
-            <div class="card">
+            <div class="card" style="min-height:280px;">
                 <h4>✅ Current Features</h4>
-                <p>
-                    • 10-K filing upload (HTML & PDF)<br>
-                    • Item 1 overview + Item 1A hierarchical risk extraction<br>
-                    • PDF text extraction via AWS Textract<br>
-                    • Financial statement table extraction (PDF)<br>
-                    • AI-powered risk summarization (AWS Bedrock)<br>
-                    • YoY / multi-year NEW & REMOVED comparison<br>
-                    • AI-powered change analysis<br>
-                    • JSON & CSV export<br>
-                    • AWS S3 persistent storage
-                </p>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.2rem 1.2rem; font-size:0.88rem; color:#6b7280; line-height:1.8;">
+                    <span>• 10-K upload (HTML &amp; PDF)</span>
+                    <span>• Item 1 &amp; 1A risk extraction</span>
+                    <span>• AI risk summarization</span>
+                    <span>• YoY / multi-year comparison</span>
+                    <span>• AI-powered change analysis</span>
+                    <span>• Financial table extraction</span>
+                    <span>• JSON &amp; CSV export</span>
+                    <span>• AWS S3 persistent storage</span>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -88,14 +88,14 @@ def render():
     with col_b:
         st.markdown(
             """
-            <div class="card">
+            <div class="card" style="min-height:280px;">
                 <h4>🔮 Future Features</h4>
-                <p>
-                    • 10-Q support<br>
-                    • Cross-company risk comparison<br>
-                    • Risk trend dashboard<br>
-                    • EDGAR direct download by CIK / ticker
-                </p>
+                <div style="font-size:0.88rem; color:#6b7280; line-height:1.8;">
+                    <p>• 10-Q support</p>
+                    <p>• Cross-company risk comparison</p>
+                    <p>• Risk trend dashboard</p>
+                    <p>• EDGAR direct download by CIK / ticker</p>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -107,7 +107,7 @@ def render():
         """
         <div style="background:#f0f4ff; border-radius:10px; padding:0.8rem 1.2rem; text-align:center;">
             <span style="font-size:0.8rem; color:#6b7280;">
-                © 2026 · AWS Team 1 &nbsp;|&nbsp;
+                © 2026 · SCU · AWS Team 1 &nbsp;|&nbsp;
                 Mutian He · Yuhan Luan · Jiaoqing Lu · Jiayi Yan
             </span>
         </div>
