@@ -76,6 +76,7 @@ def render():
                     <span>• Item 1 &amp; 1A risk extraction</span>
                     <span>• AI risk summarization</span>
                     <span>• YoY / multi-year comparison</span>
+                    <span>• Cross-company comparison</span>
                     <span>• AI-powered change analysis</span>
                     <span>• Financial table extraction</span>
                     <span>• JSON &amp; CSV export</span>
@@ -92,7 +93,6 @@ def render():
                 <h4 style="text-align:center;">🔮 Future Features</h4>
                 <div style="font-size:0.95rem; color:#6b7280; line-height:2.2;">
                     <div>• 10-Q support</div>
-                    <div>• Cross-company risk comparison</div>
                     <div>• Risk trend dashboard</div>
                     <div>• EDGAR direct download by CIK / ticker</div>
                 </div>
