@@ -69,9 +69,9 @@ def render():
     with col_a:
         st.markdown(
             """
-            <div class="card" style="min-height:280px;">
+            <div class="card" style="min-height:260px;">
                 <h4>✅ Current Features</h4>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.2rem 1.2rem; font-size:0.88rem; color:#6b7280; line-height:1.8;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.4rem 1.2rem; font-size:0.88rem; color:#6b7280; line-height:2;">
                     <span>• 10-K upload (HTML &amp; PDF)</span>
                     <span>• Item 1 &amp; 1A risk extraction</span>
                     <span>• AI risk summarization</span>
@@ -88,21 +88,21 @@ def render():
     with col_b:
         st.markdown(
             """
-            <div class="card" style="min-height:280px;">
+            <div class="card" style="min-height:260px;">
                 <h4>🔮 Future Features</h4>
-                <div style="font-size:0.88rem; color:#6b7280; line-height:1.8;">
-                    <p>• 10-Q support</p>
-                    <p>• Cross-company risk comparison</p>
-                    <p>• Risk trend dashboard</p>
-                    <p>• EDGAR direct download by CIK / ticker</p>
+                <div style="font-size:0.88rem; color:#6b7280; line-height:2;">
+                    <p style="margin:0;">• 10-Q support</p>
+                    <p style="margin:0;">• Cross-company risk comparison</p>
+                    <p style="margin:0;">• Risk trend dashboard</p>
+                    <p style="margin:0;">• EDGAR direct download by CIK / ticker</p>
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # Tech stack footer
-    st.markdown("<br>", unsafe_allow_html=True)
+    # Copyright footer
+    st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown(
         """
         <div style="background:#f0f4ff; border-radius:10px; padding:0.8rem 1.2rem; text-align:center;">
