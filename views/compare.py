@@ -214,13 +214,25 @@ def _display_compare_results(all_comparisons, label_a, label_b, ftype, mode="yoy
 
         if export["new_risks"]:
             st.markdown(f"**🟢 Risks unique to {lb}**")
+            grouped_new = {}
             for r in export["new_risks"]:
-                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
+                cat = r.get("category", "Uncategorized")
+                grouped_new.setdefault(cat, []).append(r.get("title", "")[:150])
+            for cat, titles in grouped_new.items():
+                with st.expander(f"{cat} ({len(titles)})", expanded=False):
+                    for t in titles:
+                        st.markdown(f"- {t}")
 
         if export["removed_risks"]:
             st.markdown(f"**🔴 Risks unique to {la}**")
+            grouped_removed = {}
             for r in export["removed_risks"]:
-                st.markdown(f"- **[{r.get('category', '')}]** {r.get('title', '')[:150]}")
+                cat = r.get("category", "Uncategorized")
+                grouped_removed.setdefault(cat, []).append(r.get("title", "")[:150])
+            for cat, titles in grouped_removed.items():
+                with st.expander(f"{cat} ({len(titles)})", expanded=False):
+                    for t in titles:
+                        st.markdown(f"- {t}")
 
         if not export["new_risks"] and not export["removed_risks"]:
             st.success("No differing risks detected between the two selections.")
