@@ -116,7 +116,7 @@ st.markdown(
     }
     .feature-card p {
         color: #6b7280;
-        font-size: 0.85rem;
+        font-size: 0.95rem;
     }
 
     /* ── Metrics ───────────────────────────────────────── */
