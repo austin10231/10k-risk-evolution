@@ -71,7 +71,7 @@ def render():
             """
             <div class="card" style="min-height:260px;">
                 <h4 style="text-align:center;">✅ Current Features</h4>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 1.2rem; font-size:0.95rem; color:#6b7280; line-height:2.2; font-family:'Georgia', serif;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 1.2rem; font-size:0.95rem; color:#6b7280; line-height:2.2;">
                     <span>• 10-K upload (HTML &amp; PDF)</span>
                     <span>• Item 1 &amp; 1A risk extraction</span>
                     <span>• AI risk summarization</span>
@@ -90,7 +90,7 @@ def render():
             """
             <div class="card" style="min-height:260px;">
                 <h4 style="text-align:center;">🔮 Future Features</h4>
-                <div style="font-size:0.95rem; color:#6b7280; line-height:2.2; font-family:'Georgia', serif;">
+                <div style="font-size:0.95rem; color:#6b7280; line-height:2.2;">
                     <div>• 10-Q support</div>
                     <div>• Cross-company risk comparison</div>
                     <div>• Risk trend dashboard</div>
