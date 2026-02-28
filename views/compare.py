@@ -2,6 +2,7 @@
 
 import streamlit as st
 import json
+import re
 
 from storage.store import load_index, get_result, save_compare_result
 from core.comparator import compare_risks
@@ -275,6 +276,26 @@ def _display_compare_results(all_comparisons, label_a, label_b, ftype, mode="yoy
             latest_year=all_comparisons[0]["latest_year"],
             prior_years=[c["prior_year"] for c in all_comparisons],
             compare_json=combined,
+            mode="yoy",
+        )
+        st.divider()
+        st.success(f"Compare result saved to S3: `{s3_key}`")
+
+    elif all_comparisons and mode == "cross":
+        export = all_comparisons[0]
+        la = export.get("label_a", "")
+        lb = export.get("label_b", "")
+        # filename: CoA_YrA_vs_CoB_YrB
+        safe_la = re.sub(r"[^\w]", "_", la).strip("_")
+        safe_lb = re.sub(r"[^\w]", "_", lb).strip("_")
+        cross_company_name = f"{safe_la}_vs_{safe_lb}"
+        s3_key = save_compare_result(
+            company=cross_company_name,
+            filing_type="",
+            latest_year=export["latest_year"],
+            prior_years=[export["prior_year"]],
+            compare_json=export,
+            mode="cross",
         )
         st.divider()
         st.success(f"Compare result saved to S3: `{s3_key}`")
