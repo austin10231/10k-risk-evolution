@@ -1,7 +1,4 @@
-"""
-AWS Bedrock integration — risk classification, summarization, change analysis.
-Uses Amazon Nova Lite for fast, low-cost inference.
-"""
+"""AWS Bedrock — risk classification, summarization, change analysis."""
 
 import json
 import streamlit as st
@@ -26,7 +23,6 @@ def _get_bedrock():
 
 
 def _invoke(prompt, max_tokens=1024):
-    """Call Amazon Nova Lite via Bedrock and return text response."""
     client = _get_bedrock()
     body = json.dumps({
         "inferenceConfig": {"maxTokens": max_tokens},
@@ -43,7 +39,6 @@ def _invoke(prompt, max_tokens=1024):
 
 
 def classify_risks(risks):
-    """Classify each sub_risk with 1-2 labels."""
     categories_str = ", ".join(RISK_CATEGORIES)
     classified = []
     for cat_block in risks:
@@ -74,7 +69,6 @@ Return ONLY a JSON array of 1-2 category strings, nothing else. Example: ["regul
 
 
 def generate_summary(company, year, risks):
-    """Generate 3-5 sentence executive summary."""
     risk_lines = []
     for cat_block in risks:
         cat = cat_block.get("category", "")
@@ -100,24 +94,41 @@ Write the summary directly, no headers or bullet points."""
         return f"(Summary generation failed: {str(e)})"
 
 
-def analyze_changes(company, latest_year, prior_year, new_risks, removed_risks):
-    """Generate 3-5 sentence change analysis."""
+def analyze_changes(subject, label_b, label_a, new_risks, removed_risks, mode="yoy"):
     new_titles = [r.get("title", "")[:120] for r in new_risks]
     removed_titles = [r.get("title", "")[:120] for r in removed_risks]
-    prompt = f"""You are a financial analyst comparing {company}'s 10-K risk factors between {prior_year} and {latest_year}.
 
-NEW risks added in {latest_year}:
+    if mode == "yoy":
+        prompt = f"""You are a financial analyst comparing {subject}'s 10-K risk factors between {label_a} and {label_b}.
+
+Risks that appeared in {label_b} (not in {label_a}):
 {chr(10).join(f'- {t}' for t in new_titles) if new_titles else '- None'}
 
-REMOVED risks:
+Risks that disappeared from {label_b} (were in {label_a}):
 {chr(10).join(f'- {t}' for t in removed_titles) if removed_titles else '- None'}
 
-Write a concise 3-5 sentence analysis explaining:
-1. What major themes emerged or disappeared
-2. Possible reasons for these changes
-3. What this signals about the company's risk landscape
+Write a concise 3-5 sentence analysis covering:
+1. What major risk themes emerged or disappeared
+2. Likely business or macro reasons behind these shifts
+3. What this signals about the company's evolving risk landscape
 
-Write directly, no headers or bullet points."""
+Write directly and concisely, no headers or bullet points."""
+    else:
+        prompt = f"""You are a financial analyst comparing the 10-K risk factors of two different companies or filings: {label_a} and {label_b}.
+
+Risks unique to {label_b} (not found in {label_a}):
+{chr(10).join(f'- {t}' for t in new_titles) if new_titles else '- None'}
+
+Risks unique to {label_a} (not found in {label_b}):
+{chr(10).join(f'- {t}' for t in removed_titles) if removed_titles else '- None'}
+
+Write a concise 3-5 sentence analysis covering:
+1. Key differences in risk profiles between the two companies or periods
+2. What these differences suggest about each company's business model, industry position, or strategic focus
+3. Any notable risks that one company faces but the other does not, and why that might be
+
+Write directly and concisely, no headers or bullet points."""
+
     try:
         return _invoke(prompt, max_tokens=500)
     except Exception as e:
