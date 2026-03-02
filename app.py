@@ -99,8 +99,8 @@ st.markdown(
         border-radius: 12px;
         padding: 1.5rem;
         text-align: center;
-        min-height: 180px;
-        height: 180px;
+        min-height: 220px;
+        height: 220px;
         display: flex;
         flex-direction: column;
         justify-content: center;
