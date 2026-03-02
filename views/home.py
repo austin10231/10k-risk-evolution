@@ -69,7 +69,7 @@ def render():
     with col_a:
         st.markdown(
             """
-            <div class="card" style="min-height:260px;">
+            <div class="card" style="min-height:300px; height:300px;">
                 <h4 style="text-align:center;">✅ Current Features</h4>
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 1.2rem; font-size:0.95rem; color:#6b7280; line-height:2.2;">
                     <span>• 10-K upload (HTML &amp; PDF)</span>
@@ -89,7 +89,7 @@ def render():
     with col_b:
         st.markdown(
             """
-            <div class="card" style="min-height:260px;">
+            <div class="card" style="min-height:300px; height:300px;">
                 <h4 style="text-align:center;">🔮 Future Features</h4>
                 <div style="font-size:0.95rem; color:#6b7280; line-height:2.2;">
                     <div>• 10-Q support</div>
