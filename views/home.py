@@ -36,7 +36,7 @@ def render():
     with c2:
         st.markdown(
             '<div class="feature-card">'
-            '<div class="step" style="margin-top:0.6rem;">🔍</div>'
+            '<div class="step" style="margin-top:0.3rem; margin-bottom:0.1rem;">🔍</div>'
             "<h4>② Extract</h4>"
             "<p>Item 1 overview & Item 1A risks are extracted into structured JSON, with AI-powered executive summary.</p>"
             "</div>",
@@ -45,7 +45,7 @@ def render():
     with c3:
         st.markdown(
             '<div class="feature-card">'
-            '<div class="step" style="margin-top:0.6rem;">⚖️</div>'
+            '<div class="step" style="margin-top:0.3rem; margin-bottom:0.1rem;">⚖️</div>'
             "<h4>③ Compare</h4>"
             "<p>Compare years to find NEW and REMOVED risks, with AI-powered change analysis, then export JSON.</p>"
             "</div>",
