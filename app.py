@@ -102,19 +102,19 @@ st.markdown(
         height: 200px;
         display: flex;
         flex-direction: column;
-        justify-content: flex-start;
+        justify-content: center;
         align-items: center;
-        gap: 0;
+        gap: 0.3rem;
     }
     .feature-card .step {
         font-size: 2rem;
         line-height: 1;
-        margin: 0 0 0.4rem 0;
+        margin: 0;
         flex-shrink: 0;
     }
     .feature-card h4 {
         color: #1e40af;
-        margin: 0 0 0.4rem 0;
+        margin: 0;
         font-size: 0.95rem;
         flex-shrink: 0;
     }
