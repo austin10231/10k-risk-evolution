@@ -196,8 +196,6 @@ def _display_dashboard(report: dict):
         f"""
         <div style="display:grid; grid-template-columns:1fr 1.6fr 1.4fr;
              gap:0.8rem; margin-bottom:1.2rem;">
-
-            <!-- Overall Rating -->
             <div style="background:{rc}15; border:1.5px solid {rc}40;
                  border-radius:14px; padding:1rem; text-align:center;">
                 <p style="margin:0; font-size:0.7rem; font-weight:700;
@@ -208,8 +206,6 @@ def _display_dashboard(report: dict):
                     {overall}
                 </p>
             </div>
-
-            <!-- Priority counts -->
             <div style="background:#ffffff; border:1.5px solid #e0e3e8;
                  border-radius:14px; padding:1rem;">
                 <p style="margin:0 0 0.6rem 0; font-size:0.7rem; font-weight:700;
@@ -233,8 +229,6 @@ def _display_dashboard(report: dict):
                     </div>
                 </div>
             </div>
-
-            <!-- Risk themes -->
             <div style="background:#ffffff; border:1.5px solid #e0e3e8;
                  border-radius:14px; padding:1rem;">
                 <p style="margin:0 0 0.5rem 0; font-size:0.7rem; font-weight:700;
@@ -247,13 +241,6 @@ def _display_dashboard(report: dict):
         """,
         unsafe_allow_html=True,
     )
-
-    # Agent trace (collapsed)
-    steps = report.get("agent_steps", [])
-    if steps:
-        with st.expander("🔎 Agent execution trace", expanded=False):
-            for s in steps:
-                st.markdown(f"- {s}")
 
     # ── LAYER 2: Detail tabs ──────────────────────────────────────────────────
     tab_risks, tab_summary, tab_findings, tab_recs, tab_full = st.tabs([
@@ -429,6 +416,13 @@ def _display_dashboard(report: dict):
                             ''',
                             unsafe_allow_html=True,
                         )
+
+    # ── Agent trace (bottom) ────────────────────────────────────────────────
+    steps = report.get("agent_steps", [])
+    if steps:
+        with st.expander("🔎 Agent execution trace", expanded=False):
+            for s in steps:
+                st.caption(f". {s}")
 
     # ── Download ──────────────────────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
