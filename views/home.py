@@ -22,52 +22,48 @@ def render():
     # How it works - 5 steps
     st.markdown('<p style="font-size:1.5rem; font-weight:700; color:#1f2937; margin-bottom:0.8rem;">How It Works</p>', unsafe_allow_html=True)
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        st.markdown(
-            '<div class="feature-card">'
-            '<div class="step">📤</div>'
-            "<h4>① Upload</h4>"
-            "<p>Upload a 10-K filing (HTML or PDF) from SEC EDGAR.</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-    with c2:
-        st.markdown(
-            '<div class="feature-card">'
-            '<div class="step">🔍</div>'
-            "<h4>② Extract</h4>"
-            "<p>Item 1A risks extracted into structured JSON with AI executive summary.</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-    with c3:
-        st.markdown(
-            '<div class="feature-card">'
-            '<div class="step">⚖️</div>'
-            "<h4>③ Compare</h4>"
-            "<p>Find NEW and REMOVED risks year-over-year with AI change analysis.</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-    with c4:
-        st.markdown(
-            '<div class="feature-card">'
-            '<div class="step">📊</div>'
-            "<h4>④ Tables</h4>"
-            "<p>Extract core financial tables from PDF filings via AWS Textract.</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-    with c5:
-        st.markdown(
-            '<div class="feature-card" style="background:linear-gradient(135deg,#f0fdf4 0%,#ffffff 100%); border-color:#bbf7d0;">'
-            '<div class="step">🤖</div>'
-            '<h4 style="color:#166534;">⑤ Agent</h4>'
-            "<p>Ask questions in natural language. Agent scores, prioritizes risks and generates a full report.</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        """
+        <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:0.8rem; margin-bottom:0.5rem;">
+            <div style="background:linear-gradient(135deg,#eff6ff 0%,#ffffff 100%); border:1px solid #bfdbfe;
+                 border-radius:12px; padding:1.2rem 1rem; text-align:center; height:200px;
+                 display:flex; flex-direction:column; justify-content:center; align-items:center; gap:0.35rem; box-sizing:border-box;">
+                <div style="font-size:2rem; line-height:1;">📤</div>
+                <h4 style="color:#1e40af; margin:0; font-size:0.95rem;">① Upload</h4>
+                <p style="color:#6b7280; font-size:0.82rem; line-height:1.4; margin:0;">Upload a 10-K filing (HTML or PDF) from SEC EDGAR.</p>
+            </div>
+            <div style="background:linear-gradient(135deg,#eff6ff 0%,#ffffff 100%); border:1px solid #bfdbfe;
+                 border-radius:12px; padding:1.2rem 1rem; text-align:center; height:200px;
+                 display:flex; flex-direction:column; justify-content:center; align-items:center; gap:0.35rem; box-sizing:border-box;">
+                <div style="font-size:2rem; line-height:1;">🔍</div>
+                <h4 style="color:#1e40af; margin:0; font-size:0.95rem;">② Extract</h4>
+                <p style="color:#6b7280; font-size:0.82rem; line-height:1.4; margin:0;">Item 1A risks extracted into structured JSON with AI executive summary.</p>
+            </div>
+            <div style="background:linear-gradient(135deg,#eff6ff 0%,#ffffff 100%); border:1px solid #bfdbfe;
+                 border-radius:12px; padding:1.2rem 1rem; text-align:center; height:200px;
+                 display:flex; flex-direction:column; justify-content:center; align-items:center; gap:0.35rem; box-sizing:border-box;">
+                <div style="font-size:2rem; line-height:1;">⚖️</div>
+                <h4 style="color:#1e40af; margin:0; font-size:0.95rem;">③ Compare</h4>
+                <p style="color:#6b7280; font-size:0.82rem; line-height:1.4; margin:0;">Find NEW and REMOVED risks year-over-year with AI change analysis.</p>
+            </div>
+            <div style="background:linear-gradient(135deg,#eff6ff 0%,#ffffff 100%); border:1px solid #bfdbfe;
+                 border-radius:12px; padding:1.2rem 1rem; text-align:center; height:200px;
+                 display:flex; flex-direction:column; justify-content:center; align-items:center; gap:0.35rem; box-sizing:border-box;">
+                <div style="font-size:2rem; line-height:1;">📊</div>
+                <h4 style="color:#1e40af; margin:0; font-size:0.95rem;">④ Tables</h4>
+                <p style="color:#6b7280; font-size:0.82rem; line-height:1.4; margin:0;">Extract core financial tables from PDF filings via AWS Textract.</p>
+            </div>
+            <div style="background:linear-gradient(135deg,#f0fdf4 0%,#ffffff 100%); border:1px solid #bbf7d0;
+                 border-radius:12px; padding:1.2rem 1rem; text-align:center; height:200px;
+                 display:flex; flex-direction:column; justify-content:center; align-items:center; gap:0.35rem; box-sizing:border-box;">
+                <div style="font-size:2rem; line-height:1;">🤖</div>
+                <h4 style="color:#166534; margin:0; font-size:0.95rem;">⑤ Agent</h4>
+                <p style="color:#6b7280; font-size:0.82rem; line-height:1.4; margin:0;">Ask questions in natural language. Agent scores, prioritizes risks and generates a full report.</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.divider()
