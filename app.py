@@ -184,8 +184,8 @@ st.markdown(
 )
 
 # ── Navigation tabs ─────────────────────────────────────
-tab_home, tab_analyze, tab_compare, tab_tables = st.tabs(
-    ["🏠  Home", "🔍  Analyze", "⚖️  Compare", "📊  Tables"]
+tab_home, tab_analyze, tab_compare, tab_tables, tab_agent = st.tabs(
+    ["🏠  Home", "🔍  Analyze", "⚖️  Compare", "📊  Tables", "🤖  Agent"]
 )
 
 with tab_home:
@@ -203,3 +203,7 @@ with tab_compare:
 with tab_tables:
     from views.tables import render as render_tables
     render_tables()
+
+with tab_agent:
+    from views.agent import render as render_agent
+    render_agent()
