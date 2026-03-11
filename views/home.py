@@ -9,9 +9,8 @@ def render():
         """
         <div style="text-align:center; padding: 1.5rem 0 1rem 0;">
             <p style="font-size:1.1rem; color:#374151; max-width:750px; margin:0 auto; line-height:1.6;">
-                Upload SEC 10-K filings to automatically extract Item 1A risk factors,
-                generate AI-powered summaries, compare year-over-year risk changes,
-                extract core financial tables, and run an intelligent risk agent — all in one place.
+                Analyze SEC 10-K risk factors, compare year-over-year changes,
+                extract financial tables, and run an AI risk agent — all in one place.
             </p>
         </div>
         """,
