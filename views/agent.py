@@ -40,7 +40,7 @@ def render():
     col_left, col_right = st.columns([1, 2], gap="large")
 
     # ════════════════════════════════════════════════════════
-    # LEFT PANEL — Configuration + Query
+    # LEFT PANEL — Configuration + Suggested Queries
     # ════════════════════════════════════════════════════════
     with col_left:
         st.markdown(
@@ -49,7 +49,7 @@ def render():
                  border:1px solid #bbf7d0; border-radius:12px; padding:0.8rem 1rem; margin-bottom:1rem;">
                 <p style="margin:0; font-size:0.9rem; color:#166534;">
                     🤖 <strong>Risk Intelligence Agent</strong><br>
-                    <span style="font-size:0.82rem;">Configure below, ask a question, and run the agent.</span>
+                    <span style="font-size:0.82rem;">Configure below, then ask a question on the right.</span>
                 </p>
             </div>
             """,
@@ -76,21 +76,25 @@ def render():
                 use_compare = False
 
         # Suggested queries
-        st.markdown('<div class="section-header">💬 Query</div>', unsafe_allow_html=True)
-        st.caption("Quick select:")
+        st.markdown('<div class="section-header">💬 Suggested Queries</div>', unsafe_allow_html=True)
+        st.caption("Click to fill the query box →")
         for i, q in enumerate(SUGGESTED_QUERIES):
             if st.button(q, key=f"sq_{i}", use_container_width=True):
                 st.session_state["agent_query_text"] = q
                 st.rerun()
 
-        st.markdown("<br>", unsafe_allow_html=True)
+    # ════════════════════════════════════════════════════════
+    # RIGHT PANEL — Query input + Report output
+    # ════════════════════════════════════════════════════════
+    with col_right:
+        # Query input always visible at top
+        st.markdown('<div class="section-header">💬 Your Query</div>', unsafe_allow_html=True)
         user_query = st.text_area(
-            "Or type your own question",
+            "Type your question or select one from the left",
             height=100,
             placeholder="e.g. What are the most critical risks?",
             key="agent_query_text",
         )
-
         run = st.button(
             "🚀 Run Agent",
             key="btn_run_agent",
@@ -101,7 +105,7 @@ def render():
         # Run logic
         if run:
             if not user_query.strip():
-                st.error("Please enter a query.")
+                st.error("Please enter a query or select one from the left.")
             else:
                 rec = next((r for r in co_recs if r["year"] == year), None)
                 if not rec:
@@ -136,28 +140,23 @@ def render():
                             st.session_state["agent_report"] = report
                             st.rerun()
 
-    # ════════════════════════════════════════════════════════
-    # RIGHT PANEL — Report output
-    # ════════════════════════════════════════════════════════
-    with col_right:
+        # Report output
         if "agent_report" not in st.session_state:
             st.markdown(
                 """
-                <div style="height:500px; display:flex; flex-direction:column;
+                <div style="height:400px; display:flex; flex-direction:column;
                      justify-content:center; align-items:center;
-                     background:#f8f9fb; border:2px dashed #e0e3e8; border-radius:16px;">
-                    <p style="font-size:2.5rem; margin:0;">🤖</p>
+                     background:#f8f9fb; border:2px dashed #e0e3e8; border-radius:16px; margin-top:1rem;">
+                    <p style="font-size:2.5rem; margin:0;">📊</p>
                     <p style="font-size:1rem; color:#6b7280; margin:0.5rem 0 0 0;">
-                        Configure and run the agent to see the report here
-                    </p>
-                    <p style="font-size:0.82rem; color:#9ca3af; margin:0.3rem 0 0 0;">
-                        Results will appear in this panel
+                        Report will appear here after running the agent
                     </p>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
         else:
+            st.divider()
             _display_report(st.session_state["agent_report"])
 
 
