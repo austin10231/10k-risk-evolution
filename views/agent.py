@@ -197,7 +197,8 @@ def _display_dashboard(report: dict):
         <div style="display:grid; grid-template-columns:1fr 1.6fr 1.4fr;
              gap:0.8rem; margin-bottom:1.2rem;">
             <div style="background:{rc}15; border:1.5px solid {rc}40;
-                 border-radius:14px; padding:1rem; text-align:center;">
+                 border-radius:14px; padding:1rem; text-align:center;
+                 display:flex; flex-direction:column; justify-content:center; align-items:center;">
                 <p style="margin:0; font-size:0.7rem; font-weight:700;
                    color:{rc}; text-transform:uppercase; letter-spacing:0.06em;">
                    Overall Risk
@@ -207,9 +208,10 @@ def _display_dashboard(report: dict):
                 </p>
             </div>
             <div style="background:#ffffff; border:1.5px solid #e0e3e8;
-                 border-radius:14px; padding:1rem;">
+                 border-radius:14px; padding:1rem;
+                 display:flex; flex-direction:column; justify-content:center; align-items:center;">
                 <p style="margin:0 0 0.6rem 0; font-size:0.7rem; font-weight:700;
-                   color:#9ca3af; text-transform:uppercase; letter-spacing:0.06em;">
+                   color:#9ca3af; text-transform:uppercase; letter-spacing:0.06em; text-align:center;">
                    Priority Breakdown
                 </p>
                 <div style="display:flex; gap:1rem; align-items:center; justify-content:center;">
@@ -230,7 +232,8 @@ def _display_dashboard(report: dict):
                 </div>
             </div>
             <div style="background:#ffffff; border:1.5px solid #e0e3e8;
-                 border-radius:14px; padding:1rem;">
+                 border-radius:14px; padding:1rem;
+                 display:flex; flex-direction:column; justify-content:center;">
                 <p style="margin:0 0 0.5rem 0; font-size:0.7rem; font-weight:700;
                    color:#9ca3af; text-transform:uppercase; letter-spacing:0.06em;">
                    Risk Themes
