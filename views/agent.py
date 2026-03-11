@@ -212,7 +212,7 @@ def _display_dashboard(report: dict):
                    color:#9ca3af; text-transform:uppercase; letter-spacing:0.06em;">
                    Priority Breakdown
                 </p>
-                <div style="display:flex; gap:1rem; align-items:center;">
+                <div style="display:flex; gap:1rem; align-items:center; justify-content:center;">
                     <div style="text-align:center;">
                         <p style="margin:0; font-size:1.6rem; font-weight:800; color:#ef4444;">{h_count}</p>
                         <p style="margin:0; font-size:0.72rem; color:#ef4444; font-weight:600;">HIGH</p>
