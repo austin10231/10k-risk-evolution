@@ -36,18 +36,18 @@ def render():
     with c2:
         st.markdown(
             '<div class="feature-card">'
-            '<div class="step" style="margin-top:0.3rem; margin-bottom:0.1rem;">🔍</div>'
+            '<div class="step">🔍</div>'
             "<h4>② Extract</h4>"
-            "<p>Item 1 overview & Item 1A risks are extracted into structured JSON, with AI-powered executive summary.</p>"
+            "<p>Item 1A risks extracted into structured JSON with AI executive summary.</p>"
             "</div>",
             unsafe_allow_html=True,
         )
     with c3:
         st.markdown(
             '<div class="feature-card">'
-            '<div class="step" style="margin-top:0.3rem; margin-bottom:0.1rem;">⚖️</div>'
+            '<div class="step">⚖️</div>'
             "<h4>③ Compare</h4>"
-            "<p>Compare years to find NEW and REMOVED risks, with AI-powered change analysis, then export JSON.</p>"
+            "<p>Find NEW and REMOVED risks year-over-year with AI change analysis.</p>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -56,7 +56,7 @@ def render():
             '<div class="feature-card">'
             '<div class="step">📊</div>'
             "<h4>④ Tables</h4>"
-            "<p>Extract financial tables from PDF filings via AWS Textract.</p>"
+            "<p>Extract core financial tables from PDF filings via AWS Textract.</p>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -65,7 +65,7 @@ def render():
             '<div class="feature-card" style="background:linear-gradient(135deg,#f0fdf4 0%,#ffffff 100%); border-color:#bbf7d0;">'
             '<div class="step">🤖</div>'
             '<h4 style="color:#166534;">⑤ Agent</h4>'
-            "<p>Ask natural language questions. The AI agent scores, prioritizes, and generates a full risk intelligence report.</p>"
+            "<p>Ask questions in natural language. Agent scores, prioritizes risks and generates a full report.</p>"
             "</div>",
             unsafe_allow_html=True,
         )
