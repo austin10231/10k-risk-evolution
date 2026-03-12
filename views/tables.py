@@ -22,6 +22,14 @@ DISPLAY_ORDER = [
     "cash_flow",
 ]
 
+TABLE_ICONS = {
+    "income_statement":    "📈",
+    "comprehensive_income": "📊",
+    "balance_sheet":       "⚖️",
+    "shareholders_equity": "🏦",
+    "cash_flow":           "💵",
+}
+
 
 def _classified_to_csv(result):
     output = io.StringIO()
@@ -51,59 +59,74 @@ def _count_found(result):
 
 
 def render():
+    # ── Page header ───────────────────────────────────────────────────────────
     st.markdown(
-        '''
-        <div style="margin-bottom:1rem;">
-            <p style="font-size:1rem; font-weight:700; color:#1e40af; margin:0 0 0.2rem 0;">
-                📊 Financial Statement Extraction
-            </p>
-            <p style="font-size:0.85rem; color:#6b7280; margin:0;">
-                Upload a 10-K PDF to extract five core financial statements using AWS Textract analysis.
-                The pipeline locates Item 8 and extracts tables with complete headers and row data.
-            </p>
+        """
+        <div class="page-header">
+            <div class="page-header-left">
+                <span class="page-icon">📊</span>
+                <div>
+                    <p class="page-title">Financial Tables</p>
+                    <p class="page-subtitle">Extract 5 core financial statements from 10-K PDFs via AWS Textract</p>
+                </div>
+            </div>
         </div>
-        ''',
+        """,
         unsafe_allow_html=True,
     )
 
-    col_input, col_output = st.columns([2, 3])
+    col_input, col_output = st.columns([2, 3], gap="large")
 
     with col_input:
         st.markdown(
-            '''
-            <div style="background:#ffffff; border:1px solid #e0e3e8; border-radius:12px;
-                 padding:1rem 1.2rem; margin-bottom:1rem;">
-                <p style="font-size:0.85rem; font-weight:700; color:#1e40af; margin:0 0 0.3rem 0;">
-                    Extraction Inputs
-                </p>
-                <p style="font-size:0.8rem; color:#6b7280; margin:0;">
-                    Upload a 10-K PDF and provide metadata.
-                </p>
-            </div>
-            ''',
+            '<p style="font-size:0.62rem; font-weight:700; color:#94a3b8; text-transform:uppercase;'
+            'letter-spacing:0.1em; margin:0 0 0.8rem;">CONFIGURE</p>',
             unsafe_allow_html=True,
         )
         uploaded = st.file_uploader("Upload 10-K PDF", type=["pdf"], key="tbl_upload")
-        year = st.selectbox("Filing Year", list(range(2025, 2009, -1)), key="tbl_year")
-        company = st.text_input("Company Name", key="tbl_company")
-        industry = st.selectbox("Industry", INDUSTRIES, key="tbl_industry")
+        company = st.text_input("Company Name", key="tbl_company", placeholder="e.g. Apple Inc.")
+
+        col_y, col_i = st.columns(2)
+        with col_y:
+            year = st.selectbox("Filing Year", list(range(2025, 2009, -1)), key="tbl_year")
+        with col_i:
+            industry = st.selectbox("Industry", INDUSTRIES, key="tbl_industry")
+
         filing_type = st.selectbox(
             "Filing Type", ["10-K", "10-Q (coming soon)"], key="tbl_ftype",
         )
-        run = st.button(
-            "Extract Tables",
-            key="btn_extract_tables", use_container_width=True,
-        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        run = st.button("Extract Tables", key="btn_extract_tables",
+                        type="primary", use_container_width=True)
         st.caption(
             "Extracts Income Statement, Comprehensive Income, "
             "Balance Sheet, Shareholders' Equity, and Cash Flows."
         )
 
     with col_output:
+        st.markdown(
+            '<p style="font-size:0.62rem; font-weight:700; color:#94a3b8; text-transform:uppercase;'
+            'letter-spacing:0.1em; margin:0 0 0.8rem;">RESULTS</p>',
+            unsafe_allow_html=True,
+        )
         if "last_table_result" in st.session_state:
             _show_table_output(
                 st.session_state["last_table_result"],
                 key=f"tbl_{st.session_state.get('last_table_rid', 'x')}",
+            )
+        else:
+            st.markdown(
+                """
+                <div class="empty-state" style="height:380px; display:flex; flex-direction:column;
+                     justify-content:center; align-items:center;">
+                    <p class="empty-state-icon">📊</p>
+                    <p class="empty-state-title">Extracted tables will appear here</p>
+                    <p class="empty-state-sub">Upload a PDF and click Extract Tables</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
     if run:
@@ -119,7 +142,7 @@ def render():
 
         pdf_bytes = uploaded.read()
 
-        with st.spinner("Locating Item 8 & extracting tables via AWS Textract …"):
+        with st.spinner("Locating Item 8 & extracting tables via AWS Textract…"):
             classified = extract_tables_from_pdf(pdf_bytes)
 
         found_count = _count_found(classified)
@@ -157,49 +180,30 @@ def _show_table_output(result, key):
     year = result.get("year", "—")
     filing_type = result.get("filing_type", "—")
 
-    # ── Summary strip ────────────────────────────────────────────────────────
-    st.markdown(
-        f"""
-        <div style="display:grid; grid-template-columns:repeat(4,1fr);
-             gap:0.6rem; margin-bottom:1rem;">
-            <div style="background:#ffffff; border:1.5px solid #e0e3e8;
-                 border-radius:12px; padding:0.8rem 1rem; text-align:center;">
-                <p style="margin:0; font-size:0.65rem; font-weight:700; color:#9ca3af;
-                   text-transform:uppercase; letter-spacing:0.06em;">Company</p>
-                <p style="margin:0.2rem 0 0 0; font-size:1.2rem; font-weight:800;
-                   color:#1e40af;">{company}</p>
-            </div>
-            <div style="background:#ffffff; border:1.5px solid #e0e3e8;
-                 border-radius:12px; padding:0.8rem 1rem; text-align:center;">
-                <p style="margin:0; font-size:0.65rem; font-weight:700; color:#9ca3af;
-                   text-transform:uppercase; letter-spacing:0.06em;">Year</p>
-                <p style="margin:0.2rem 0 0 0; font-size:1.2rem; font-weight:800;
-                   color:#1e40af;">{year}</p>
-            </div>
-            <div style="background:#ffffff; border:1.5px solid #e0e3e8;
-                 border-radius:12px; padding:0.8rem 1rem; text-align:center;">
-                <p style="margin:0; font-size:0.65rem; font-weight:700; color:#9ca3af;
-                   text-transform:uppercase; letter-spacing:0.06em;">Tables</p>
-                <p style="margin:0.2rem 0 0 0; font-size:1.2rem; font-weight:800;
-                   color:#1e40af;">{found}/5</p>
-            </div>
-            <div style="background:#ffffff; border:1.5px solid #e0e3e8;
-                 border-radius:12px; padding:0.8rem 1rem; text-align:center;">
-                <p style="margin:0; font-size:0.65rem; font-weight:700; color:#9ca3af;
-                   text-transform:uppercase; letter-spacing:0.06em;">Filing</p>
-                <p style="margin:0.2rem 0 0 0; font-size:1.2rem; font-weight:800;
-                   color:#1e40af;">{filing_type}</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # Summary metric strip
+    m1, m2, m3, m4 = st.columns(4)
+    for col, label, value, color in [
+        (m1, "COMPANY", company, "#1e40af"),
+        (m2, "YEAR", str(year), "#1e40af"),
+        (m3, "TABLES FOUND", f"{found}/5", "#16a34a" if found == 5 else "#d97706"),
+        (m4, "FILING TYPE", filing_type, "#1e40af"),
+    ]:
+        with col:
+            st.markdown(
+                f'<div class="metric-card">'
+                f'<p class="metric-label">{label}</p>'
+                f'<p class="metric-value" style="color:{color}; font-size:1rem;">{value}</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-    # ── Download buttons ─────────────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Download buttons
     dl1, dl2 = st.columns(2)
     with dl1:
         st.download_button(
-            "Download JSON",
+            "📥 Download JSON",
             data=json.dumps(result, indent=2, ensure_ascii=False),
             file_name=f"{company}_{year}_tables.json",
             mime="application/json",
@@ -210,7 +214,7 @@ def _show_table_output(result, key):
         classified_only = {k: result.get(k, {"found": False}) for k in DISPLAY_ORDER}
         csv_data = _classified_to_csv(classified_only)
         st.download_button(
-            "Download CSV",
+            "📥 Download CSV",
             data=csv_data,
             file_name=f"{company}_{year}_tables.csv",
             mime="text/csv",
@@ -218,21 +222,36 @@ def _show_table_output(result, key):
             use_container_width=True,
         )
 
-    # ── Tables (collapsed by default) ────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        '<p style="font-size:0.62rem; font-weight:700; color:#94a3b8; text-transform:uppercase;'
+        'letter-spacing:0.1em; margin:0 0 0.6rem;">EXTRACTED TABLES</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Tables
     for cat_key in DISPLAY_ORDER:
         cat_data = result.get(cat_key, {})
         found_flag = cat_data.get("found", False)
         name = cat_data.get("display_name", TABLE_CATEGORIES.get(cat_key, {}).get("display_name", cat_key))
+        icon = TABLE_ICONS.get(cat_key, "📋")
 
         if not found_flag:
-            st.markdown(f"❌ **{name}** — *not found*")
+            st.markdown(
+                f'<div style="padding:0.5rem 0.9rem; background:#f8fafc; border:1px solid #e2e8f0;'
+                f'border-radius:8px; margin-bottom:0.4rem; font-size:0.81rem; color:#94a3b8;'
+                f'display:flex; align-items:center; gap:6px;">'
+                f'{icon} <span style="color:#64748b; font-weight:500;">{name}</span>'
+                f'<span style="color:#cbd5e1;">—</span> <em>not found</em></div>',
+                unsafe_allow_html=True,
+            )
             continue
 
         unit = cat_data.get("unit", "")
         headers = cat_data.get("headers", [])
         rows = cat_data.get("rows", [])
 
-        with st.expander(f"**{name}**", expanded=False):
+        with st.expander(f"{icon} **{name}**", expanded=False):
             if unit:
                 st.caption(f"Unit: {unit}")
             if headers and rows:
