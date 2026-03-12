@@ -52,14 +52,37 @@ def _count_found(result):
 
 def render():
     st.markdown(
-        "Upload a **10-K PDF** to extract the 5 core financial statement tables "
-        "using AWS Textract."
+        '''
+        <div style="margin-bottom:1rem;">
+            <p style="font-size:1rem; font-weight:700; color:#1e40af; margin:0 0 0.2rem 0;">
+                📊 Financial Statement Extraction
+            </p>
+            <p style="font-size:0.85rem; color:#6b7280; margin:0;">
+                Upload a 10-K PDF to extract five core financial statements using AWS Textract analysis.
+                The pipeline locates Item 8 and extracts tables with complete headers and row data.
+            </p>
+        </div>
+        ''',
+        unsafe_allow_html=True,
     )
 
     col_input, col_output = st.columns([2, 3])
 
     with col_input:
-        st.markdown("##### Inputs")
+        st.markdown(
+            '''
+            <div style="background:#ffffff; border:1px solid #e0e3e8; border-radius:12px;
+                 padding:1rem 1.2rem; margin-bottom:1rem;">
+                <p style="font-size:0.85rem; font-weight:700; color:#1e40af; margin:0 0 0.3rem 0;">
+                    Extraction Inputs
+                </p>
+                <p style="font-size:0.8rem; color:#6b7280; margin:0;">
+                    Upload a 10-K PDF and provide metadata.
+                </p>
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
         uploaded = st.file_uploader("Upload 10-K PDF", type=["pdf"], key="tbl_upload")
         year = st.selectbox("Filing Year", list(range(2025, 2009, -1)), key="tbl_year")
         company = st.text_input("Company Name", key="tbl_company")
@@ -68,13 +91,12 @@ def render():
             "Filing Type", ["10-K", "10-Q (coming soon)"], key="tbl_ftype",
         )
         run = st.button(
-            "📊 Extract Tables",
+            "Extract Tables",
             key="btn_extract_tables", use_container_width=True,
         )
         st.caption(
-            "PDF is auto-trimmed to Item 8 (Financial Statements) before extraction. "
-            "Extracts: Income Statement, Comprehensive Income, "
-            "Balance Sheet, Shareholders' Equity, Cash Flows."
+            "Extracts Income Statement, Comprehensive Income, "
+            "Balance Sheet, Shareholders' Equity, and Cash Flows."
         )
 
     with col_output:
@@ -131,18 +153,55 @@ def render():
 
 def _show_table_output(result, key):
     found = result.get("tables_found", 0)
+    company = result.get("company", "—")
+    year = result.get("year", "—")
+    filing_type = result.get("filing_type", "—")
 
+    # ── Summary strip ────────────────────────────────────────────────────────
     st.markdown(
-        f"**{result.get('company', '—')}** · {result.get('year', '—')} · "
-        f"**{found}/5** financial tables identified"
+        f"""
+        <div style="display:grid; grid-template-columns:repeat(4,1fr);
+             gap:0.6rem; margin-bottom:1rem;">
+            <div style="background:#ffffff; border:1.5px solid #e0e3e8;
+                 border-radius:12px; padding:0.8rem 1rem; text-align:center;">
+                <p style="margin:0; font-size:0.65rem; font-weight:700; color:#9ca3af;
+                   text-transform:uppercase; letter-spacing:0.06em;">Company</p>
+                <p style="margin:0.2rem 0 0 0; font-size:1.2rem; font-weight:800;
+                   color:#1e40af;">{company}</p>
+            </div>
+            <div style="background:#ffffff; border:1.5px solid #e0e3e8;
+                 border-radius:12px; padding:0.8rem 1rem; text-align:center;">
+                <p style="margin:0; font-size:0.65rem; font-weight:700; color:#9ca3af;
+                   text-transform:uppercase; letter-spacing:0.06em;">Year</p>
+                <p style="margin:0.2rem 0 0 0; font-size:1.2rem; font-weight:800;
+                   color:#1e40af;">{year}</p>
+            </div>
+            <div style="background:#ffffff; border:1.5px solid #e0e3e8;
+                 border-radius:12px; padding:0.8rem 1rem; text-align:center;">
+                <p style="margin:0; font-size:0.65rem; font-weight:700; color:#9ca3af;
+                   text-transform:uppercase; letter-spacing:0.06em;">Tables</p>
+                <p style="margin:0.2rem 0 0 0; font-size:1.2rem; font-weight:800;
+                   color:#1e40af;">{found}/5</p>
+            </div>
+            <div style="background:#ffffff; border:1.5px solid #e0e3e8;
+                 border-radius:12px; padding:0.8rem 1rem; text-align:center;">
+                <p style="margin:0; font-size:0.65rem; font-weight:700; color:#9ca3af;
+                   text-transform:uppercase; letter-spacing:0.06em;">Filing</p>
+                <p style="margin:0.2rem 0 0 0; font-size:1.2rem; font-weight:800;
+                   color:#1e40af;">{filing_type}</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
+    # ── Download buttons ─────────────────────────────────────────────────────
     dl1, dl2 = st.columns(2)
     with dl1:
         st.download_button(
-            "📥 Download JSON",
+            "Download JSON",
             data=json.dumps(result, indent=2, ensure_ascii=False),
-            file_name=f"{result.get('company','tables')}_{result.get('year','')}_tables.json",
+            file_name=f"{company}_{year}_tables.json",
             mime="application/json",
             key=f"dl_json_{key}",
             use_container_width=True,
@@ -151,14 +210,15 @@ def _show_table_output(result, key):
         classified_only = {k: result.get(k, {"found": False}) for k in DISPLAY_ORDER}
         csv_data = _classified_to_csv(classified_only)
         st.download_button(
-            "📥 Download CSV",
+            "Download CSV",
             data=csv_data,
-            file_name=f"{result.get('company','tables')}_{result.get('year','')}_tables.csv",
+            file_name=f"{company}_{year}_tables.csv",
             mime="text/csv",
             key=f"dl_csv_{key}",
             use_container_width=True,
         )
 
+    # ── Tables (collapsed by default) ────────────────────────────────────────
     for cat_key in DISPLAY_ORDER:
         cat_data = result.get(cat_key, {})
         found_flag = cat_data.get("found", False)
@@ -168,17 +228,13 @@ def _show_table_output(result, key):
             st.markdown(f"❌ **{name}** — *not found*")
             continue
 
-        page = cat_data.get("page", "?")
         unit = cat_data.get("unit", "")
         headers = cat_data.get("headers", [])
         rows = cat_data.get("rows", [])
 
-        with st.expander(f"✅ {name}", expanded=False):
-            st.markdown(f"**{name}**")
+        with st.expander(f"**{name}**", expanded=False):
             if unit:
-                st.caption(f"({unit})")
-            st.caption(f"Page {page}")
-
+                st.caption(f"Unit: {unit}")
             if headers and rows:
                 try:
                     df_data = []
@@ -190,8 +246,7 @@ def _show_table_output(result, key):
                         df_data.append(row_dict)
                     st.dataframe(df_data, use_container_width=True, hide_index=True)
                 except Exception:
-                    all_rows = [headers] + rows
-                    st.table(all_rows)
+                    st.table([headers] + rows)
             elif rows:
                 st.table(rows)
             else:

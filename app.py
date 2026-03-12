@@ -97,26 +97,36 @@ st.markdown(
         background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
         border: 1px solid #bfdbfe;
         border-radius: 12px;
-        padding: 1.5rem;
+        padding: 1.2rem 1rem;
         text-align: center;
-        min-height: 220px;
-        height: 220px;
+        height: 200px;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
+        gap: 0.3rem;
     }
     .feature-card .step {
         font-size: 2rem;
-        margin-bottom: 0.3rem;
+        line-height: 1;
+        margin: 0;
+        flex-shrink: 0;
     }
     .feature-card h4 {
         color: #1e40af;
-        margin: 0.3rem 0;
+        margin: 0;
+        font-size: 0.95rem;
+        flex-shrink: 0;
     }
     .feature-card p {
         color: #6b7280;
-        font-size: 0.95rem;
+        font-size: 0.82rem;
+        line-height: 1.4;
+        margin: 0;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
     }
 
     /* ── Metrics ───────────────────────────────────────── */
@@ -184,8 +194,8 @@ st.markdown(
 )
 
 # ── Navigation tabs ─────────────────────────────────────
-tab_home, tab_analyze, tab_compare, tab_tables = st.tabs(
-    ["🏠  Home", "🔍  Analyze", "⚖️  Compare", "📊  Tables"]
+tab_home, tab_analyze, tab_compare, tab_tables, tab_agent = st.tabs(
+    ["🏠  Home", "🔍  Analyze", "⚖️  Compare", "📊  Tables", "🤖  Agent"]
 )
 
 with tab_home:
@@ -203,3 +213,7 @@ with tab_compare:
 with tab_tables:
     from views.tables import render as render_tables
     render_tables()
+
+with tab_agent:
+    from views.agent import render as render_agent
+    render_agent()
