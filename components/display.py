@@ -1,15 +1,31 @@
-"""Reusable display helpers for analysis results."""
+"""Reusable display helpers."""
 
 import streamlit as st
 import json
+
+
+def page_header(icon: str, title: str, subtitle: str):
+    """Render a standard page header with icon, title, and subtitle."""
+    st.markdown(
+        f"""
+        <div class="page-header">
+            <div class="page-header-left">
+                <span class="page-icon">{icon}</span>
+                <div>
+                    <p class="page-title">{title}</p>
+                    <p class="page-subtitle">{subtitle}</p>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def show_analysis_result(result: dict, key_prefix: str = ""):
     """Display overview + risks + JSON preview + download."""
     ov = result.get("company_overview", {})
 
-    # ── Overview card ─────────────────────────────────────────────────────────
-    st.markdown("#### Company Overview")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Company", ov.get("company", "—"))
     c2.metric("Industry", ov.get("industry", "—"))
@@ -21,7 +37,6 @@ def show_analysis_result(result: dict, key_prefix: str = ""):
         with st.expander("📝 Item 1 Overview Text", expanded=False):
             st.write(overview_text)
 
-    # ── Risks summary ────────────────────────────────────────────────────────
     risks = result.get("risks", [])
     st.markdown(f"#### Risks Extracted ({len(risks)})")
 
@@ -29,14 +44,12 @@ def show_analysis_result(result: dict, key_prefix: str = ""):
         with st.expander(r.get("title", f"Risk {i+1}"), expanded=False):
             st.write(r.get("content", ""))
 
-    # ── JSON preview ─────────────────────────────────────────────────────────
     with st.expander("📄 Full JSON Preview", expanded=False):
         st.json(result)
 
-    # ── Download ─────────────────────────────────────────────────────────────
     fname = f"{ov.get('company','export')}_{ov.get('year','')}.json"
     st.download_button(
-        "⬇️ Download JSON",
+        "📥 Download JSON",
         data=json.dumps(result, indent=2, ensure_ascii=False),
         file_name=fname,
         mime="application/json",

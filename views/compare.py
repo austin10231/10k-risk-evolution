@@ -1,4 +1,4 @@
-"""Compare page — YoY and Cross-Company risk diff."""
+"""Compare page — Year-over-Year and Cross-Company risk diff."""
 
 import streamlit as st
 import json
@@ -10,12 +10,45 @@ from core.bedrock import analyze_changes
 
 
 def render():
+    # ── Page header ───────────────────────────────────────────────────────────
+    st.markdown(
+        """
+        <div class="page-header">
+            <div class="page-header-left">
+                <span class="page-icon">⚖️</span>
+                <div>
+                    <p class="page-title">Compare</p>
+                    <p class="page-subtitle">Detect risk changes year-over-year or between companies</p>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     index = load_index()
     if not index:
-        st.info("No records yet. Go to **Analyze → New Analysis** first.")
+        st.markdown(
+            """
+            <div class="empty-state">
+                <p class="empty-state-icon">📂</p>
+                <p class="empty-state-title">No filings yet</p>
+                <p class="empty-state-sub">Upload at least two filings to compare risk changes.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Go to Upload →", key="cmp_empty_upload", type="primary"):
+            st.session_state["current_page"] = "upload"
+            st.rerun()
         return
 
-    # ── Mode toggle as styled tabs ───────────────────────
+    # ── Mode selector ─────────────────────────────────────────────────────────
+    st.markdown(
+        '<p style="font-size:0.62rem; font-weight:700; color:#94a3b8; text-transform:uppercase;'
+        'letter-spacing:0.1em; margin:0 0 0.6rem;">COMPARISON MODE</p>',
+        unsafe_allow_html=True,
+    )
     mode_tab_yoy, mode_tab_cross = st.tabs(["📅  Year-over-Year", "🏢  Cross-Company"])
 
     with mode_tab_yoy:
@@ -25,7 +58,7 @@ def render():
         _render_cross(index)
 
 
-# ── Year-over-Year ───────────────────────────────────────
+# ── Year-over-Year ─────────────────────────────────────────────────────────────
 def _render_yoy(index):
     companies = sorted(set(r["company"] for r in index))
 
@@ -109,7 +142,7 @@ def _render_yoy(index):
     _display_compare_results(all_comparisons, company, "", ftype, mode="yoy")
 
 
-# ── Cross-Company ────────────────────────────────────────
+# ── Cross-Company ──────────────────────────────────────────────────────────────
 def _render_cross(index):
     companies = sorted(set(r["company"] for r in index))
 
@@ -117,13 +150,13 @@ def _render_cross(index):
     with col_a_head:
         st.markdown(
             '<div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;'
-            'padding:0.5rem 1rem; font-weight:600; color:#1e40af; margin-bottom:0.8rem;">Company A</div>',
+            'padding:0.45rem 1rem; font-weight:600; color:#1e40af; font-size:0.85rem; margin-bottom:0.7rem;">Company A</div>',
             unsafe_allow_html=True,
         )
     with col_b_head:
         st.markdown(
             '<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;'
-            'padding:0.5rem 1rem; font-weight:600; color:#166534; margin-bottom:0.8rem;">Company B</div>',
+            'padding:0.45rem 1rem; font-weight:600; color:#166534; font-size:0.85rem; margin-bottom:0.7rem;">Company B</div>',
             unsafe_allow_html=True,
         )
 
@@ -192,7 +225,7 @@ def _render_cross(index):
     _display_compare_results(all_comparisons, label_a, label_b, "", mode="cross")
 
 
-# ── Display results ──────────────────────────────────────
+# ── Display results ────────────────────────────────────────────────────────────
 def _display_compare_results(all_comparisons, label_a, label_b, ftype, mode="yoy"):
     if "cmp_ai_texts" not in st.session_state:
         st.session_state["cmp_ai_texts"] = {}
@@ -201,39 +234,80 @@ def _display_compare_results(all_comparisons, label_a, label_b, ftype, mode="yoy
         la = export.get("label_a", label_a)
         lb = export.get("label_b", label_b)
 
-        st.divider()
+        st.markdown('<hr style="border:none; border-top:1px solid #e5e7eb; margin:1.2rem 0;">', unsafe_allow_html=True)
+
+        # Section title
         if mode == "yoy":
-            st.subheader(f"{export['latest_year']} vs {export['prior_year']}")
+            title = f"{export['latest_year']} vs {export['prior_year']}"
             analysis_title = f"{export['company']} · {export['latest_year']} vs {export['prior_year']}"
         else:
-            st.subheader(f"{lb}  vs  {la}")
+            title = f"{lb}  vs  {la}"
             analysis_title = f"{lb} vs {la}"
 
-        m1, m2 = st.columns(2)
-        m1.metric(f"🟢 Only in {lb}", len(export["new_risks"]))
-        m2.metric(f"🔴 Only in {la}", len(export["removed_risks"]))
+        st.markdown(
+            f'<p style="font-size:1rem; font-weight:700; color:#111827; margin:0 0 0.8rem;">{title}</p>',
+            unsafe_allow_html=True,
+        )
 
-        if export["new_risks"]:
-            st.markdown(f"**🟢 Risks unique to {lb}**")
-            grouped_new = {}
-            for r in export["new_risks"]:
-                cat = r.get("category", "Uncategorized")
-                grouped_new.setdefault(cat, []).append(r.get("title", "")[:150])
-            for cat, titles in grouped_new.items():
-                with st.expander(f"{cat} ({len(titles)})", expanded=False):
-                    for t in titles:
-                        st.markdown(f"- {t}")
+        # Metric cards
+        mc1, mc2 = st.columns(2)
+        with mc1:
+            n_new = len(export["new_risks"])
+            st.markdown(
+                f'<div class="metric-card" style="border-color:#bbf7d0;">'
+                f'<p class="metric-label">Only in {lb[:20]}</p>'
+                f'<p class="metric-value" style="color:#16a34a;">{n_new} new</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with mc2:
+            n_rem = len(export["removed_risks"])
+            st.markdown(
+                f'<div class="metric-card" style="border-color:#fecaca;">'
+                f'<p class="metric-label">Only in {la[:20]}</p>'
+                f'<p class="metric-value" style="color:#dc2626;">{n_rem} removed</p>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-        if export["removed_risks"]:
-            st.markdown(f"**🔴 Risks unique to {la}**")
-            grouped_removed = {}
-            for r in export["removed_risks"]:
-                cat = r.get("category", "Uncategorized")
-                grouped_removed.setdefault(cat, []).append(r.get("title", "")[:150])
-            for cat, titles in grouped_removed.items():
-                with st.expander(f"{cat} ({len(titles)})", expanded=False):
-                    for t in titles:
-                        st.markdown(f"- {t}")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Risk lists
+        col_new, col_rem = st.columns(2)
+
+        with col_new:
+            if export["new_risks"]:
+                st.markdown(
+                    f'<p style="font-size:0.82rem; font-weight:600; color:#16a34a; margin:0 0 0.5rem;">🟢 Risks unique to {lb}</p>',
+                    unsafe_allow_html=True,
+                )
+                grouped_new = {}
+                for r in export["new_risks"]:
+                    cat = r.get("category", "Uncategorized")
+                    grouped_new.setdefault(cat, []).append(r.get("title", "")[:150])
+                for cat, titles in grouped_new.items():
+                    with st.expander(f"{cat} ({len(titles)})", expanded=False):
+                        for t in titles:
+                            st.markdown(f"- {t}")
+            else:
+                st.markdown('<p style="font-size:0.82rem; color:#9ca3af;">No unique risks in newer filing.</p>', unsafe_allow_html=True)
+
+        with col_rem:
+            if export["removed_risks"]:
+                st.markdown(
+                    f'<p style="font-size:0.82rem; font-weight:600; color:#dc2626; margin:0 0 0.5rem;">🔴 Risks unique to {la}</p>',
+                    unsafe_allow_html=True,
+                )
+                grouped_removed = {}
+                for r in export["removed_risks"]:
+                    cat = r.get("category", "Uncategorized")
+                    grouped_removed.setdefault(cat, []).append(r.get("title", "")[:150])
+                for cat, titles in grouped_removed.items():
+                    with st.expander(f"{cat} ({len(titles)})", expanded=False):
+                        for t in titles:
+                            st.markdown(f"- {t}")
+            else:
+                st.markdown('<p style="font-size:0.82rem; color:#9ca3af;">No unique risks in older filing.</p>', unsafe_allow_html=True)
 
         if not export["new_risks"] and not export["removed_risks"]:
             st.success("No differing risks detected between the two selections.")
@@ -241,11 +315,11 @@ def _display_compare_results(all_comparisons, label_a, label_b, ftype, mode="yoy
         # AI Change Analysis
         ai_key = f"{la}_vs_{lb}"
         if ai_key in st.session_state["cmp_ai_texts"]:
-            st.markdown("##### 🤖 AI Analysis")
+            st.markdown('<div class="section-header">🤖 AI Change Analysis</div>', unsafe_allow_html=True)
             st.info(st.session_state["cmp_ai_texts"][ai_key])
         else:
             if st.button("🤖 AI Change Analysis", key=f"ai_cmp_{ai_key}"):
-                with st.spinner("🤖 Analyzing differences …"):
+                with st.spinner("Analyzing differences…"):
                     ai_text = analyze_changes(
                         analysis_title, lb, la,
                         export["new_risks"], export["removed_risks"],
@@ -255,13 +329,14 @@ def _display_compare_results(all_comparisons, label_a, label_b, ftype, mode="yoy
                 st.rerun()
 
         st.download_button(
-            "⬇️ Download Compare JSON",
+            "📥 Download Compare JSON",
             data=json.dumps(export, indent=2, ensure_ascii=False),
             file_name=f"compare_{la}_vs_{lb}.json".replace(" ", "_"),
             mime="application/json",
             key=f"dl_cmp_{ai_key}",
         )
 
+    # Save to S3
     if all_comparisons and mode == "yoy":
         combined = {
             "company": all_comparisons[0]["company"],
@@ -285,12 +360,10 @@ def _display_compare_results(all_comparisons, label_a, label_b, ftype, mode="yoy
         export = all_comparisons[0]
         la = export.get("label_a", "")
         lb = export.get("label_b", "")
-        # filename: CoA_YrA_vs_CoB_YrB
         safe_la = re.sub(r"[^\w]", "_", la).strip("_")
         safe_lb = re.sub(r"[^\w]", "_", lb).strip("_")
-        cross_company_name = f"{safe_la}_vs_{safe_lb}"
         s3_key = save_compare_result(
-            company=cross_company_name,
+            company=f"{safe_la}_vs_{safe_lb}",
             filing_type="",
             latest_year=export["latest_year"],
             prior_years=[export["prior_year"]],
