@@ -26,13 +26,14 @@ st.markdown(
     }
     .stApp { background-color: #f1f5f9 !important; }
     h1,h2,h3,h4,h5,h6 { color: #0f172a !important; font-family: 'Inter', sans-serif !important; }
-    p, span, li, label, div { font-family: 'Inter', sans-serif !important; }
-    /* Restore Material Icons font — exception to the Inter override above */
+    p, li, label, div { font-family: 'Inter', sans-serif !important; }
+    /* Restore Material Icons / Symbols font — exception to the Inter override above */
     span.material-icons,
     span.material-icons-round,
     span.material-icons-outlined,
-    span[class*="material-icons"] {
-        font-family: 'Material Icons Round', 'Material Icons' !important;
+    span[class*="material-icons"],
+    span[class*="material-symbols"] {
+        font-family: 'Material Symbols Rounded', 'Material Icons Round', 'Material Icons' !important;
     }
     .main .block-container {
         padding: 2rem 2.4rem 3rem !important;
@@ -456,6 +457,11 @@ st.markdown(
         color: #334155 !important;
     }
 
+    /* ── Fix dropdown caret font in BaseWeb selects to avoid overlapping arrow text ─ */
+    [data-baseweb="select"] span[aria-hidden="true"] {
+        font-family: 'Material Symbols Rounded', 'Material Icons Round', 'Material Icons' !important;
+    }
+
     /* ── Segmented control ─────────────────────────────────────────────────── */
     [data-testid="stSegmentedControl"] { border-radius: 8px !important; }
 
@@ -514,6 +520,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     _nav("🏠  Home", "home")
+    _nav("📈  Dashboard", "dashboard")
     _nav("📚  Library", "library")
     _nav("➕  Upload", "upload")
 
@@ -582,11 +589,11 @@ components.html(
             if (collapsed) {
                 sb.classList.add('sb-collapsed');
                 btn.style.left = '0px';
-                if (arrow) arrow.textContent = '\u203a'; /* › */
+                if (arrow) arrow.textContent = '\\u203a'; /* › */
             } else {
                 sb.classList.remove('sb-collapsed');
                 btn.style.left = SB_WIDTH + 'px';
-                if (arrow) arrow.textContent = '\u2039'; /* ‹ */
+                if (arrow) arrow.textContent = '\\u2039'; /* ‹ */
             }
             if (!animate) {
                 setTimeout(function() {
@@ -596,9 +603,9 @@ components.html(
             }
         }
 
-        function init() {
+        function initSidebarToggle() {
             if (pdoc.getElementById('sb-toggle')) {
-                /* Already exists — just sync state on rerun */
+                // Already exists — just sync state on rerun
                 var collapsed = pwin.localStorage.getItem('sb-collapsed') === '1';
                 applyState(collapsed, false);
                 return;
@@ -622,18 +629,21 @@ components.html(
             });
         }
 
-        /* Wait for sidebar to be in DOM */
-        if (pdoc.querySelector('section[data-testid="stSidebar"]')) {
-            init();
-        } else {
-            var obs = new MutationObserver(function() {
-                if (pdoc.querySelector('section[data-testid="stSidebar"]')) {
-                    obs.disconnect();
-                    init();
-                }
-            });
-            obs.observe(pdoc.body, { childList: true, subtree: true });
+        function waitForSidebar() {
+            if (pdoc.querySelector('section[data-testid="stSidebar"]')) {
+                initSidebarToggle();
+            } else {
+                var obs = new MutationObserver(function() {
+                    if (pdoc.querySelector('section[data-testid="stSidebar"]')) {
+                        obs.disconnect();
+                        initSidebarToggle();
+                    }
+                });
+                obs.observe(pdoc.body, { childList: true, subtree: true });
+            }
         }
+
+        waitForSidebar();
     })();
     </script>
     """,
@@ -645,6 +655,9 @@ page = st.session_state["current_page"]
 
 if page == "home":
     from views.home import render as _render
+    _render()
+elif page == "dashboard":
+    from views.dashboard import render as _render
     _render()
 elif page == "library":
     from views.library import render as _render

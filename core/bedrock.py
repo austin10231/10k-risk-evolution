@@ -25,7 +25,11 @@ def _get_bedrock():
 def _invoke(prompt, max_tokens=1024):
     client = _get_bedrock()
     body = json.dumps({
-        "inferenceConfig": {"maxTokens": max_tokens},
+        "inferenceConfig": {
+            "maxTokens": max_tokens,
+            "temperature": 0.0,
+            "topP": 1.0,
+        },
         "messages": [{"role": "user", "content": [{"text": prompt}]}],
     })
     response = client.invoke_model(

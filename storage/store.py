@@ -27,6 +27,7 @@ TABLES_PREFIX = "tables_extraction"
 COMPARES_PREFIX = "compare_reports"
 COMPARES_YOY_PREFIX = "compare_reports/same_company"
 COMPARES_CROSS_PREFIX = "compare_reports/different_company"
+AGENT_PREFIX = "agent_reports"
 
 
 def _s3_read(key):
@@ -172,6 +173,39 @@ def save_compare_result(company, filing_type, latest_year, prior_years, compare_
 
     _s3_write(key, json.dumps(compare_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"))
     return key
+
+
+def save_agent_report(company, year, filing_type, report_json):
+    safe = re.sub(r"[^\w]", "", company.replace(" ", "_"))
+    sf = re.sub(r"[^\w\-]", "", filing_type)
+    ts = datetime.now().strftime("%Y%m%d")
+
+    # Delete any previous agent report for the same company/year/filing_type
+    _delete_by_prefix(f"{AGENT_PREFIX}/{safe}_{year}_{sf}_")
+
+    key = f"{AGENT_PREFIX}/{safe}_{year}_{sf}_{ts}.json"
+    _s3_write(
+        key,
+        json.dumps(report_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
+    )
+    return key
+
+
+def load_agent_reports():
+    """Load all agent report JSONs from the agent_reports/ prefix.
+    Returns a list of parsed report dicts."""
+    reports = []
+    try:
+        s3 = _get_s3()
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=BUCKET, Prefix=AGENT_PREFIX + "/"):
+            for obj in page.get("Contents", []):
+                data = _s3_read(obj["Key"])
+                if data:
+                    reports.append(json.loads(data.decode("utf-8")))
+    except Exception:
+        pass
+    return reports
 
 
 def filter_records(industry=None, company=None, year=None, filing_type=None, fmt=None):

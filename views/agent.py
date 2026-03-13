@@ -3,7 +3,7 @@
 import streamlit as st
 import json
 
-from storage.store import load_index, get_result
+from storage.store import load_index, get_result, save_agent_report
 from core.agent import run_agent
 from core.comparator import compare_risks
 
@@ -76,11 +76,6 @@ def render():
             'letter-spacing:0.1em; margin:0 0 0.6rem;">CONFIGURE</p>',
             unsafe_allow_html=True,
         )
-        st.markdown(
-            '<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; box-shadow:0 1px 3px rgba(15,23,42,0.04);">',
-            unsafe_allow_html=True,
-        )
-
         companies = sorted(set(r["company"] for r in index))
         company = st.selectbox("Company", companies, key="agent_company")
         co_recs = [r for r in index if r["company"] == company]
@@ -96,8 +91,6 @@ def render():
             else:
                 st.caption("No prior year available.")
                 use_compare = False
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
         # Suggested queries
         st.markdown(
@@ -160,6 +153,12 @@ def render():
                                     compare_data=compare_data,
                                 )
                             st.session_state["agent_report"] = report
+                            save_agent_report(
+                                company=company,
+                                year=year,
+                                filing_type=rec.get("filing_type", "10-K"),
+                                report_json=report,
+                            )
                             st.rerun()
 
         # Output
@@ -200,10 +199,14 @@ def _display_dashboard(report: dict):
         for t in themes
     ) if themes else '<span style="color:#94a3b8; font-size:0.8rem;">—</span>'
 
-    oc1, oc2, oc3 = st.columns([1, 1.6, 1.4])
+    oc1, oc2, oc3 = st.columns(3)
+    _card_style = (
+        "display:flex; flex-direction:column; align-items:center; justify-content:center;"
+        "min-height:130px; text-align:center;"
+    )
     with oc1:
         st.markdown(
-            f'<div class="metric-card" style="border-color:{rc}40; background:{rc}08;">'
+            f'<div class="metric-card" style="border-color:{rc}40; background:{rc}08; {_card_style}">'
             f'<p class="metric-label" style="color:{rc};">OVERALL RISK</p>'
             f'<p class="metric-value" style="color:{rc}; font-size:1.5rem;">{overall}</p>'
             f'</div>',
@@ -211,7 +214,7 @@ def _display_dashboard(report: dict):
         )
     with oc2:
         st.markdown(
-            f'<div class="metric-card">'
+            f'<div class="metric-card" style="{_card_style}">'
             f'<p class="metric-label">PRIORITY BREAKDOWN</p>'
             f'<div style="display:flex; gap:1rem; justify-content:center; align-items:center; margin-top:0.5rem;">'
             f'<div style="text-align:center;">'
@@ -234,9 +237,9 @@ def _display_dashboard(report: dict):
         )
     with oc3:
         st.markdown(
-            f'<div class="metric-card">'
+            f'<div class="metric-card" style="{_card_style}">'
             f'<p class="metric-label">RISK THEMES</p>'
-            f'<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:0.5rem;">{themes_html}</div>'
+            f'<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:0.5rem; justify-content:center;">{themes_html}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
