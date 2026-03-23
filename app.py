@@ -6,7 +6,7 @@ Entry point: streamlit run app.py
 import streamlit as st
 
 st.set_page_config(
-    page_title="FinSight AI · 10-K Intelligence",
+    page_title="RiskLens AI · 10-K Intelligence",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
