@@ -1,4 +1,4 @@
-"""Home page — FinSight AI landing."""
+"""Home page — RiskLens AI landing."""
 
 import streamlit as st
 
@@ -34,7 +34,7 @@ def render():
                 </div>
                 <div style="margin-bottom:0.75rem; line-height:1.1;">
                     <span style="font-size:2.5rem; font-weight:900; color:#ffffff;
-                         letter-spacing:-0.04em; display:inline;">FinSight</span>
+                         letter-spacing:-0.04em; display:inline;">RiskLens</span>
                     <span style="font-size:2.5rem; font-weight:900; color:#bfdbfe;
                          letter-spacing:-0.04em; display:inline;"> AI</span>
                 </div>
@@ -290,7 +290,7 @@ def render():
              padding:0.8rem 1.3rem; display:flex; align-items:center; justify-content:space-between;
              box-shadow:0 1px 2px rgba(15,23,42,0.03);">
             <span style="font-size:0.75rem; color:#64748b; font-weight:500;">
-                FinSight<span style="color:#6366f1; font-weight:700;">AI</span>
+                RiskLens<span style="color:#6366f1; font-weight:700;">AI</span>
                 &nbsp;·&nbsp; SCU × AWS Team 1
             </span>
             <span style="font-size:0.72rem; color:#94a3b8;">

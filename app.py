@@ -1,5 +1,5 @@
 """
-FinSight AI — SEC 10-K Risk Intelligence Platform
+RiskLens AI — SEC 10-K Risk Intelligence Platform
 Entry point: streamlit run app.py
 """
 
@@ -492,7 +492,7 @@ with st.sidebar:
                 <div>
                     <p style="font-size:1.1rem; font-weight:800; color:#ffffff; margin:0;
                        line-height:1.2; letter-spacing:-0.02em;">
-                        FinSight<span style="color:#93c5fd;">AI</span>
+                        RiskLens<span style="color:#93c5fd;">AI</span>
                     </p>
                     <p style="font-size:0.7rem; color:rgba(255,255,255,0.55); margin:0.1rem 0 0; letter-spacing:0.02em;">
                         10-K Risk Intelligence
