@@ -6,6 +6,16 @@ import plotly.graph_objects as go
 from storage.store import load_index, get_result, load_agent_reports
 from core.bedrock import RISK_CATEGORIES
 
+try:
+    # Keep industry options aligned with Upload page.
+    from views.upload import INDUSTRIES as _UPLOAD_INDUSTRIES
+except Exception:
+    _UPLOAD_INDUSTRIES = [
+        "Technology", "Healthcare", "Financials", "Energy",
+        "Consumer Discretionary", "Consumer Staples", "Industrials",
+        "Materials", "Utilities", "Real Estate", "Telecom", "Other",
+    ]
+
 
 # ── Color palette (matches app design system) ────────────────────────────────
 _INDIGO = "#6366f1"
@@ -161,6 +171,13 @@ def _map_category_to_label(category_name):
         if keyword in name_lower:
             return label
     return category_name
+
+
+def _industry_options(index):
+    present = {str(r.get("industry", "")).strip() for r in index if str(r.get("industry", "")).strip()}
+    ordered_known = [i for i in _UPLOAD_INDUSTRIES if i in present]
+    extras = sorted(present - set(_UPLOAD_INDUSTRIES))
+    return ["All Industries", *ordered_known, *extras]
 
 
 def render():
@@ -348,8 +365,20 @@ def render():
     # ══════════════════════════════════════════════════════════════════════════
     #  2. Risk Category Ranking
     # ══════════════════════════════════════════════════════════════════════════
+    industry_options = _industry_options(index)
+    selected_industry = st.selectbox(
+        "Industry Group",
+        industry_options,
+        key="dash_risk_rank_industry",
+        help="Filter the risk category ranking by selected industry.",
+    )
+
+    ranking_scope = "all companies and years"
+    if selected_industry != "All Industries":
+        ranking_scope = f"{selected_industry} filings"
+
     st.markdown(
-        """
+        f"""
         <div style="display:flex; align-items:center; gap:0.75rem; margin:0 0 1rem;">
             <div style="width:4px; height:28px; background:linear-gradient(180deg,#3b82f6,#2563eb);
                  border-radius:2px; flex-shrink:0;"></div>
@@ -357,7 +386,7 @@ def render():
                 <p style="font-size:1.05rem; font-weight:800; color:#0f172a; margin:0;
                    letter-spacing:-0.02em; line-height:1.2;">Risk Category Ranking</p>
                 <p style="font-size:0.75rem; color:#64748b; margin:0; font-weight:400;">
-                    Most frequent risk categories across all companies and years
+                    Most frequent risk categories across {ranking_scope}
                 </p>
             </div>
         </div>
@@ -365,7 +394,13 @@ def render():
         unsafe_allow_html=True,
     )
 
-    label_counts = _extract_all_labels(results)
+    if selected_industry == "All Industries":
+        ranking_results = results
+    else:
+        scoped_ids = {r["record_id"] for r in index if r.get("industry") == selected_industry}
+        ranking_results = {rid: res for rid, res in results.items() if rid in scoped_ids}
+
+    label_counts = _extract_all_labels(ranking_results)
 
     if not label_counts:
         st.info("No risk category data available yet.")

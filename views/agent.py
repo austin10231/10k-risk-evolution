@@ -2,6 +2,13 @@
 
 import streamlit as st
 import json
+import re
+import uuid
+import copy
+import hashlib
+import traceback
+import boto3
+from botocore.config import Config
 
 from storage.store import load_index, get_result, save_agent_report
 from core.agent import run_agent
@@ -28,6 +35,274 @@ def _badge(text, color):
         f'<span style="background:{color}20; color:{color}; border:1px solid {color}40;'
         f'padding:2px 9px; border-radius:12px; font-size:0.75rem; font-weight:600;">{text}</span>'
     )
+
+
+def _stable_json(obj) -> str:
+    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _build_agent_cache_key(
+    mode: str,
+    company: str,
+    year: int,
+    user_query: str,
+    risks: list,
+    compare_data: dict | None,
+    runtime_arn: str = "",
+    runtime_qualifier: str = "",
+    runtime_session_id: str = "",
+) -> str:
+    payload = {
+        "mode": mode,
+        "company": company,
+        "year": year,
+        "user_query": user_query,
+        "risks": risks,
+        "compare_data": compare_data,
+        "runtime_arn": runtime_arn,
+        "runtime_qualifier": runtime_qualifier,
+        "runtime_session_id": runtime_session_id,
+    }
+    raw = _stable_json(payload).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _agent_cache():
+    if "agent_report_cache" not in st.session_state:
+        st.session_state["agent_report_cache"] = {}
+    return st.session_state["agent_report_cache"]
+
+
+def _cache_get(cache_key: str):
+    cache = _agent_cache()
+    val = cache.get(cache_key)
+    return copy.deepcopy(val) if val is not None else None
+
+
+def _cache_set(cache_key: str, report: dict, max_size: int = 30):
+    cache = _agent_cache()
+    cache[cache_key] = copy.deepcopy(report)
+    # Keep cache bounded to avoid unbounded session growth.
+    if len(cache) > max_size:
+        oldest_key = next(iter(cache))
+        if oldest_key != cache_key:
+            cache.pop(oldest_key, None)
+
+
+def _is_error_report(report: dict) -> bool:
+    summary = str((report or {}).get("executive_summary", "") or "")
+    return "Report generation encountered an error:" in summary
+
+
+def _secret_get(key, default=""):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+
+def _extract_json_obj(text: str):
+    s = re.sub(r"```json|```", "", str(text or "")).strip()
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    left = s.find("{")
+    right = s.rfind("}")
+    if left >= 0 and right > left:
+        try:
+            return json.loads(s[left:right + 1])
+        except Exception:
+            return None
+    return None
+
+
+def _normalize_report_payload(report: dict, company: str, year: int, user_query: str, mode_label: str) -> dict:
+    def _looks_like_report(d: dict) -> bool:
+        return isinstance(d, dict) and (
+            "priority_matrix" in d or
+            "executive_summary" in d or
+            "overall_risk_rating" in d or
+            "enriched_risks" in d
+        )
+
+    def _coerce_to_dict(obj):
+        if isinstance(obj, dict):
+            return obj
+        if isinstance(obj, str):
+            parsed = _extract_json_obj(obj)
+            if isinstance(parsed, dict):
+                return parsed
+        return None
+
+    root = _coerce_to_dict(report) or {}
+    out = dict(root)
+
+    # Handle common wrapper shapes: {"report": {...}} or {"result": "...json..."}
+    if not _looks_like_report(out):
+        for wrapper_key in (
+            "report", "result", "data", "output", "response", "body", "payload", "message", "text"
+        ):
+            wrapped = _coerce_to_dict(out.get(wrapper_key))
+            if _looks_like_report(wrapped):
+                out = dict(wrapped)
+                break
+
+    out.setdefault("company", company)
+    out.setdefault("year", year)
+    out.setdefault("user_query", user_query)
+    out.setdefault("priority_matrix", {
+        "high": {"count": 0, "top": []},
+        "medium": {"count": 0, "top": []},
+        "low": {"count": 0, "top": []},
+    })
+    out.setdefault("executive_summary", "")
+    out.setdefault("key_findings", [])
+    out.setdefault("recommendations", [])
+    out.setdefault("risk_themes", [])
+    out.setdefault("overall_risk_rating", "Unknown")
+    out.setdefault("compare_insights", "")
+    out.setdefault("enriched_risks", [])
+    steps = out.get("agent_steps", [])
+    if not isinstance(steps, list):
+        steps = [str(steps)]
+    out["agent_steps"] = [f"🚦 Execution mode: {mode_label}", *steps]
+    return out
+
+
+def _get_agentcore_client(read_timeout: int = 60):
+    region = _secret_get("AGENTCORE_REGION", _secret_get("BEDROCK_REGION", "us-west-2"))
+    client_config = Config(
+        connect_timeout=10,
+        read_timeout=read_timeout,
+        retries={"max_attempts": 2, "mode": "standard"},
+    )
+    return boto3.client(
+        "bedrock-agentcore",
+        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+        region_name=region,
+        config=client_config,
+    )
+
+
+def _read_agentcore_response_text(resp: dict) -> str:
+    body = resp.get("response")
+    if body is None:
+        return ""
+
+    ctype = str(resp.get("contentType", "")).lower()
+    if "text/event-stream" in ctype:
+        chunks = []
+        for raw_line in body.iter_lines(chunk_size=1024):
+            if not raw_line:
+                continue
+            line = raw_line.decode("utf-8", errors="ignore").strip()
+            if not line:
+                continue
+            if line.startswith("data:"):
+                payload = line[5:].strip()
+                if payload and payload != "[DONE]":
+                    chunks.append(payload)
+            else:
+                chunks.append(line)
+        return "\n".join(chunks)
+
+    payload = body.read()
+    if isinstance(payload, bytes):
+        return payload.decode("utf-8", errors="ignore")
+    return str(payload)
+
+
+def _ensure_runtime_session_id(value) -> str:
+    sid = str(value or "").strip()
+    # AgentCore requires runtimeSessionId min length 33.
+    if len(sid) < 33:
+        sid = str(uuid.uuid4())
+    return sid
+
+
+def _invoke_agentcore_runtime(
+    agent_runtime_arn: str,
+    qualifier: str,
+    runtime_session_id: str,
+    company: str,
+    year: int,
+    user_query: str,
+    risks: list,
+    compare_data: dict | None,
+) -> dict:
+    runtime_session_id = _ensure_runtime_session_id(runtime_session_id)
+    client = _get_agentcore_client(read_timeout=300)
+    safe_company = str(company or "")
+    safe_user_query = str(user_query or "")
+    try:
+        safe_year = int(year)
+    except Exception:
+        safe_year = 0
+    safe_risks = risks if isinstance(risks, list) else []
+    safe_compare_data = compare_data if isinstance(compare_data, dict) else None
+    aws_ctx = {
+        "aws_access_key_id": _secret_get("AWS_ACCESS_KEY_ID", ""),
+        "aws_secret_access_key": _secret_get("AWS_SECRET_ACCESS_KEY", ""),
+        "aws_session_token": _secret_get("AWS_SESSION_TOKEN", ""),
+        "bedrock_region": _secret_get("BEDROCK_REGION", _secret_get("AGENTCORE_REGION", "us-west-2")),
+    }
+    if not aws_ctx["aws_access_key_id"] or not aws_ctx["aws_secret_access_key"]:
+        aws_ctx = {}
+
+    input_payload = {
+        "user_query": safe_user_query,
+        "company": safe_company,
+        "year": safe_year,
+        "risks": safe_risks,
+        "compare_data": safe_compare_data,
+        "_aws": aws_ctx,
+    }
+    request_payload = {
+        # Keep required fields directly on top-level.
+        "company": safe_company,
+        "year": safe_year,
+        "user_query": safe_user_query,
+        "risks": safe_risks,
+        "compare_data": safe_compare_data,
+        "_aws": aws_ctx,
+        # Compatibility keys for runtimes parsing alternate contracts.
+        "prompt": safe_user_query,
+        "input": input_payload,
+        "body": json.dumps(input_payload, ensure_ascii=False, default=str),
+    }
+
+    kwargs = {
+        "agentRuntimeArn": agent_runtime_arn,
+        "runtimeSessionId": runtime_session_id,
+        "contentType": "application/json",
+        "accept": "application/json",
+        "payload": json.dumps(request_payload, ensure_ascii=False, default=str).encode("utf-8"),
+    }
+    if qualifier.strip():
+        kwargs["qualifier"] = qualifier.strip()
+
+    resp = client.invoke_agent_runtime(**kwargs)
+    text = _read_agentcore_response_text(resp)
+    parsed = _extract_json_obj(text)
+    if not isinstance(parsed, dict):
+        parsed = {"executive_summary": text}
+
+    report = _normalize_report_payload(
+        parsed,
+        company=company,
+        year=year,
+        user_query=user_query,
+        mode_label="AgentCore Runtime",
+    )
+
+    status_code = resp.get("statusCode")
+    runtime_sid = resp.get("runtimeSessionId", runtime_session_id)
+    report["agent_steps"].append(f"🌐 AgentCore status: {status_code}")
+    report["agent_steps"].append(f"🧵 Runtime session: {runtime_sid}")
+    report["runtime_session_id"] = runtime_sid
+    return report
 
 
 def render():
@@ -65,6 +340,9 @@ def render():
         return
 
     col_left, col_right = st.columns([1, 2], gap="large")
+    if "agent_exec_runtime" not in st.session_state:
+        st.session_state["agent_exec_runtime"] = False
+    mode = "AgentCore Runtime" if st.session_state["agent_exec_runtime"] else "Local"
 
     # ════════════════════════════════════════════════════
     # LEFT — Configure + Suggested Queries
@@ -81,6 +359,49 @@ def render():
         co_recs = [r for r in index if r["company"] == company]
         years = sorted(set(r["year"] for r in co_recs), reverse=True)
         year = st.selectbox("Year", years, key="agent_year")
+
+        runtime_arn = ""
+        runtime_qualifier = ""
+        runtime_session_id = ""
+        if mode == "AgentCore Runtime":
+            if "agent_runtime_arn" not in st.session_state:
+                st.session_state["agent_runtime_arn"] = _secret_get(
+                    "AGENTCORE_ARN",
+                    _secret_get("AGENTCORE_RUNTIME_ARN", ""),
+                )
+            if "agent_runtime_qualifier" not in st.session_state:
+                st.session_state["agent_runtime_qualifier"] = _secret_get("AGENTCORE_RUNTIME_QUALIFIER", "")
+            runtime_arn = st.text_input(
+                "Agent Runtime ARN",
+                key="agent_runtime_arn",
+                placeholder="arn:aws:bedrock-agentcore:us-west-2:...:runtime/...",
+            )
+            runtime_qualifier = st.text_input(
+                "Qualifier (optional)",
+                key="agent_runtime_qualifier",
+                placeholder="e.g. PROD",
+            )
+            if "agent_runtime_session_id" not in st.session_state:
+                st.session_state["agent_runtime_session_id"] = str(uuid.uuid4())
+            else:
+                st.session_state["agent_runtime_session_id"] = _ensure_runtime_session_id(
+                    st.session_state["agent_runtime_session_id"]
+                )
+            runtime_session_id = st.text_input(
+                "Runtime Session ID",
+                key="agent_runtime_session_id",
+                help="Use the same session ID to keep multi-turn remote context.",
+            )
+            def _start_new_runtime_session():
+                st.session_state["agent_runtime_session_id"] = str(uuid.uuid4())
+
+            if st.button(
+                "Start New Runtime Session",
+                key="agent_new_runtime_session",
+                use_container_width=True,
+                on_click=_start_new_runtime_session,
+            ):
+                st.rerun()
 
         use_compare = st.checkbox("Include YoY comparison", key="agent_use_compare")
         prior_year = None
@@ -119,7 +440,19 @@ def render():
             key="agent_query_text",
             label_visibility="collapsed",
         )
-        run = st.button("🚀 Run Agent", key="btn_run_agent", type="primary", use_container_width=True)
+        run_col, mode_col = st.columns([8, 2], gap="small")
+        with run_col:
+            run = st.button("🚀 Run Agent", key="btn_run_agent", type="primary", use_container_width=True)
+        with mode_col:
+            st.markdown(
+                '<p style="font-size:0.62rem; color:#94a3b8; margin:0.15rem 0 0.1rem; text-align:right;">demo</p>',
+                unsafe_allow_html=True,
+            )
+            st.toggle(
+                "AgentCore",
+                key="agent_exec_runtime",
+                help="Switch to AgentCore Runtime mode for demos.",
+            )
 
         if run:
             if not user_query.strip():
@@ -144,13 +477,105 @@ def render():
                                     prior_result = get_result(prior_rec["record_id"])
                                     if prior_result:
                                         compare_data = compare_risks(prior_result, result)
-                            with st.spinner("🤖 Agent is analyzing risks…"):
-                                report = run_agent(
-                                    user_query=user_query.strip(),
+                            if mode == "AgentCore Runtime" and not runtime_arn.strip():
+                                st.error("Please provide Agent Runtime ARN for AgentCore Runtime mode.")
+                                return
+
+                            safe_runtime_session_id = _ensure_runtime_session_id(runtime_session_id)
+
+                            normalized_query = user_query.strip()
+                            canonical_key = _build_agent_cache_key(
+                                mode="canonical",
+                                company=company,
+                                year=year,
+                                user_query=normalized_query,
+                                risks=risks,
+                                compare_data=compare_data,
+                            )
+                            canonical_report = _cache_get(canonical_key)
+
+                            cache_key = _build_agent_cache_key(
+                                mode=mode,
+                                company=company,
+                                year=year,
+                                user_query=normalized_query,
+                                risks=risks,
+                                compare_data=compare_data,
+                                runtime_arn=runtime_arn.strip(),
+                                runtime_qualifier=runtime_qualifier.strip(),
+                                runtime_session_id=safe_runtime_session_id,
+                            )
+                            # Always re-run AgentCore Runtime on user click; keep cache read for Local mode.
+                            report = None if mode == "AgentCore Runtime" else _cache_get(cache_key)
+
+                            if report is None:
+                                with st.spinner(
+                                    "🤖 Agent is analyzing risks…"
+                                    if mode == "Local"
+                                    else "🌐 AgentCore Runtime is analyzing risks…"
+                                ):
+                                    if mode == "Local":
+                                        report = run_agent(
+                                            user_query=normalized_query,
+                                            company=company,
+                                            year=year,
+                                            risks=risks,
+                                            compare_data=compare_data,
+                                        )
+                                        report = _normalize_report_payload(
+                                            report,
+                                            company=company,
+                                            year=year,
+                                            user_query=normalized_query,
+                                            mode_label="Local",
+                                        )
+                                    else:
+                                        try:
+                                            report = _invoke_agentcore_runtime(
+                                                agent_runtime_arn=runtime_arn.strip(),
+                                                qualifier=runtime_qualifier,
+                                                runtime_session_id=safe_runtime_session_id,
+                                                company=company,
+                                                year=year,
+                                                user_query=normalized_query,
+                                                risks=risks,
+                                                compare_data=compare_data,
+                                            )
+                                            # Safety fallback: if remote runtime returns a known LLM-call failure shape,
+                                            # immediately compute locally so UI is still actionable.
+                                            summary_text = str(report.get("executive_summary", "") or "")
+                                            if (
+                                                report.get("overall_risk_rating") == "Unknown"
+                                                and "Report generation encountered an error:" in summary_text
+                                            ):
+                                                report = run_agent(
+                                                    user_query=normalized_query,
+                                                    company=company,
+                                                    year=year,
+                                                    risks=risks,
+                                                    compare_data=compare_data,
+                                                )
+                                                report = _normalize_report_payload(
+                                                    report,
+                                                    company=company,
+                                                    year=year,
+                                                    user_query=normalized_query,
+                                                    mode_label="AgentCore Runtime (Local Fallback)",
+                                                )
+                                        except Exception as exc:
+                                            st.error(f"AgentCore invocation failed: {type(exc).__name__}: {exc}")
+                                            st.error(traceback.format_exc())
+                                            return
+                                _cache_set(cache_key, report)
+                                if canonical_report is None and not _is_error_report(report):
+                                    _cache_set(canonical_key, report)
+                            if canonical_report is not None and not _is_error_report(canonical_report):
+                                report = _normalize_report_payload(
+                                    canonical_report,
                                     company=company,
                                     year=year,
-                                    risks=risks,
-                                    compare_data=compare_data,
+                                    user_query=normalized_query,
+                                    mode_label=mode,
                                 )
                             st.session_state["agent_report"] = report
                             save_agent_report(
@@ -387,7 +812,7 @@ def _display_dashboard(report: dict):
                             f'<div style="border-left:3px solid {color}; padding:0.4rem 0.8rem;'
                             f'margin-bottom:0.4rem; background:#fafafa; border-radius:0 6px 6px 0;">'
                             f'<div style="display:flex; justify-content:space-between; align-items:center;">'
-                            f'<span style="font-size:0.83rem; color:#111827;">{s.get("title","")[:150]}</span>'
+                            f'<span style="font-size:0.83rem; color:#111827;">{s.get("title","")}</span>'
                             f'<span style="white-space:nowrap; margin-left:0.5rem;">'
                             f'{_badge(p, color)}'
                             f'<span style="font-size:0.7rem; color:#9ca3af; margin-left:4px;">{score}</span>'

@@ -13,6 +13,7 @@ from core.extractor import (
     extract_item1a_risks_from_text,
 )
 from core.bedrock import classify_risks, generate_summary
+from core.comprehend import enrich_risks_with_comprehend
 from components.filters import library_filters
 
 INDUSTRIES = [
@@ -30,6 +31,7 @@ def _show_output(result, key):
     ov = result.get("company_overview", {})
     risks = result.get("risks", [])
     ai_summary = result.get("ai_summary", "")
+    comprehend_meta = result.get("comprehend_meta", {})
 
     st.markdown(
         f"**{ov.get('company', '—')}** · {ov.get('year', '—')} · "
@@ -41,6 +43,14 @@ def _show_output(result, key):
     if ai_summary:
         st.markdown('<div class="section-header">🤖 AI Executive Summary</div>', unsafe_allow_html=True)
         st.info(ai_summary)
+        if comprehend_meta:
+            if comprehend_meta.get("enabled"):
+                st.caption(
+                    "Comprehend enriched "
+                    f"{comprehend_meta.get('enriched', 0)}/{comprehend_meta.get('processed', 0)} risk items."
+                )
+            else:
+                st.caption(f"Comprehend skipped: {comprehend_meta.get('error', 'unknown reason')}")
 
     # Company Overview
     st.markdown('<div class="section-header">🏢 Company Overview</div>', unsafe_allow_html=True)
@@ -63,11 +73,15 @@ def _show_output(result, key):
             with st.expander(f"**{cat_name}** ({sub_count} risks)", expanded=False):
                 for s in subs:
                     labels = s.get("labels", [])
+                    tags = s.get("tags", [])
                     label_str = " · ".join(f"`{l}`" for l in labels) if labels else ""
+                    tag_str = " · ".join(f"`{t}`" for t in tags[:6]) if tags else ""
                     title = s.get("title", "")[:150]
                     st.markdown(f"- {title}")
                     if label_str:
                         st.caption(f"   Labels: {label_str}")
+                    if tag_str:
+                        st.caption(f"   Tags: {tag_str}")
         else:
             st.markdown(f"- **{cat_name}** — {sub_count} risk items")
 
@@ -88,11 +102,14 @@ def _run_ai(result, record_id):
 
     with st.spinner("🤖 Classifying risks with AI …"):
         classified = classify_risks(risks)
-    result["risks"] = classified
+    with st.spinner("🤖 Extracting entities and key phrases with Comprehend …"):
+        enriched_risks, comprehend_meta = enrich_risks_with_comprehend(classified)
+    result["risks"] = enriched_risks
+    result["comprehend_meta"] = comprehend_meta
 
     with st.spinner("🤖 Generating executive summary …"):
         summary = generate_summary(
-            ov.get("company", ""), ov.get("year", 0), classified
+            ov.get("company", ""), ov.get("year", 0), enriched_risks
         )
     result["ai_summary"] = summary
 

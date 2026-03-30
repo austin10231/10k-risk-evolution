@@ -10,6 +10,7 @@ from core.extractor import (
     extract_item1a_risks_from_text,
 )
 from core.bedrock import classify_risks, generate_summary
+from core.comprehend import enrich_risks_with_comprehend
 
 INDUSTRIES = [
     "Technology", "Healthcare", "Financials", "Energy",
@@ -27,9 +28,12 @@ def _run_ai(result, record_id):
     risks = result.get("risks", [])
     with st.spinner("Classifying risks with AI…"):
         classified = classify_risks(risks)
-    result["risks"] = classified
+    with st.spinner("Extracting entities and key phrases with Comprehend…"):
+        enriched_risks, comprehend_meta = enrich_risks_with_comprehend(classified)
+    result["risks"] = enriched_risks
+    result["comprehend_meta"] = comprehend_meta
     with st.spinner("Generating executive summary…"):
-        summary = generate_summary(ov.get("company", ""), ov.get("year", 0), classified)
+        summary = generate_summary(ov.get("company", ""), ov.get("year", 0), enriched_risks)
     result["ai_summary"] = summary
     _s3_write(
         f"{RESULTS_PREFIX}/{record_id}.json",
@@ -70,6 +74,7 @@ def _show_result(result, rid):
     ov = result.get("company_overview", {})
     risks = result.get("risks", [])
     ai_summary = result.get("ai_summary", "")
+    comprehend_meta = result.get("comprehend_meta", {})
 
     # Metrics strip
     mc1, mc2, mc3, mc4 = st.columns(4)
@@ -82,6 +87,14 @@ def _show_result(result, rid):
     if ai_summary:
         st.markdown('<div class="section-header">🤖 AI Executive Summary</div>', unsafe_allow_html=True)
         st.info(ai_summary)
+        if comprehend_meta:
+            if comprehend_meta.get("enabled"):
+                st.caption(
+                    "Comprehend enriched "
+                    f"{comprehend_meta.get('enriched', 0)}/{comprehend_meta.get('processed', 0)} risk items."
+                )
+            else:
+                st.caption(f"Comprehend skipped: {comprehend_meta.get('error', 'unknown reason')}")
     else:
         if st.button("🤖 Run AI Summarize", key=f"ai_up_{rid}"):
             _run_ai(result, rid)
@@ -107,10 +120,14 @@ def _show_result(result, rid):
             with st.expander(f"**{cat_name}** ({len(subs)} risks)", expanded=False):
                 for s in subs:
                     labels = s.get("labels", [])
+                    tags = s.get("tags", [])
                     label_str = " · ".join(f"`{l}`" for l in labels) if labels else ""
+                    tag_str = " · ".join(f"`{t}`" for t in tags[:6]) if tags else ""
                     st.markdown(f"- {s.get('title','')[:150]}")
                     if label_str:
                         st.caption(f"   Labels: {label_str}")
+                    if tag_str:
+                        st.caption(f"   Tags: {tag_str}")
         else:
             st.markdown(f"- **{cat_name}** — {len(subs)} items")
 

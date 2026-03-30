@@ -1,18 +1,46 @@
 """
 core/agent.py
-Risk Agent — Tool 3 (Risk Prioritization) + Tool 4 (Report Generation)
-Uses Amazon Bedrock Nova Lite via the existing _invoke pattern.
-Implements a lightweight Strands-style tool registry without external SDK dependency.
+Risk Agent implemented with Strands SDK (strands-agents).
+
+This module keeps the same public API:
+  run_agent(user_query, company, year, risks, compare_data=None) -> dict
+
+Internally:
+  - Tool 3: prioritize_risks (risk scoring + priority assignment)
+  - Tool 4: generate_agent_report (structured report generation)
+Both tools are registered via @tool and orchestrated by strands.Agent.
 """
+
+from __future__ import annotations
 
 import json
 import re
-import streamlit as st
+
 import boto3
+import streamlit as st
 
-MODEL_ID = "us.amazon.nova-lite-v1:0"
+try:
+    from strands import Agent, tool
+    from strands.models import BedrockModel
+    _STRANDS_AVAILABLE = True
+    _STRANDS_IMPORT_ERROR = ""
+except Exception as e:  # pragma: no cover - import guard for local env mismatch
+    Agent = None
+    BedrockModel = None
+    _STRANDS_AVAILABLE = False
+    _STRANDS_IMPORT_ERROR = str(e)
 
-# ── Bedrock client (reuses same pattern as bedrock.py) ───────────────────────
+    def tool(func=None, **_kwargs):
+        """No-op fallback decorator when strands-agents is unavailable."""
+        if func is None:
+            def _decorator(f):
+                return f
+            return _decorator
+        return func
+
+
+MODEL_ID = "us.amazon.nova-pro-v1:0"
+
 
 def _get_bedrock():
     return boto3.client(
@@ -43,20 +71,104 @@ def _invoke(prompt: str, max_tokens: int = 2048) -> str:
     return result["output"]["message"]["content"][0]["text"].strip()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TOOL 3 — Risk Prioritization
-# Input:  list of risk dicts (category, title, labels)
-# Output: same list enriched with priority + score + reasoning
-# ══════════════════════════════════════════════════════════════════════════════
+def _strip_json_fences(text: str) -> str:
+    s = re.sub(r"```json|```", "", str(text or "")).strip()
+    return s
 
-def prioritize_risks(risks: list, company: str, year: int) -> list:
-    """
-    Tool 3: Score and prioritize each risk factor.
-    Returns the input risk list with added fields:
-      - priority: "High" | "Medium" | "Low"
-      - score: float 0-10
-      - reasoning: one-sentence rationale
-    """
+
+def _extract_json_obj(text: str):
+    s = _strip_json_fences(text)
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    l = s.find("{")
+    r = s.rfind("}")
+    if l >= 0 and r > l:
+        try:
+            return json.loads(s[l:r + 1])
+        except Exception:
+            return None
+    return None
+
+
+def _response_to_text(response) -> str:
+    if response is None:
+        return ""
+    if isinstance(response, str):
+        return response
+    if isinstance(response, dict):
+        return json.dumps(response, ensure_ascii=False)
+
+    for attr in ("message", "output_text", "text"):
+        val = getattr(response, attr, None)
+        if isinstance(val, str):
+            return val
+
+    content = getattr(response, "content", None)
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                if "text" in item:
+                    parts.append(str(item["text"]))
+                elif "json" in item:
+                    parts.append(json.dumps(item["json"], ensure_ascii=False))
+        if parts:
+            return "\n".join(parts)
+
+    return str(response)
+
+
+def _fallback_report(company: str, year: int, user_query: str, error: str) -> dict:
+    return {
+        "company": company,
+        "year": year,
+        "user_query": user_query,
+        "priority_matrix": {
+            "high": {"count": 0, "top": []},
+            "medium": {"count": 0, "top": []},
+            "low": {"count": 0, "top": []},
+        },
+        "executive_summary": f"Report generation encountered an error: {error}",
+        "key_findings": [],
+        "recommendations": [],
+        "risk_themes": [],
+        "overall_risk_rating": "Unknown",
+        "compare_insights": "",
+        "agent_steps": [f"❌ {error}"],
+        "enriched_risks": [],
+    }
+
+
+def _build_priority_lists(enriched_risks: list):
+    high, medium, low = [], [], []
+    for cat_block in enriched_risks:
+        for sr in cat_block.get("sub_risks", []):
+            if not isinstance(sr, dict):
+                continue
+            entry = {
+                "category": cat_block.get("category", ""),
+                "title": sr.get("title", ""),
+                "score": sr.get("score", 5.0),
+                "reasoning": sr.get("reasoning", ""),
+            }
+            p = sr.get("priority", "Medium")
+            if p == "High":
+                high.append(entry)
+            elif p == "Low":
+                low.append(entry)
+            else:
+                medium.append(entry)
+    high.sort(key=lambda x: x["score"], reverse=True)
+    medium.sort(key=lambda x: x["score"], reverse=True)
+    low.sort(key=lambda x: x["score"], reverse=True)
+    return high, medium, low
+
+
+def _prioritize_risks_impl(risks: list, company: str, year: int) -> list:
     # Flatten to individual sub-risks for scoring
     flat_risks = []
     for cat_block in risks:
@@ -65,22 +177,32 @@ def prioritize_risks(risks: list, company: str, year: int) -> list:
             if isinstance(sr, dict):
                 title = sr.get("title", "")
                 labels = sr.get("labels", [])
+                tags = sr.get("tags", [])
             else:
                 title = str(sr)
                 labels = []
+                tags = []
             flat_risks.append({
                 "category": cat,
                 "title": title,
                 "labels": labels,
+                "tags": tags,
             })
 
     if not flat_risks:
         return risks
 
-    # Build a batch prompt to score all risks at once (up to 40)
     batch = flat_risks[:40]
     risks_json = json.dumps(
-        [{"id": i, "title": r["title"][:200], "labels": r["labels"]} for i, r in enumerate(batch)],
+        [
+            {
+                "id": i,
+                "title": r["title"][:200],
+                "labels": r["labels"],
+                "tags": r.get("tags", [])[:6],
+            }
+            for i, r in enumerate(batch)
+        ],
         ensure_ascii=False,
     )
 
@@ -114,15 +236,12 @@ No preamble, no markdown, only the JSON array."""
 
     try:
         raw = _invoke(prompt, max_tokens=2048)
-        # Strip any accidental markdown fences
-        raw = re.sub(r"```json|```", "", raw).strip()
+        raw = _strip_json_fences(raw)
         scored = json.loads(raw)
         score_map = {item["id"]: item for item in scored}
     except Exception:
-        # Fallback: assign Medium to all
         score_map = {}
 
-    # Enrich the original flat_risks
     enriched_flat = []
     for i, r in enumerate(batch):
         s = score_map.get(i, {})
@@ -130,6 +249,7 @@ No preamble, no markdown, only the JSON array."""
             "category": r["category"],
             "title": r["title"],
             "labels": r["labels"],
+            "tags": r.get("tags", []),
             "priority": s.get("priority", "Medium"),
             "score": round(float(s.get("score", 5.0)), 2),
             "financial_impact": s.get("financial_impact", 5),
@@ -138,7 +258,6 @@ No preamble, no markdown, only the JSON array."""
             "reasoning": s.get("reasoning", ""),
         })
 
-    # Rebuild category structure with enriched sub_risks
     cat_map = {}
     for r in enriched_flat:
         cat = r["category"]
@@ -146,62 +265,17 @@ No preamble, no markdown, only the JSON array."""
             cat_map[cat] = []
         cat_map[cat].append(r)
 
-    enriched_risks = [
-        {"category": cat, "sub_risks": subs}
-        for cat, subs in cat_map.items()
-    ]
-
-    return enriched_risks
+    return [{"category": cat, "sub_risks": subs} for cat, subs in cat_map.items()]
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TOOL 4 — Structured Agent Report Generation
-# Input:  enriched risks, company metadata, optional compare data
-# Output: structured report dict
-# ══════════════════════════════════════════════════════════════════════════════
-
-def generate_agent_report(
+def _generate_agent_report_impl(
     company: str,
     year: int,
     enriched_risks: list,
-    compare_data: dict = None,
+    compare_data: dict | None = None,
     user_query: str = "",
 ) -> dict:
-    """
-    Tool 4: Generate a structured risk intelligence report.
-    Returns a report dict with sections:
-      - executive_summary
-      - priority_matrix (High/Medium/Low counts + top items)
-      - key_findings (list of insights)
-      - recommendations (list)
-      - compare_insights (if compare_data provided)
-    """
-    # Build priority matrix from enriched risks
-    high, medium, low = [], [], []
-    for cat_block in enriched_risks:
-        for sr in cat_block.get("sub_risks", []):
-            if not isinstance(sr, dict):
-                continue
-            p = sr.get("priority", "Medium")
-            entry = {
-                "category": cat_block.get("category", ""),
-                "title": sr.get("title", "")[:150],
-                "score": sr.get("score", 5.0),
-                "reasoning": sr.get("reasoning", ""),
-            }
-            if p == "High":
-                high.append(entry)
-            elif p == "Low":
-                low.append(entry)
-            else:
-                medium.append(entry)
-
-    # Sort by score descending
-    high.sort(key=lambda x: x["score"], reverse=True)
-    medium.sort(key=lambda x: x["score"], reverse=True)
-    low.sort(key=lambda x: x["score"], reverse=True)
-
-    # Build prompt context
+    high, medium, low = _build_priority_lists(enriched_risks)
     top_high = json.dumps(high[:5], ensure_ascii=False)
     top_medium = json.dumps(medium[:3], ensure_ascii=False)
 
@@ -249,8 +323,7 @@ Return ONLY the JSON object, no preamble, no markdown fences."""
 
     try:
         raw = _invoke(prompt, max_tokens=1500)
-        raw = re.sub(r"```json|```", "", raw).strip()
-        report_content = json.loads(raw)
+        report_content = json.loads(_strip_json_fences(raw))
     except Exception as e:
         report_content = {
             "executive_summary": f"Report generation encountered an error: {str(e)}",
@@ -274,10 +347,116 @@ Return ONLY the JSON object, no preamble, no markdown fences."""
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# AGENT ORCHESTRATOR
-# Parses user query → decides which tools to call → returns final report
-# ══════════════════════════════════════════════════════════════════════════════
+class _RiskTools:
+    """Stateful tool holder for a single run_agent invocation."""
+
+    def __init__(self, company: str, year: int, risks: list, compare_data: dict | None, user_query: str):
+        self.company = company
+        self.year = year
+        self.risks = risks
+        self.compare_data = compare_data
+        self.user_query = user_query
+
+        self.enriched_risks: list | None = None
+        self.report: dict | None = None
+        self.steps = ["🔍 Interpreting query..."]
+
+    @tool
+    def prioritize_risks(self) -> dict:
+        """Tool 3: score and prioritize current filing risks."""
+        if self.enriched_risks is None:
+            total = sum(len(c.get("sub_risks", [])) for c in self.risks)
+            self.steps.append(f"⚙️ Tool 3: Scoring and prioritizing {total} risk factors...")
+            self.enriched_risks = _prioritize_risks_impl(self.risks, self.company, self.year)
+            self.steps.append("✅ Risk prioritization complete.")
+
+        high, medium, low = _build_priority_lists(self.enriched_risks)
+        return {
+            "status": "ok",
+            "high_count": len(high),
+            "medium_count": len(medium),
+            "low_count": len(low),
+        }
+
+    @tool
+    def generate_agent_report(self) -> dict:
+        """Tool 4: generate a structured risk report from prioritized risks."""
+        if self.enriched_risks is None:
+            self.prioritize_risks()
+
+        if self.report is None:
+            self.steps.append("📝 Tool 4: Generating structured risk intelligence report...")
+            self.report = _generate_agent_report_impl(
+                company=self.company,
+                year=self.year,
+                enriched_risks=self.enriched_risks or [],
+                compare_data=self.compare_data,
+                user_query=self.user_query,
+            )
+            self.steps.append("✅ Report generation complete.")
+
+        out = dict(self.report)
+        out["enriched_risks"] = self.enriched_risks or []
+        out["agent_steps"] = list(self.steps)
+        return out
+
+
+def _build_strands_agent(tools: _RiskTools):
+    if not _STRANDS_AVAILABLE:
+        raise RuntimeError(f"strands-agents not available: {_STRANDS_IMPORT_ERROR}")
+
+    session = boto3.Session(
+        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+        region_name=st.secrets["BEDROCK_REGION"],
+    )
+    model = BedrockModel(
+        model_id=MODEL_ID,
+        boto_session=session,
+        temperature=0.0,
+        top_p=1.0,
+        max_tokens=2048,
+        streaming=False,
+    )
+
+    return Agent(
+        model=model,
+        tools=[tools.prioritize_risks, tools.generate_agent_report],
+        system_prompt=(
+            "You are a risk-analysis orchestrator. "
+            "You must use tools to complete the task. "
+            "Always call prioritize_risks before generate_agent_report. "
+            "After tool calls, return only the final JSON object."
+        ),
+    )
+
+
+def _normalize_report(
+    report: dict,
+    company: str,
+    year: int,
+    user_query: str,
+    tools: _RiskTools,
+) -> dict:
+    out = dict(report or {})
+    out.setdefault("company", company)
+    out.setdefault("year", year)
+    out.setdefault("user_query", user_query)
+    out.setdefault("priority_matrix", {
+        "high": {"count": 0, "top": []},
+        "medium": {"count": 0, "top": []},
+        "low": {"count": 0, "top": []},
+    })
+    out.setdefault("executive_summary", "")
+    out.setdefault("key_findings", [])
+    out.setdefault("recommendations", [])
+    out.setdefault("risk_themes", [])
+    out.setdefault("overall_risk_rating", "Unknown")
+    out.setdefault("compare_insights", "")
+    out["enriched_risks"] = out.get("enriched_risks", tools.enriched_risks or [])
+    out["agent_steps"] = out.get("agent_steps", tools.steps)
+    return out
+
 
 def run_agent(
     user_query: str,
@@ -288,31 +467,66 @@ def run_agent(
 ) -> dict:
     """
     Main agent entry point.
-    Orchestrates Tool 3 + Tool 4 based on user query and available data.
-    Returns a complete agent report dict.
+    Uses Strands Agent to orchestrate Tool 3 + Tool 4.
     """
-    steps = []
-
-    # Step 1: Interpret the query
-    steps.append("🔍 Interpreting query...")
-
-    # Step 2: Tool 3 — Prioritize risks
-    steps.append(f"⚙️ Tool 3: Scoring and prioritizing {sum(len(c.get('sub_risks',[])) for c in risks)} risk factors...")
-    enriched = prioritize_risks(risks, company, year)
-    steps.append("✅ Risk prioritization complete.")
-
-    # Step 3: Tool 4 — Generate report
-    steps.append("📝 Tool 4: Generating structured risk intelligence report...")
-    report = generate_agent_report(
+    tools = _RiskTools(
         company=company,
         year=year,
-        enriched_risks=enriched,
+        risks=risks,
         compare_data=compare_data,
         user_query=user_query,
     )
-    steps.append("✅ Report generation complete.")
 
-    report["agent_steps"] = steps
-    report["enriched_risks"] = enriched
+    if not _STRANDS_AVAILABLE:
+        try:
+            tools.steps.append(f"ℹ️ Strands SDK unavailable: {_STRANDS_IMPORT_ERROR}")
+            tools.steps.append("↩️ Falling back to direct tool execution (Tool 3 -> Tool 4).")
+            tools.prioritize_risks()
+            rep = tools.generate_agent_report()
+            return _normalize_report(rep, company, year, user_query, tools)
+        except Exception as e:
+            return _fallback_report(
+                company=company,
+                year=year,
+                user_query=user_query,
+                error=f"Agent failed: {str(e)}",
+            )
 
-    return report
+    try:
+        agent = _build_strands_agent(tools)
+        prompt = (
+            f"Analyze {company} ({year}) 10-K risks.\n"
+            f"User query: {user_query or '(none)'}\n\n"
+            "Execution policy:\n"
+            "1) Call prioritize_risks.\n"
+            "2) Call generate_agent_report.\n"
+            "3) Return ONLY the JSON object from generate_agent_report."
+        )
+        response = agent(prompt)
+        parsed = _extract_json_obj(_response_to_text(response))
+        if isinstance(parsed, dict) and "priority_matrix" in parsed:
+            return _normalize_report(parsed, company, year, user_query, tools)
+
+        # If model response isn't parseable, use tool state generated during execution.
+        if tools.report is not None:
+            return _normalize_report(tools.generate_agent_report(), company, year, user_query, tools)
+
+        # Last fallback in the same run: execute tools directly.
+        tools.prioritize_risks()
+        return _normalize_report(tools.generate_agent_report(), company, year, user_query, tools)
+
+    except Exception as e:
+        # Graceful fallback to deterministic tool execution.
+        try:
+            tools.prioritize_risks()
+            rep = tools.generate_agent_report()
+            rep = _normalize_report(rep, company, year, user_query, tools)
+            rep["agent_steps"] = rep.get("agent_steps", []) + [f"ℹ️ Strands fallback path: {str(e)}"]
+            return rep
+        except Exception as inner:
+            return _fallback_report(
+                company=company,
+                year=year,
+                user_query=user_query,
+                error=f"Agent failed: {str(inner)}",
+            )
