@@ -7,10 +7,18 @@ import uuid
 import copy
 import hashlib
 import traceback
+import statistics
 import boto3
 from botocore.config import Config
+import yfinance as yf
 
-from storage.store import load_index, get_result, save_agent_report
+from storage.store import (
+    load_index,
+    get_result,
+    save_agent_report,
+    get_company_ticker,
+    upsert_company_ticker,
+)
 from core.agent import run_agent
 from core.comparator import compare_risks
 
@@ -28,6 +36,172 @@ RATING_COLORS = {
     "High": "#ef4444", "Medium-High": "#f97316",
     "Medium": "#f59e0b", "Medium-Low": "#84cc16", "Low": "#22c55e",
 }
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_stock_history_1y(ticker: str):
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return []
+    hist = yf.Ticker(symbol).history(period="1y", interval="1d", auto_adjust=False)
+    if hist is None or hist.empty or "Close" not in hist.columns:
+        return []
+    df = hist.reset_index()
+    if "Date" not in df.columns:
+        return []
+    rows = []
+    for _, row in df.iterrows():
+        dt = row.get("Date")
+        close = row.get("Close")
+        if dt is None or close is None or close != close:
+            continue
+        rows.append({
+            "date": dt.strftime("%Y-%m-%d"),
+            "close": float(close),
+        })
+    return rows
+
+
+def _trailing_return(history, days: int):
+    if not history or len(history) < 2:
+        return None
+    closes = [float(p["close"]) for p in history]
+    if len(closes) <= days:
+        base = closes[0]
+    else:
+        base = closes[-(days + 1)]
+    latest = closes[-1]
+    if base == 0:
+        return None
+    return ((latest - base) / base) * 100.0
+
+
+def _annualized_volatility(history):
+    if not history or len(history) < 3:
+        return None
+    closes = [float(p["close"]) for p in history]
+    daily_returns = []
+    for i in range(1, len(closes)):
+        prev = closes[i - 1]
+        curr = closes[i]
+        if prev > 0:
+            daily_returns.append((curr / prev) - 1.0)
+    if len(daily_returns) < 2:
+        return None
+    return statistics.stdev(daily_returns) * (252 ** 0.5) * 100.0
+
+
+def _max_drawdown(history):
+    if not history:
+        return None
+    closes = [float(p["close"]) for p in history]
+    peak = closes[0]
+    max_dd = 0.0
+    for c in closes:
+        if c > peak:
+            peak = c
+        if peak > 0:
+            dd = ((c - peak) / peak) * 100.0
+            if dd < max_dd:
+                max_dd = dd
+    return max_dd
+
+
+def _alignment_sentence(overall_risk_rating: str, ret_90: float | None, max_dd: float | None, excess_vs_spy: float | None):
+    high_risk = str(overall_risk_rating) in {"High", "Medium-High"}
+    pressure_signals = 0
+    if ret_90 is not None and ret_90 < -5:
+        pressure_signals += 1
+    if max_dd is not None and max_dd < -20:
+        pressure_signals += 1
+    if excess_vs_spy is not None and excess_vs_spy < -5:
+        pressure_signals += 1
+    under_pressure = pressure_signals >= 1
+
+    if high_risk and under_pressure:
+        return "Risk-Market Alignment: High risk and market performance are directionally aligned (both indicate pressure)."
+    if high_risk and not under_pressure:
+        return "Risk-Market Alignment: Risk is elevated, but market pressure is not obvious yet (early-warning mismatch)."
+    if (not high_risk) and under_pressure:
+        return "Risk-Market Alignment: Market is under pressure while risk rating is lower (divergence to monitor)."
+    return "Risk-Market Alignment: Risk and market signals are broadly aligned on the stable side."
+
+
+def _build_stock_context_summary(ticker: str):
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return "", "", {}
+
+    try:
+        points = _fetch_stock_history_1y(symbol)
+    except Exception as exc:
+        return "", f"Failed to load market data for `{symbol}`: {exc}", {}
+
+    if len(points) < 2:
+        return "", f"Could not fetch enough market data for `{symbol}`. Please verify the ticker.", {}
+
+    closes = [p["close"] for p in points]
+    first_close = closes[0]
+    latest_close = closes[-1]
+    if first_close == 0:
+        return "", f"Market data for `{symbol}` is invalid (first close is zero).", {}
+
+    one_year_change = ((latest_close - first_close) / first_close) * 100
+    year_high = max(closes)
+    year_low = min(closes)
+
+    ret_30 = _trailing_return(points, 30)
+    ret_90 = _trailing_return(points, 90)
+    ann_vol = _annualized_volatility(points)
+    max_dd = _max_drawdown(points)
+
+    spy_ret_90 = None
+    try:
+        spy_points = _fetch_stock_history_1y("SPY")
+        spy_ret_90 = _trailing_return(spy_points, 90)
+    except Exception:
+        spy_ret_90 = None
+    excess_vs_spy_90 = None
+    if ret_90 is not None and spy_ret_90 is not None:
+        excess_vs_spy_90 = ret_90 - spy_ret_90
+
+    recent_window = 21 if len(closes) >= 21 else len(closes)
+    recent_base = closes[-recent_window]
+    recent_change = 0.0 if recent_base == 0 else ((latest_close - recent_base) / recent_base) * 100
+    if recent_change > 2:
+        recent_trend = "uptrend"
+    elif recent_change < -2:
+        recent_trend = "downtrend"
+    else:
+        recent_trend = "sideways"
+
+    def _fmt_pct(v):
+        if v is None:
+            return "N/A"
+        return f"{v:+.2f}%"
+
+    summary = (
+        f"Ticker: {symbol}. "
+        f"1Y change: {one_year_change:+.2f}%. "
+        f"52-week high: {year_high:.2f}. "
+        f"52-week low: {year_low:.2f}. "
+        f"Latest close: {latest_close:.2f}. "
+        f"Recent 1-month trend: {recent_trend} ({recent_change:+.2f}%). "
+        f"30D return: {_fmt_pct(ret_30)}. "
+        f"90D return: {_fmt_pct(ret_90)}. "
+        f"Annualized volatility: {_fmt_pct(ann_vol)}. "
+        f"Max drawdown (1Y): {_fmt_pct(max_dd)}. "
+        f"Excess return vs SPY (90D): {_fmt_pct(excess_vs_spy_90)}."
+    )
+    metrics = {
+        "ticker": symbol,
+        "return_30d_pct": ret_30,
+        "return_90d_pct": ret_90,
+        "annualized_volatility_pct": ann_vol,
+        "max_drawdown_pct": max_dd,
+        "excess_return_vs_spy_90d_pct": excess_vs_spy_90,
+    }
+    return summary, "", metrics
 
 
 def _badge(text, color):
@@ -359,6 +533,26 @@ def render():
         co_recs = [r for r in index if r["company"] == company]
         years = sorted(set(r["year"] for r in co_recs), reverse=True)
         year = st.selectbox("Year", years, key="agent_year")
+        mapped_ticker = get_company_ticker(company, "")
+        if st.session_state.get("agent_stock_ticker_company") != company:
+            st.session_state["agent_stock_ticker_company"] = company
+            st.session_state["agent_stock_ticker"] = mapped_ticker
+        ticker_col1, ticker_col2 = st.columns([4, 1])
+        with ticker_col1:
+            stock_ticker = st.text_input(
+                "Stock Ticker (manual)",
+                key="agent_stock_ticker",
+                placeholder="e.g. AAPL",
+                help="Auto-filled from saved mapping when available.",
+            )
+        with ticker_col2:
+            st.markdown("<div style='height:1.8rem;'></div>", unsafe_allow_html=True)
+            if st.button("Save", key="agent_save_ticker_map", use_container_width=True):
+                if not stock_ticker.strip():
+                    st.warning("Please enter a valid ticker before saving.")
+                else:
+                    upsert_company_ticker(company, stock_ticker)
+                    st.success(f"Saved ticker mapping: {company} → {stock_ticker.strip().upper()}")
 
         runtime_arn = ""
         runtime_qualifier = ""
@@ -482,8 +676,24 @@ def render():
                                 return
 
                             safe_runtime_session_id = _ensure_runtime_session_id(runtime_session_id)
+                            display_query = user_query.strip()
+                            normalized_query = display_query
+                            market_context_summary = ""
+                            market_context_error = ""
+                            market_metrics = {}
+                            if stock_ticker.strip():
+                                market_context_summary, market_context_error, market_metrics = _build_stock_context_summary(stock_ticker)
+                                if market_context_error:
+                                    st.warning(market_context_error)
+                                elif market_context_summary:
+                                    normalized_query = (
+                                        f"{display_query}\n\n"
+                                        "[Market Context]\n"
+                                        f"{market_context_summary}\n"
+                                        "Please use this as supplemental context for risk prioritization."
+                                    )
+                                    upsert_company_ticker(company, stock_ticker)
 
-                            normalized_query = user_query.strip()
                             canonical_key = _build_agent_cache_key(
                                 mode="canonical",
                                 company=company,
@@ -526,7 +736,7 @@ def render():
                                             report,
                                             company=company,
                                             year=year,
-                                            user_query=normalized_query,
+                                            user_query=display_query,
                                             mode_label="Local",
                                         )
                                     else:
@@ -559,7 +769,7 @@ def render():
                                                     report,
                                                     company=company,
                                                     year=year,
-                                                    user_query=normalized_query,
+                                                    user_query=display_query,
                                                     mode_label="AgentCore Runtime (Local Fallback)",
                                                 )
                                         except Exception as exc:
@@ -574,9 +784,26 @@ def render():
                                     canonical_report,
                                     company=company,
                                     year=year,
-                                    user_query=normalized_query,
+                                    user_query=display_query,
                                     mode_label=mode,
                                 )
+                            if market_context_summary:
+                                report["market_context_summary"] = market_context_summary
+                                report["stock_ticker"] = str(stock_ticker).strip().upper()
+                            if market_metrics:
+                                report["market_metrics"] = market_metrics
+                                align = _alignment_sentence(
+                                    report.get("overall_risk_rating", "Unknown"),
+                                    market_metrics.get("return_90d_pct"),
+                                    market_metrics.get("max_drawdown_pct"),
+                                    market_metrics.get("excess_return_vs_spy_90d_pct"),
+                                )
+                                report["market_alignment"] = align
+                                summary_text = str(report.get("executive_summary", "") or "").strip()
+                                if align not in summary_text:
+                                    report["executive_summary"] = (
+                                        f"{summary_text}\n\n{align}" if summary_text else align
+                                    )
                             st.session_state["agent_report"] = report
                             save_agent_report(
                                 company=company,

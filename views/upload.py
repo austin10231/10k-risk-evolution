@@ -2,8 +2,13 @@
 
 import streamlit as st
 import json
+import time
+import ssl
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
-from storage.store import add_record, _s3_write, RESULTS_PREFIX
+from storage.store import add_record, _s3_write, RESULTS_PREFIX, save_agent_report
 from core.extractor import (
     extract_item1_overview, extract_item1a_risks,
     extract_text_from_pdf, extract_item1_overview_from_text,
@@ -11,12 +16,16 @@ from core.extractor import (
 )
 from core.bedrock import classify_risks, generate_summary
 from core.comprehend import enrich_risks_with_comprehend
+from core.agent import run_agent
 
 INDUSTRIES = [
     "Technology", "Healthcare", "Financials", "Energy",
     "Consumer Discretionary", "Consumer Staples", "Industrials",
     "Materials", "Utilities", "Real Estate", "Telecom", "Other",
 ]
+
+SEC_USER_AGENT = "RiskLens App contact@risklens.com"
+SEC_REQUEST_DELAY_SEC = 0.5
 
 
 def _count_sub_risks(risks):
@@ -41,6 +50,213 @@ def _run_ai(result, record_id):
     )
     st.session_state["upload_result"] = result
     st.rerun()
+
+
+def _sec_headers():
+    return {"User-Agent": SEC_USER_AGENT}
+
+
+def _sec_ssl_context():
+    """Use certifi CA bundle to avoid local system certificate-chain issues."""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+
+def _sec_get_json(url: str):
+    req = Request(url, headers=_sec_headers(), method="GET")
+    try:
+        with urlopen(req, timeout=30, context=_sec_ssl_context()) as resp:
+            raw = resp.read()
+        return json.loads(raw.decode("utf-8"))
+    finally:
+        time.sleep(SEC_REQUEST_DELAY_SEC)
+
+
+def _sec_get_bytes(url: str):
+    req = Request(url, headers=_sec_headers(), method="GET")
+    try:
+        with urlopen(req, timeout=30, context=_sec_ssl_context()) as resp:
+            return resp.read()
+    finally:
+        time.sleep(SEC_REQUEST_DELAY_SEC)
+
+
+def _extract_cik_from_search_payload(payload: dict) -> str:
+    candidates = []
+    hits = payload.get("hits", {}).get("hits", [])
+    for hit in hits:
+        src = hit.get("_source", {}) if isinstance(hit, dict) else {}
+        for key in ("ciks", "cik", "entityCik"):
+            val = src.get(key)
+            if isinstance(val, list):
+                for item in val:
+                    s = str(item).strip()
+                    if s.isdigit():
+                        candidates.append(s)
+            elif val is not None:
+                s = str(val).strip()
+                if s.isdigit():
+                    candidates.append(s)
+
+    def _walk(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if "cik" in str(k).lower():
+                    if isinstance(v, list):
+                        for x in v:
+                            sx = str(x).strip()
+                            if sx.isdigit():
+                                candidates.append(sx)
+                    else:
+                        sv = str(v).strip()
+                        if sv.isdigit():
+                            candidates.append(sv)
+                _walk(v)
+        elif isinstance(obj, list):
+            for it in obj:
+                _walk(it)
+
+    _walk(payload)
+    if not candidates:
+        return ""
+    return str(candidates[0]).zfill(10)
+
+
+def _lookup_cik(company_name: str, ticker: str = "") -> str:
+    queries = [f'"{company_name}"']
+    if ticker:
+        queries.append(f'"{company_name}" {ticker}')
+        queries.append(ticker)
+
+    for q_raw in queries:
+        q = quote(q_raw)
+        payload = _sec_get_json(f"https://efts.sec.gov/LATEST/search-index?q={q}&forms=10-K")
+        cik = _extract_cik_from_search_payload(payload)
+        if cik:
+            return cik
+    return ""
+
+
+def _submissions_for_cik(cik_10: str) -> dict:
+    return _sec_get_json(f"https://data.sec.gov/submissions/CIK{cik_10}.json")
+
+
+def _filings_in_year_range(submissions: dict, start_year: int, end_year: int):
+    recent = submissions.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    filing_dates = recent.get("filingDate", [])
+    accessions = recent.get("accessionNumber", [])
+    primary_docs = recent.get("primaryDocument", [])
+    total = min(len(forms), len(filing_dates), len(accessions), len(primary_docs))
+    out = []
+    for i in range(total):
+        if str(forms[i]).upper() != "10-K":
+            continue
+        filing_date = str(filing_dates[i] or "")
+        if len(filing_date) < 4:
+            continue
+        try:
+            year = int(filing_date[:4])
+        except Exception:
+            continue
+        if year < int(start_year) or year > int(end_year):
+            continue
+        out.append({
+            "year": year,
+            "filing_date": filing_date,
+            "accession_number": str(accessions[i]),
+            "primary_document": str(primary_docs[i]),
+        })
+    out.sort(key=lambda x: (x["year"], x["filing_date"]))
+    return out
+
+
+def _is_valid_html_doc_name(name: str) -> bool:
+    n = str(name or "").strip().lower()
+    if not (n.endswith(".htm") or n.endswith(".html")):
+        return False
+    if any(k in n for k in ("xbrl", "_cal", "_def", "_lab", "_pre", ".xml", "schema", "graphic", "exhibit")):
+        return False
+    return True
+
+
+def _pick_primary_html_doc(primary_document: str, index_json: dict) -> str:
+    primary = str(primary_document or "").strip()
+    if _is_valid_html_doc_name(primary):
+        return primary
+
+    candidates = []
+    for it in index_json.get("directory", {}).get("item", []):
+        nm = str(it.get("name", "")).strip()
+        if not _is_valid_html_doc_name(nm):
+            continue
+        score = 100
+        low = nm.lower()
+        if "10-k" in low or "10k" in low:
+            score -= 40
+        if "form" in low:
+            score -= 20
+        if "index" in low:
+            score += 25
+        score += min(len(nm), 80)
+        candidates.append((score, nm))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0][1]
+
+
+def _download_filing_html_by_cik(cik_10: str, accession_number: str, primary_document: str):
+    cik_no_leading_zero = str(int(cik_10))
+    accession_no_dashes = str(accession_number).replace("-", "")
+    base = f"https://www.sec.gov/Archives/edgar/data/{cik_no_leading_zero}/{accession_no_dashes}"
+    try:
+        index_json = _sec_get_json(f"{base}/index.json")
+    except Exception:
+        index_json = {}
+
+    doc_name = _pick_primary_html_doc(primary_document, index_json)
+    if not doc_name:
+        return None, "", "No HTML main filing document found in filing index."
+
+    try:
+        html_bytes = _sec_get_bytes(f"{base}/{doc_name}")
+    except (HTTPError, URLError, TimeoutError) as e:
+        return None, doc_name, f"Failed to download filing HTML: {e}"
+    except Exception as e:
+        return None, doc_name, f"Failed to download filing HTML: {e}"
+    return html_bytes, doc_name, ""
+
+
+def _auto_pipeline_for_html(company: str, industry: str, year: int, html_bytes: bytes):
+    overview = extract_item1_overview(html_bytes, company.strip(), industry)
+    risks = extract_item1a_risks(html_bytes)
+    if not risks:
+        return None, "Could not extract risks from Item 1A."
+
+    classified = classify_risks(risks)
+    summary = generate_summary(company.strip(), int(year), classified)
+    agent_report = run_agent(
+        user_query="Prioritize all risks and identify the top 5 most critical threats",
+        company=company.strip(),
+        year=int(year),
+        risks=classified,
+        compare_data=None,
+    )
+
+    overview["year"] = int(year)
+    overview["filing_type"] = "10-K"
+    result = {
+        "company_overview": overview,
+        "risks": classified,
+        "ai_summary": summary,
+        "agent_report": agent_report,
+        "source": "sec_edgar_auto_fetch",
+    }
+    return result, ""
 
 
 def _stepper(step: int):
@@ -142,26 +358,8 @@ def _show_result(result, rid):
     )
 
 
-def render():
-    # ── Page header ───────────────────────────────────────────────────────────
-    st.markdown(
-        """
-        <div class="page-header">
-            <div class="page-header-left">
-                <span class="page-icon">➕</span>
-                <div>
-                    <p class="page-title">Upload Filing</p>
-                    <p class="page-subtitle">Extract risk factors from a new 10-K filing</p>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Determine current step for stepper
+def _render_manual_upload_panel():
     has_result = "upload_result" in st.session_state
-    _stepper(3 if has_result else 1)
 
     # ── Two-column layout ─────────────────────────────────────────────────────
     col_left, col_right = st.columns([2, 3], gap="large")
@@ -275,3 +473,180 @@ def render():
         st.session_state["upload_result"] = result
         st.session_state["upload_rid"] = rid
         st.rerun()
+
+
+def _render_auto_fetch_panel():
+    st.markdown(
+        '<p style="font-size:0.62rem; font-weight:700; color:#94a3b8; text-transform:uppercase;'
+        'letter-spacing:0.1em; margin:0 0 0.8rem;">AUTO FETCH CONFIGURE</p>',
+        unsafe_allow_html=True,
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        company_name = st.text_input("Company Name", key="auto_up_company", placeholder="e.g. Apple Inc.")
+    with c2:
+        ticker = st.text_input("Stock Ticker (optional)", key="auto_up_ticker", placeholder="e.g. AAPL")
+
+    c3, c4, c5 = st.columns(3)
+    with c3:
+        industry = st.selectbox("Industry", INDUSTRIES, key="auto_up_industry")
+    with c4:
+        start_year = st.selectbox("Start Year", list(range(2025, 2009, -1)), index=5, key="auto_up_start_year")
+    with c5:
+        end_year = st.selectbox("End Year", list(range(2025, 2009, -1)), index=1, key="auto_up_end_year")
+
+    run_auto = st.button(
+        "🚀 Auto Fetch from SEC EDGAR",
+        key="btn_auto_fetch_upload",
+        type="primary",
+        use_container_width=True,
+    )
+    st.caption(
+        "SEC requests include required User-Agent and 0.5s pacing. "
+        "Only HTML main filing document is downloaded."
+    )
+
+    if not run_auto:
+        return
+
+    company_name = company_name.strip()
+    ticker = ticker.strip().upper()
+    if not company_name:
+        st.error("Please enter a company name.")
+        return
+    if int(start_year) > int(end_year):
+        st.error("Start year must be less than or equal to end year.")
+        return
+
+    try:
+        cik = _lookup_cik(company_name, ticker)
+    except Exception as e:
+        st.error(f"Failed to query SEC search API: {e}")
+        return
+
+    if not cik:
+        st.error("Could not find CIK from SEC EDGAR for this company. Please refine company name/ticker and try again.")
+        return
+
+    try:
+        submissions = _submissions_for_cik(cik)
+    except Exception as e:
+        st.error(f"Failed to fetch submissions for CIK {cik}: {e}")
+        return
+
+    filings = _filings_in_year_range(submissions, int(start_year), int(end_year))
+    if not filings:
+        st.warning(f"No 10-K filings found for {company_name} in {start_year}–{end_year}.")
+        return
+
+    st.info(f"Found {len(filings)} 10-K filing(s) for {company_name} (CIK {cik}). Starting full pipeline...")
+    progress = st.progress(0.0, text="Initializing SEC auto-fetch pipeline...")
+    status_box = st.empty()
+
+    successes = []
+    skipped = []
+    total = len(filings)
+
+    for idx, filing in enumerate(filings, start=1):
+        filing_year = int(filing["year"])
+        filing_date = filing.get("filing_date", "")
+        progress_text = f"正在处理 {idx}/{total}：{company_name} {filing_year}..."
+        progress.progress((idx - 1) / total, text=progress_text)
+        status_box.info(progress_text)
+
+        html_bytes, doc_name, err = _download_filing_html_by_cik(
+            cik_10=cik,
+            accession_number=filing.get("accession_number", ""),
+            primary_document=filing.get("primary_document", ""),
+        )
+        if not html_bytes:
+            skipped.append({"year": filing_year, "reason": err or "No HTML main filing document available."})
+            continue
+
+        with st.spinner(f"Running extraction + AI + Agent for {company_name} {filing_year}..."):
+            result, pipe_err = _auto_pipeline_for_html(
+                company=company_name,
+                industry=industry,
+                year=filing_year,
+                html_bytes=html_bytes,
+            )
+        if pipe_err or not result:
+            skipped.append({"year": filing_year, "reason": pipe_err or "Unknown pipeline error."})
+            continue
+
+        result["sec_meta"] = {
+            "auto_fetch": True,
+            "cik": cik,
+            "ticker": ticker,
+            "filing_date": filing_date,
+            "accession_number": filing.get("accession_number", ""),
+            "primary_document": filing.get("primary_document", ""),
+            "downloaded_document": doc_name,
+        }
+
+        rid = add_record(
+            company=company_name,
+            industry=industry,
+            year=filing_year,
+            filing_type="10-K",
+            file_bytes=html_bytes,
+            file_ext="html",
+            result_json=result,
+        )
+
+        agent_report = result.get("agent_report")
+        if isinstance(agent_report, dict):
+            try:
+                save_agent_report(
+                    company=company_name,
+                    year=filing_year,
+                    filing_type="10-K",
+                    report_json=agent_report,
+                )
+            except Exception:
+                pass
+
+        successes.append({"year": filing_year, "filing_date": filing_date, "record_id": rid})
+        st.session_state["upload_result"] = result
+        st.session_state["upload_rid"] = rid
+
+    progress.progress(1.0, text="SEC auto-fetch pipeline completed.")
+    status_box.success("Auto fetch job completed.")
+    st.success(f"Completed {len(successes)}/{total} filing(s) for {company_name}. Skipped {len(skipped)}.")
+
+    if successes:
+        st.markdown("**Successful filings**")
+        for s in successes:
+            st.markdown(f"- {s['year']} ({s.get('filing_date', '')}) → `{s['record_id']}`")
+    if skipped:
+        st.markdown("**Skipped filings**")
+        for s in skipped:
+            st.markdown(f"- {s['year']}: {s['reason']}")
+
+
+def render():
+    # ── Page header ───────────────────────────────────────────────────────────
+    st.markdown(
+        """
+        <div class="page-header">
+            <div class="page-header-left">
+                <span class="page-icon">➕</span>
+                <div>
+                    <p class="page-title">Upload Filing</p>
+                    <p class="page-subtitle">Extract risk factors from a new 10-K filing</p>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Determine current step for stepper
+    has_result = "upload_result" in st.session_state
+    _stepper(3 if has_result else 1)
+
+    mode_manual, mode_auto = st.tabs(["📄 Manual Upload", "🛰️ Auto Fetch from SEC EDGAR"])
+    with mode_manual:
+        _render_manual_upload_panel()
+    with mode_auto:
+        _render_auto_fetch_panel()

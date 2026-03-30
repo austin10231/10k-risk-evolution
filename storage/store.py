@@ -28,6 +28,7 @@ COMPARES_PREFIX = "compare_reports"
 COMPARES_YOY_PREFIX = "compare_reports/same_company"
 COMPARES_CROSS_PREFIX = "compare_reports/different_company"
 AGENT_PREFIX = "agent_reports"
+TICKER_MAP_KEY = "company_ticker_map.json"
 
 
 def _s3_read(key):
@@ -206,6 +207,69 @@ def load_agent_reports():
     except Exception:
         pass
     return reports
+
+
+def load_company_ticker_map():
+    """Load persisted company->ticker mapping."""
+    data = _s3_read(TICKER_MAP_KEY)
+    if not data:
+        return {}
+    try:
+        parsed = json.loads(data.decode("utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    out = {}
+    for company, ticker in parsed.items():
+        c = str(company or "").strip()
+        t = str(ticker or "").strip().upper()
+        if c and t:
+            out[c] = t
+    return out
+
+
+def save_company_ticker_map(mapping):
+    """Persist full company->ticker mapping."""
+    if not isinstance(mapping, dict):
+        mapping = {}
+    cleaned = {}
+    for company, ticker in mapping.items():
+        c = str(company or "").strip()
+        t = str(ticker or "").strip().upper()
+        if c and t:
+            cleaned[c] = t
+    _s3_write(TICKER_MAP_KEY, json.dumps(cleaned, indent=2, ensure_ascii=False).encode("utf-8"))
+    return cleaned
+
+
+def upsert_company_ticker(company, ticker):
+    """Set or update a single company ticker mapping."""
+    c = str(company or "").strip()
+    t = str(ticker or "").strip().upper()
+    if not c or not t:
+        return load_company_ticker_map()
+    mapping = load_company_ticker_map()
+    mapping[c] = t
+    return save_company_ticker_map(mapping)
+
+
+def remove_company_ticker(company):
+    """Remove a company from persisted ticker mapping."""
+    c = str(company or "").strip()
+    mapping = load_company_ticker_map()
+    if c in mapping:
+        mapping.pop(c, None)
+        save_company_ticker_map(mapping)
+    return mapping
+
+
+def get_company_ticker(company, default=""):
+    """Get mapped ticker for a company, or default."""
+    c = str(company or "").strip()
+    if not c:
+        return str(default or "")
+    return load_company_ticker_map().get(c, str(default or ""))
 
 
 def filter_records(industry=None, company=None, year=None, filing_type=None, fmt=None):
