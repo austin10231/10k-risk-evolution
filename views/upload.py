@@ -13,6 +13,7 @@ from core.extractor import (
     extract_item1_overview, extract_item1a_risks,
     extract_text_from_pdf, extract_item1_overview_from_text,
     extract_item1a_risks_from_text,
+    extract_item1_overview_bedrock, extract_item1a_risks_bedrock,
 )
 from core.bedrock import classify_risks, generate_summary
 from core.comprehend import enrich_risks_with_comprehend
@@ -339,13 +340,20 @@ def _show_result(result, rid):
                     tags = s.get("tags", [])
                     label_str = " · ".join(f"`{l}`" for l in labels) if labels else ""
                     tag_str = " · ".join(f"`{t}`" for t in tags[:6]) if tags else ""
-                    st.markdown(f"- {s.get('title','')[:150]}")
+                    st.markdown(f"- {s.get('title','')}")
                     if label_str:
                         st.caption(f"   Labels: {label_str}")
                     if tag_str:
                         st.caption(f"   Tags: {tag_str}")
         else:
-            st.markdown(f"- **{cat_name}** — {len(subs)} items")
+            if subs:
+                with st.expander(f"**{cat_name}** ({len(subs)} risks)", expanded=False):
+                    for s in subs:
+                        title = str(s or "").strip()
+                        if title:
+                            st.markdown(f"- {title}")
+            else:
+                st.markdown(f"- **{cat_name}** — 0 items")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.download_button(
@@ -385,6 +393,13 @@ def _render_manual_upload_panel():
 
         filing_type = st.selectbox(
             "Filing Type", ["10-K", "10-Q (coming soon)"], key="up_ftype"
+        )
+        extraction_mode = st.selectbox(
+            "Extraction Mode",
+            ["Standard", "AI-Enhanced"],
+            index=0,
+            key="up_extract_mode",
+            help="Standard uses existing BeautifulSoup rules. AI-Enhanced uses Bedrock with automatic fallback.",
         )
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -434,6 +449,8 @@ def _render_manual_upload_panel():
         is_pdf = uploaded.name.lower().endswith(".pdf")
 
         if is_pdf:
+            if extraction_mode == "AI-Enhanced":
+                st.info("AI-Enhanced mode currently targets HTML filings; PDF extraction uses the standard Textract path.")
             with st.spinner("Extracting text via AWS Textract…"):
                 pdf_text = extract_text_from_pdf(file_bytes)
             if not pdf_text:
@@ -444,10 +461,16 @@ def _render_manual_upload_panel():
             with st.spinner("Parsing Item 1A risks…"):
                 risks = extract_item1a_risks_from_text(pdf_text)
         else:
-            with st.spinner("Extracting Item 1 overview…"):
-                overview = extract_item1_overview(file_bytes, company.strip(), industry)
-            with st.spinner("Extracting Item 1A risks…"):
-                risks = extract_item1a_risks(file_bytes)
+            if extraction_mode == "AI-Enhanced":
+                with st.spinner("Extracting Item 1 overview (AI-Enhanced) …"):
+                    overview = extract_item1_overview_bedrock(file_bytes, company.strip(), industry)
+                with st.spinner("Extracting Item 1A risks (AI-Enhanced) …"):
+                    risks = extract_item1a_risks_bedrock(file_bytes, company.strip())
+            else:
+                with st.spinner("Extracting Item 1 overview…"):
+                    overview = extract_item1_overview(file_bytes, company.strip(), industry)
+                with st.spinner("Extracting Item 1A risks…"):
+                    risks = extract_item1a_risks(file_bytes)
 
         if not risks:
             st.error(

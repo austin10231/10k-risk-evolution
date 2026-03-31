@@ -9,17 +9,23 @@ Public API:
   HTML path:
     extract_item1_overview(html_bytes, company, industry) -> dict
     extract_item1a_risks(html_bytes) -> list[dict]
+    extract_item1_overview_bedrock(html_bytes, company, industry) -> dict
+    extract_item1a_risks_bedrock(html_bytes, company) -> list[dict]
   PDF path:
     extract_text_from_pdf(pdf_bytes) -> str
     extract_item1_overview_from_text(text, company, industry) -> dict
     extract_item1a_risks_from_text(text) -> list[dict]
 """
 
+import json
 import re
 import time
+import copy
+import hashlib
 import streamlit as st
 import boto3
 from bs4 import BeautifulSoup, Tag
+from core.bedrock import _invoke
 
 # ── Regex patterns ────────────────────────────────────────────────────────────
 _ITEM1_START = re.compile(
@@ -32,6 +38,9 @@ _ITEM1A_END = [
     re.compile(r"item\s*1\s*b[\.\:\s\u2014\u2013\-]", re.IGNORECASE),
     re.compile(r"item\s*2[\.\:\s\u2014\u2013\-]", re.IGNORECASE),
 ]
+
+_AI_OVERVIEW_CACHE: dict[str, dict] = {}
+_AI_RISKS_CACHE: dict[str, list[dict]] = {}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -390,6 +399,149 @@ def _find_text_pos(full_text: str, snippet: str) -> int:
     return pos
 
 
+def _extract_json_obj_or_array(text: str):
+    s = re.sub(r"```json|```", "", str(text or "")).strip()
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+
+    arr_l = s.find("[")
+    arr_r = s.rfind("]")
+    if arr_l >= 0 and arr_r > arr_l:
+        try:
+            return json.loads(s[arr_l:arr_r + 1])
+        except Exception:
+            pass
+
+    obj_l = s.find("{")
+    obj_r = s.rfind("}")
+    if obj_l >= 0 and obj_r > obj_l:
+        try:
+            return json.loads(s[obj_l:obj_r + 1])
+        except Exception:
+            return None
+    return None
+
+
+def _normalize_space(s: str) -> str:
+    return re.sub(r"\s+", " ", str(s or "")).strip()
+
+
+def _normalize_key(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", _normalize_space(s).lower()).strip()
+
+
+def _count_risk_items(blocks: list[dict]) -> int:
+    return sum(len(b.get("sub_risks", [])) for b in blocks if isinstance(b, dict))
+
+
+def _looks_like_non_risk_title(text: str) -> bool:
+    s = _normalize_space(text)
+    if not s:
+        return True
+    if len(s) < 28:
+        return True
+    if len(re.findall(r"[A-Za-z]", s)) < 8:
+        return True
+    if len(s.split()) < 6:
+        return True
+    low = s.lower()
+    if re.match(r"^item\s*\d+[a-z]?\b", low):
+        return True
+    if low in {"risk factors", "table of contents", "forward-looking statements"}:
+        return True
+    return False
+
+
+def _evidence_ratio(ai_blocks: list[dict], source_text: str) -> float:
+    if not ai_blocks:
+        return 0.0
+    src = _normalize_key(source_text)
+    if not src:
+        return 0.0
+    total = 0
+    hits = 0
+    for blk in ai_blocks:
+        for title in blk.get("sub_risks", []):
+            total += 1
+            norm_t = _normalize_key(title)
+            if not norm_t:
+                continue
+            probe = " ".join(norm_t.split()[:10])
+            if probe and probe in src:
+                hits += 1
+    return hits / max(1, total)
+
+
+def _normalize_ai_risk_blocks(payload) -> list[dict]:
+    if not isinstance(payload, list):
+        return []
+    out = []
+    for block in payload:
+        if not isinstance(block, dict):
+            continue
+        category = str(block.get("category", "") or "").strip()
+        sub_risks = block.get("sub_risks", [])
+        if not category:
+            continue
+        normalized_subs = []
+        if isinstance(sub_risks, list):
+            for s in sub_risks:
+                if isinstance(s, str):
+                    text = s.strip()
+                elif isinstance(s, dict):
+                    text = str(s.get("title", "") or "").strip()
+                else:
+                    text = str(s or "").strip()
+                if text:
+                    normalized_subs.append(text)
+        if normalized_subs:
+            out.append({"category": category, "sub_risks": normalized_subs})
+    return out
+
+
+def _clean_and_dedupe_ai_risk_blocks(payload: list[dict]) -> list[dict]:
+    out = []
+    global_seen = set()
+    for block in payload:
+        category = _normalize_space(block.get("category", "")) or "Risk Factors"
+        subs = []
+        local_seen = set()
+        for title in block.get("sub_risks", []):
+            t = _normalize_space(title)
+            if _looks_like_non_risk_title(t):
+                continue
+            k = _normalize_key(t)
+            if not k or k in local_seen or k in global_seen:
+                continue
+            local_seen.add(k)
+            global_seen.add(k)
+            subs.append(t)
+        if subs:
+            out.append({"category": category, "sub_risks": subs})
+    return out
+
+
+def _locate_item1_text_block(text: str) -> str:
+    starts = list(_ITEM1_START.finditer(text))
+    ends = list(_ITEM1A_START.finditer(text))
+    raw = ""
+    if starts and ends:
+        for s in starts:
+            for e in ends:
+                if e.start() > s.start() + 200:
+                    candidate = text[s.start():e.start()]
+                    if not _is_toc_region(candidate):
+                        raw = candidate
+                        break
+            if raw:
+                break
+        if not raw:
+            raw = text[starts[-1].start():ends[-1].start()]
+    return _clean_text(raw)
+
+
 def extract_item1_overview(
     html_bytes: bytes,
     company_name: str = "",
@@ -398,6 +550,137 @@ def extract_item1_overview(
     """Extract Item 1 overview from HTML."""
     text = _full_text(_make_soup(html_bytes))
     return _extract_overview_from_text(text, company_name, industry)
+
+
+def extract_item1_overview_bedrock(
+    html_bytes: bytes,
+    company_name: str = "",
+    industry: str = "",
+) -> dict:
+    """
+    AI-enhanced Item 1 overview extraction using Bedrock Nova Pro.
+    Falls back to extract_item1_overview() on any failure.
+    """
+    fallback = extract_item1_overview(html_bytes, company_name, industry)
+    key_raw = html_bytes + f"|{company_name}|{industry}".encode("utf-8", errors="ignore")
+    cache_key = hashlib.sha256(key_raw).hexdigest()
+    if cache_key in _AI_OVERVIEW_CACHE:
+        return copy.deepcopy(_AI_OVERVIEW_CACHE[cache_key])
+    try:
+        text = _full_text(_make_soup(html_bytes))
+        item1_text = _locate_item1_text_block(text)
+        source_text = item1_text if item1_text else fallback.get("background", "")
+        source_text = str(source_text or "").strip()
+        if not source_text or len(source_text) < 120:
+            _AI_OVERVIEW_CACHE[cache_key] = copy.deepcopy(fallback)
+            return fallback
+        source_text = source_text[:16000]
+
+        prompt = f"""You are extracting the Item 1 Business overview from a U.S. SEC 10-K filing.
+
+Company: {company_name or "Unknown"}
+Industry: {industry or "Unknown"}
+
+Input text (already narrowed to Item 1 region):
+\"\"\"{source_text}\"\"\"
+
+Return ONLY a JSON object with exactly this schema:
+{{
+  "background": "A concise 3-6 sentence business overview in plain English."
+}}
+
+Do not include markdown fences or extra keys."""
+
+        raw = _invoke(prompt, max_tokens=1000)
+        parsed = _extract_json_obj_or_array(raw)
+        if isinstance(parsed, dict):
+            bg = str(parsed.get("background", "") or "").strip()
+            if bg:
+                out = dict(fallback)
+                out["background"] = bg
+                _AI_OVERVIEW_CACHE[cache_key] = copy.deepcopy(out)
+                return out
+    except Exception:
+        pass
+    _AI_OVERVIEW_CACHE[cache_key] = copy.deepcopy(fallback)
+    return fallback
+
+
+def extract_item1a_risks_bedrock(
+    html_bytes: bytes,
+    company_name: str = "",
+) -> list[dict]:
+    """
+    AI-enhanced Item 1A risk extraction using Bedrock Nova Pro.
+    Returns same structure as extract_item1a_risks():
+      [{"category": str, "sub_risks": [str, ...]}, ...]
+    Falls back to extract_item1a_risks() on any failure.
+    """
+    fallback = extract_item1a_risks(html_bytes)
+    key_raw = html_bytes + f"|{company_name}".encode("utf-8", errors="ignore")
+    cache_key = hashlib.sha256(key_raw).hexdigest()
+    if cache_key in _AI_RISKS_CACHE:
+        return copy.deepcopy(_AI_RISKS_CACHE[cache_key])
+    try:
+        text = _full_text(_make_soup(html_bytes))
+        rng = _locate_item1a_range(text)
+        if rng is None:
+            _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
+            return fallback
+        start_pos, end_pos = rng
+        item1a_text = _clean_text(text[start_pos:end_pos])
+        if not item1a_text or len(item1a_text) < 200:
+            _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
+            return fallback
+        item1a_text = item1a_text[:36000]
+
+        prompt = f"""You are an expert SEC 10-K parser.
+Extract risk factors from Item 1A text and organize them into category blocks.
+Use exact wording from source risk statements whenever possible.
+
+Company: {company_name or "Unknown"}
+
+Input text (Item 1A):
+\"\"\"{item1a_text}\"\"\"
+
+Return ONLY a JSON array. Each element MUST have this exact schema:
+[
+  {{
+    "category": "Category name",
+    "sub_risks": [
+      "Risk statement 1",
+      "Risk statement 2"
+    ]
+  }}
+]
+
+Rules:
+- Keep sub_risks as strings only (no nested objects).
+- Preserve risk meaning from source text.
+- Prefer full risk statements; do not output incomplete fragments.
+- Do not return markdown fences.
+- Do not include any keys other than category and sub_risks."""
+
+        raw = _invoke(prompt, max_tokens=3000)
+        parsed = _extract_json_obj_or_array(raw)
+        normalized = _normalize_ai_risk_blocks(parsed)
+        cleaned = _clean_and_dedupe_ai_risk_blocks(normalized)
+        if cleaned:
+            base_cnt = _count_risk_items(fallback)
+            ai_cnt = _count_risk_items(cleaned)
+            coverage = (ai_cnt / base_cnt) if base_cnt > 0 else 1.0
+            ev_ratio = _evidence_ratio(cleaned, item1a_text)
+
+            # Quality gate:
+            # If AI output is too sparse/noisy or weakly grounded in source text,
+            # prioritize deterministic BeautifulSoup extraction.
+            if ai_cnt >= 1 and 0.85 <= coverage <= 1.25 and ev_ratio >= 0.55:
+                _AI_RISKS_CACHE[cache_key] = copy.deepcopy(cleaned)
+                return cleaned
+    except Exception:
+        pass
+    _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
+    return fallback
 
 
 def extract_item1a_risks(html_bytes: bytes) -> list[dict]:

@@ -36,8 +36,14 @@ st.markdown(
         font-family: 'Material Symbols Rounded', 'Material Icons Round', 'Material Icons' !important;
     }
     .main .block-container {
-        padding: 2rem 2.4rem 3rem !important;
+        padding: 2.0rem 2.4rem 3rem !important;
         max-width: 100% !important;
+    }
+    .block-container {
+        padding-top: 2.0rem !important;
+    }
+    .block-container > div:first-child {
+        margin-top: 0 !important;
     }
 
     /* ── Dark Sidebar ──────────────────────────────────────────────────────── */
@@ -467,6 +473,7 @@ st.markdown(
 
     /* ── Divider ────────────────────────────────────────────────────────────── */
     hr { border-color: #e2e8f0 !important; }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -475,6 +482,8 @@ st.markdown(
 # ── Session state ──────────────────────────────────────────────────────────────
 if "current_page" not in st.session_state:
     st.session_state["current_page"] = "home"
+
+from core.chat_widget import render_chat_widget
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
@@ -521,6 +530,7 @@ with st.sidebar:
     )
     _nav("🏠  Home", "home")
     _nav("📈  Dashboard", "dashboard")
+    _nav("💹  Stock", "stock")
     _nav("📚  Library", "library")
     _nav("➕  Upload", "upload")
 
@@ -659,6 +669,9 @@ if page == "home":
 elif page == "dashboard":
     from views.dashboard import render as _render
     _render()
+elif page == "stock":
+    from views.stock import render as _render
+    _render()
 elif page == "library":
     from views.library import render as _render
     _render()
@@ -674,3 +687,6 @@ elif page == "tables":
 elif page == "agent":
     from views.agent import render as _render
     _render()
+
+# ── Global floating assistant (all pages) ─────────────────────────────────────
+render_chat_widget(page)

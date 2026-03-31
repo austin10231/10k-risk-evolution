@@ -5,7 +5,7 @@ import re
 import uuid
 import streamlit as st
 import boto3
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def _get_s3():
@@ -61,6 +61,30 @@ def _delete_by_prefix(prefix):
                 s3.delete_object(Bucket=BUCKET, Key=obj["Key"])
     except Exception:
         pass
+
+
+def _sanitize_company(company: str) -> str:
+    return re.sub(r"[^\w]", "", str(company or "").replace(" ", "_"))
+
+
+def _sanitize_filing_type(filing_type: str) -> str:
+    return re.sub(r"[^\w\-]", "", str(filing_type or "10-K"))
+
+
+def _table_record_token(company: str, year, filing_type: str = "10-K") -> str:
+    return f"{_sanitize_company(company)}_{int(year)}_{_sanitize_filing_type(filing_type)}"
+
+
+def _list_s3_objects(prefix: str):
+    items = []
+    try:
+        s3 = _get_s3()
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=BUCKET, Prefix=prefix):
+            items.extend(page.get("Contents", []))
+    except Exception:
+        return []
+    return items
 
 
 def load_index():
@@ -136,8 +160,8 @@ def delete_record(record_id):
 
 
 def save_table_result(company, year, filing_type, table_json, csv_string=""):
-    safe = re.sub(r"[^\w]", "", company.replace(" ", "_"))
-    sf = re.sub(r"[^\w\-]", "", filing_type)
+    safe = _sanitize_company(company)
+    sf = _sanitize_filing_type(filing_type)
 
     _delete_by_prefix(f"{TABLES_PREFIX}/{safe}_{year}_{sf}_")
 
@@ -152,6 +176,97 @@ def save_table_result(company, year, filing_type, table_json, csv_string=""):
         _s3_write(f"{base}_tables.csv", csv_string.encode("utf-8"))
 
     return base
+
+
+def _latest_table_keys(company, year, filing_type="10-K"):
+    token = _table_record_token(company, year, filing_type)
+    prefix = f"{TABLES_PREFIX}/{token}_"
+    objs = _list_s3_objects(prefix)
+    if not objs:
+        return None, None, None
+
+    json_objs = [o for o in objs if str(o.get("Key", "")).endswith("_tables.json")]
+    csv_objs = [o for o in objs if str(o.get("Key", "")).endswith("_tables.csv")]
+    if not json_objs and not csv_objs:
+        return None, None, None
+
+    epoch = datetime.fromtimestamp(0, tz=timezone.utc)
+    json_key = ""
+    csv_key = ""
+    base = ""
+
+    if json_objs:
+        latest_json = max(json_objs, key=lambda o: o.get("LastModified", epoch))
+        json_key = str(latest_json.get("Key", "") or "")
+        if json_key:
+            base = json_key[:-len("_tables.json")]
+            candidate_csv = f"{base}_tables.csv"
+            if any(str(o.get("Key", "")) == candidate_csv for o in objs):
+                csv_key = candidate_csv
+            return base, json_key, csv_key or None
+
+    latest_csv = max(csv_objs, key=lambda o: o.get("LastModified", epoch))
+    csv_key = str(latest_csv.get("Key", "") or "")
+    if not csv_key:
+        return None, None, None
+    base = csv_key[:-len("_tables.csv")]
+    candidate_json = f"{base}_tables.json"
+    if any(str(o.get("Key", "")) == candidate_json for o in objs):
+        json_key = candidate_json
+    return base, json_key or None, csv_key
+
+
+def has_table_result(company, year, filing_type="10-K", presence_tokens=None):
+    token = _table_record_token(company, year, filing_type)
+    if isinstance(presence_tokens, set):
+        return token in presence_tokens
+    _, json_key, csv_key = _latest_table_keys(company, year, filing_type)
+    return bool(json_key or csv_key)
+
+
+def load_table_result(company, year, filing_type="10-K"):
+    _, json_key, _ = _latest_table_keys(company, year, filing_type)
+    if not json_key:
+        return None
+    data = _s3_read(json_key)
+    if not data:
+        return None
+    try:
+        return json.loads(data.decode("utf-8"))
+    except Exception:
+        return None
+
+
+def load_table_csv(company, year, filing_type="10-K"):
+    _, _, csv_key = _latest_table_keys(company, year, filing_type)
+    if not csv_key:
+        return ""
+    data = _s3_read(csv_key)
+    if not data:
+        return ""
+    try:
+        return data.decode("utf-8")
+    except Exception:
+        return ""
+
+
+def load_table_presence_tokens():
+    """Return a set of '<safe_company>_<year>_<safe_filing_type>' tokens with table JSON present."""
+    tokens = set()
+    objs = _list_s3_objects(f"{TABLES_PREFIX}/")
+    for obj in objs:
+        key = str(obj.get("Key", "") or "")
+        if not (key.endswith("_tables.json") or key.endswith("_tables.csv")):
+            continue
+        name = key.split("/", 1)[-1]
+        if key.endswith("_tables.json"):
+            base = name[:-len("_tables.json")]
+        else:
+            base = name[:-len("_tables.csv")]
+        token = base.rsplit("_", 1)[0] if "_" in base else ""
+        if token:
+            tokens.add(token)
+    return tokens
 
 
 def save_compare_result(company, filing_type, latest_year, prior_years, compare_json, mode="yoy"):

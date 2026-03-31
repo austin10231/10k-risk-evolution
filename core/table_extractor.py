@@ -16,6 +16,7 @@ import io
 import streamlit as st
 import boto3
 from PyPDF2 import PdfReader, PdfWriter
+from bs4 import BeautifulSoup
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -297,11 +298,148 @@ def extract_tables_from_pdf(pdf_bytes: bytes) -> dict:
             pass
 
 
+def extract_tables_from_html(html_bytes: bytes) -> dict:
+    """
+    Extract core financial tables from HTML 10-K filings.
+    Useful fallback when SEC filing has no downloadable PDF.
+    Returns same schema as extract_tables_from_pdf().
+    """
+    if not html_bytes:
+        return _empty_result()
+
+    try:
+        html_text = html_bytes.decode("utf-8", errors="ignore")
+    except Exception:
+        try:
+            html_text = html_bytes.decode("latin-1", errors="ignore")
+        except Exception:
+            return _empty_result()
+
+    soup = BeautifulSoup(html_text, "lxml")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.extract()
+
+    table_tags = soup.find_all("table")
+    if not table_tags:
+        return _empty_result()
+
+    raw_tables = []
+    for i, tbl in enumerate(table_tags):
+        rows = _rows_from_html_table(tbl)
+        if not rows:
+            continue
+        max_row = len(rows)
+        max_col = max((len(r) for r in rows), default=0)
+        if max_row < 2 or max_col < 2:
+            continue
+
+        non_empty = sum(1 for r in rows for c in r if str(c).strip())
+        if non_empty < 8:
+            continue
+
+        all_text = " ".join(" ".join(str(c or "") for c in r) for r in rows).lower()
+        nearby_text = _html_table_nearby_text(tbl)
+        raw_tables.append(
+            {
+                "table_index": i,
+                "page": 1,
+                "max_row": max_row,
+                "max_col": max_col,
+                "rows": rows,
+                "all_text": all_text,
+                "nearby_text": nearby_text,
+            }
+        )
+
+    if not raw_tables:
+        return _empty_result()
+    return _classify_raw_tables(raw_tables)
+
+
 def _empty_result():
     return {
         cat: {"found": False, "display_name": info["display_name"], "page": None, "unit": "", "headers": [], "rows": []}
         for cat, info in TABLE_CATEGORIES.items()
     }
+
+
+def _rows_from_html_table(table_tag):
+    rows = []
+    for tr in table_tag.find_all("tr"):
+        cells = tr.find_all(["th", "td"])
+        if not cells:
+            continue
+        row = []
+        for c in cells:
+            txt = " ".join(c.get_text(" ", strip=True).split())
+            try:
+                colspan = int(c.get("colspan", 1))
+            except Exception:
+                colspan = 1
+            colspan = max(1, min(colspan, 8))
+            for _ in range(colspan):
+                row.append(txt)
+        if any(str(x).strip() for x in row):
+            rows.append(row)
+
+    if not rows:
+        return []
+
+    max_col = max(len(r) for r in rows)
+    norm = []
+    for r in rows:
+        rr = list(r) + [""] * (max_col - len(r))
+        norm.append(rr[:max_col])
+    return norm
+
+
+def _html_table_nearby_text(table_tag):
+    chunks = []
+    cap = table_tag.find("caption")
+    if cap:
+        t = cap.get_text(" ", strip=True)
+        if t:
+            chunks.append(t)
+
+    prev_nodes = table_tag.find_all_previous(["h1", "h2", "h3", "h4", "h5", "h6", "p", "b", "strong"], limit=16)
+    for n in reversed(prev_nodes[-8:]):
+        t = " ".join(n.get_text(" ", strip=True).split())
+        if len(t) >= 3:
+            chunks.append(t)
+    return " ".join(chunks).lower()
+
+
+def _classify_raw_tables(raw_tables):
+    result = _empty_result()
+    assigned = set()
+    priority = ["income_statement", "comprehensive_income", "balance_sheet", "shareholders_equity", "cash_flow"]
+
+    for cat in priority:
+        best_score = 0
+        best_table = None
+        for t in raw_tables:
+            if t["table_index"] in assigned:
+                continue
+            sc = _score_table(t, cat, t.get("nearby_text", ""))
+            if sc > best_score and sc >= MIN_SCORE:
+                best_score = sc
+                best_table = t
+
+        if best_table:
+            assigned.add(best_table["table_index"])
+            rows = best_table.get("rows", [])
+            headers = rows[0] if rows else []
+            data_rows = rows[1:] if len(rows) > 1 else []
+            unit = _detect_unit(f"{best_table.get('nearby_text', '')} {best_table.get('all_text', '')}")
+            result[cat] = {
+                "found": True,
+                "display_name": TABLE_CATEGORIES[cat]["display_name"],
+                "page": best_table.get("page", 1),
+                "unit": unit,
+                "headers": headers,
+                "rows": data_rows,
+            }
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
