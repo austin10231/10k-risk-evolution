@@ -529,9 +529,9 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     _nav("🏠  Home", "home")
+    _nav("📚  Library", "library")
     _nav("📈  Dashboard", "dashboard")
     _nav("💹  Stock", "stock")
-    _nav("📚  Library", "library")
     _nav("➕  Upload", "upload")
 
     # ANALYSIS group
