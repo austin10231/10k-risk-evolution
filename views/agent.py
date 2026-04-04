@@ -516,6 +516,24 @@ def render():
     col_left, col_right = st.columns([1, 2], gap="large")
     if "agent_exec_runtime" not in st.session_state:
         st.session_state["agent_exec_runtime"] = False
+    runtime_arn = _secret_get(
+        "AGENTCORE_RUNTIME_ARN",
+        _secret_get("AGENTCORE_ARN", ""),
+    ).strip()
+    runtime_qualifier = _secret_get(
+        "AGENTCORE_QUALIFIER",
+        _secret_get("AGENTCORE_RUNTIME_QUALIFIER", ""),
+    ).strip()
+    if "agent_runtime_session_id" not in st.session_state:
+        st.session_state["agent_runtime_session_id"] = _ensure_runtime_session_id(str(uuid.uuid4()))
+    else:
+        st.session_state["agent_runtime_session_id"] = _ensure_runtime_session_id(
+            st.session_state["agent_runtime_session_id"]
+        )
+    runtime_session_id = st.session_state["agent_runtime_session_id"]
+    if st.session_state["agent_exec_runtime"] and not runtime_arn:
+        st.session_state["agent_exec_runtime"] = False
+        st.session_state["agentcore_not_configured_notice"] = True
     mode = "AgentCore Runtime" if st.session_state["agent_exec_runtime"] else "Local"
 
     # ════════════════════════════════════════════════════
@@ -554,49 +572,6 @@ def render():
                     upsert_company_ticker(company, stock_ticker)
                     st.success(f"Saved ticker mapping: {company} → {stock_ticker.strip().upper()}")
 
-        runtime_arn = ""
-        runtime_qualifier = ""
-        runtime_session_id = ""
-        if mode == "AgentCore Runtime":
-            if "agent_runtime_arn" not in st.session_state:
-                st.session_state["agent_runtime_arn"] = _secret_get(
-                    "AGENTCORE_ARN",
-                    _secret_get("AGENTCORE_RUNTIME_ARN", ""),
-                )
-            if "agent_runtime_qualifier" not in st.session_state:
-                st.session_state["agent_runtime_qualifier"] = _secret_get("AGENTCORE_RUNTIME_QUALIFIER", "")
-            runtime_arn = st.text_input(
-                "Agent Runtime ARN",
-                key="agent_runtime_arn",
-                placeholder="arn:aws:bedrock-agentcore:us-west-2:...:runtime/...",
-            )
-            runtime_qualifier = st.text_input(
-                "Qualifier (optional)",
-                key="agent_runtime_qualifier",
-                placeholder="e.g. PROD",
-            )
-            if "agent_runtime_session_id" not in st.session_state:
-                st.session_state["agent_runtime_session_id"] = str(uuid.uuid4())
-            else:
-                st.session_state["agent_runtime_session_id"] = _ensure_runtime_session_id(
-                    st.session_state["agent_runtime_session_id"]
-                )
-            runtime_session_id = st.text_input(
-                "Runtime Session ID",
-                key="agent_runtime_session_id",
-                help="Use the same session ID to keep multi-turn remote context.",
-            )
-            def _start_new_runtime_session():
-                st.session_state["agent_runtime_session_id"] = str(uuid.uuid4())
-
-            if st.button(
-                "Start New Runtime Session",
-                key="agent_new_runtime_session",
-                use_container_width=True,
-                on_click=_start_new_runtime_session,
-            ):
-                st.rerun()
-
         use_compare = st.checkbox("Include YoY comparison", key="agent_use_compare")
         prior_year = None
         if use_compare:
@@ -622,11 +597,14 @@ def render():
     # RIGHT — Query + Dashboard
     # ════════════════════════════════════════════════════
     with col_right:
+        show_not_configured = st.session_state.pop("agentcore_not_configured_notice", False)
         st.markdown(
             '<p style="font-size:0.62rem; font-weight:700; color:#94a3b8; text-transform:uppercase;'
             'letter-spacing:0.1em; margin:0 0 0.5rem;">YOUR QUERY</p>',
             unsafe_allow_html=True,
         )
+        if show_not_configured:
+            st.warning("AgentCore is not configured")
         user_query = st.text_area(
             "query",
             height=88,
@@ -642,11 +620,30 @@ def render():
                 '<p style="font-size:0.62rem; color:#94a3b8; margin:0.15rem 0 0.1rem; text-align:right;">demo</p>',
                 unsafe_allow_html=True,
             )
+            def _on_agentcore_toggle():
+                # Keep technical config hidden and fail-safe: auto-revert if backend ARN is missing.
+                if st.session_state.get("agent_exec_runtime", False) and not runtime_arn:
+                    st.session_state["agent_exec_runtime"] = False
+                    st.session_state["agentcore_not_configured_notice"] = True
+
             st.toggle(
                 "AgentCore",
                 key="agent_exec_runtime",
-                help="Switch to AgentCore Runtime mode for demos.",
+                help="Run agent on AWS managed runtime",
+                on_change=_on_agentcore_toggle,
             )
+            if st.session_state.get("agent_exec_runtime", False):
+                st.markdown(
+                    '<p style="font-size:0.68rem; color:#22c55e; margin:0.1rem 0 0; text-align:right; font-weight:600;">'
+                    '● AgentCore connected</p>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    '<p style="font-size:0.68rem; color:#94a3b8; margin:0.1rem 0 0; text-align:right; font-weight:500;">'
+                    '● Local runtime</p>',
+                    unsafe_allow_html=True,
+                )
 
         if run:
             if not user_query.strip():
@@ -672,7 +669,8 @@ def render():
                                     if prior_result:
                                         compare_data = compare_risks(prior_result, result)
                             if mode == "AgentCore Runtime" and not runtime_arn.strip():
-                                st.error("Please provide Agent Runtime ARN for AgentCore Runtime mode.")
+                                st.error("AgentCore is not configured")
+                                st.session_state["agent_exec_runtime"] = False
                                 return
 
                             safe_runtime_session_id = _ensure_runtime_session_id(runtime_session_id)
@@ -776,6 +774,10 @@ def render():
                                             st.error(f"AgentCore invocation failed: {type(exc).__name__}: {exc}")
                                             st.error(traceback.format_exc())
                                             return
+                                if mode == "AgentCore Runtime":
+                                    returned_sid = str(report.get("runtime_session_id", "") or "").strip()
+                                    if returned_sid:
+                                        st.session_state["agent_runtime_session_id"] = _ensure_runtime_session_id(returned_sid)
                                 _cache_set(cache_key, report)
                                 if canonical_report is None and not _is_error_report(report):
                                     _cache_set(canonical_key, report)
