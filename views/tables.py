@@ -8,6 +8,7 @@ from core.table_extractor import extract_tables_from_pdf
 from core.sec_edgar import download_10k_pdf_for_company_year, build_filing_html_url
 from storage.store import save_table_result
 from components.table_viewer import classified_to_csv, count_found_tables, render_table_output
+from core.global_context import sync_widget_from_context, render_current_config_box
 
 INDUSTRIES = [
     "Technology", "Healthcare", "Financials", "Energy",
@@ -72,6 +73,13 @@ def _render_results_panel():
 
 
 def _render_manual_panel():
+    year_options = list(range(2025, 2009, -1))
+    sync_widget_from_context("tbl_company", "company", allow_empty=True)
+    sync_widget_from_context("tbl_ticker", "ticker", allow_empty=True)
+    sync_widget_from_context("tbl_year", "year", options=year_options)
+    sync_widget_from_context("tbl_industry", "industry", options=INDUSTRIES)
+    sync_widget_from_context("tbl_ftype", "filing_type", options=["10-K", "10-Q (coming soon)"])
+
     st.markdown(
         '<p style="font-size:0.62rem; font-weight:700; color:#94a3b8; text-transform:uppercase;'
         'letter-spacing:0.1em; margin:0 0 0.8rem;">MANUAL CONFIGURE</p>',
@@ -79,10 +87,11 @@ def _render_manual_panel():
     )
     uploaded = st.file_uploader("Upload 10-K PDF", type=["pdf"], key="tbl_upload")
     company = st.text_input("Company Name", key="tbl_company", placeholder="e.g. Apple Inc.")
+    ticker = st.text_input("Stock Ticker (optional)", key="tbl_ticker", placeholder="e.g. AAPL")
 
     col_y, col_i = st.columns(2)
     with col_y:
-        year = st.selectbox("Filing Year", list(range(2025, 2009, -1)), key="tbl_year")
+        year = st.selectbox("Filing Year", year_options, key="tbl_year")
     with col_i:
         industry = st.selectbox("Industry", INDUSTRIES, key="tbl_industry")
 
@@ -128,6 +137,11 @@ def _render_auto_panel():
         'letter-spacing:0.1em; margin:0 0 0.8rem;">AUTO CONFIGURE</p>',
         unsafe_allow_html=True,
     )
+    year_opts = list(range(2025, 2009, -1))
+    sync_widget_from_context("tbl_auto_company_input", "company", allow_empty=True)
+    sync_widget_from_context("tbl_auto_ticker_input", "ticker", allow_empty=True)
+    sync_widget_from_context("tbl_auto_year_input", "year", options=year_opts)
+    sync_widget_from_context("tbl_auto_industry_input", "industry", options=INDUSTRIES)
     c1, c2 = st.columns(2)
     with c1:
         company = st.text_input("Company Name", key="tbl_auto_company_input", value=default_company, placeholder="e.g. Apple")
@@ -179,20 +193,28 @@ def _render_auto_panel():
 
 
 def render():
-    st.markdown(
-        """
-        <div class="page-header">
-            <div class="page-header-left">
-                <span class="page-icon">📊</span>
-                <div>
-                    <p class="page-title">Financial Tables</p>
-                    <p class="page-subtitle">Extract 5 core financial statements from 10-K PDFs via AWS Textract</p>
+    header_left, header_right = st.columns([2.35, 2.65], gap="medium")
+    with header_left:
+        st.markdown(
+            """
+            <div class="page-header">
+                <div class="page-header-left">
+                    <span class="page-icon">📊</span>
+                    <div>
+                        <p class="page-title">Financial Tables</p>
+                        <p class="page-subtitle">Extract 5 core financial statements from 10-K PDFs via AWS Textract</p>
+                    </div>
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+    with header_right:
+        render_current_config_box(
+            key_prefix="ctx_tables",
+            year_options=list(range(2025, 2009, -1)),
+            industry_options=INDUSTRIES,
+        )
 
     col_input, col_output = st.columns([2, 3], gap="large")
     with col_input:

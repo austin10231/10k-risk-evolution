@@ -21,6 +21,7 @@ from storage.store import (
 )
 from core.agent import run_agent
 from core.comparator import compare_risks
+from core.global_context import sync_widget_from_context, get_global_context, render_current_config_box
 
 
 SUGGESTED_QUERIES = [
@@ -60,6 +61,47 @@ def _fetch_stock_history_1y(ticker: str):
             "close": float(close),
         })
     return rows
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_ticker_profile_name(ticker: str) -> str:
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return ""
+    try:
+        info = yf.Ticker(symbol).info or {}
+    except Exception:
+        return ""
+    for k in ("longName", "shortName", "displayName"):
+        v = str(info.get(k, "") or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def _normalize_company_tokens(name: str):
+    raw = re.sub(r"[^a-z0-9]+", " ", str(name or "").lower()).strip()
+    stop = {
+        "inc", "incorporated", "corp", "corporation", "co", "company", "plc",
+        "ltd", "limited", "class", "common", "stock", "holdings", "group", "the",
+    }
+    return {tok for tok in raw.split() if len(tok) > 1 and tok not in stop}
+
+
+def _ticker_matches_company(company: str, ticker: str):
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return False, "", "Ticker is empty."
+    profile_name = _fetch_ticker_profile_name(symbol)
+    if not profile_name:
+        return False, "", f"Could not verify ticker `{symbol}` from market profile."
+    company_tokens = _normalize_company_tokens(company)
+    profile_tokens = _normalize_company_tokens(profile_name)
+    if company_tokens and profile_tokens and company_tokens.intersection(profile_tokens):
+        return True, profile_name, ""
+    return False, profile_name, (
+        f"Ticker `{symbol}` appears to map to `{profile_name}`, which does not match selected company `{company}`."
+    )
 
 
 def _trailing_return(history, days: int):
@@ -481,20 +523,27 @@ def _invoke_agentcore_runtime(
 
 def render():
     # ── Page header ───────────────────────────────────────────────────────────
-    st.markdown(
-        """
-        <div class="page-header">
-            <div class="page-header-left">
-                <span class="page-icon">🤖</span>
-                <div>
-                    <p class="page-title">Risk Intelligence Agent</p>
-                    <p class="page-subtitle">Ask questions in plain English — get a full prioritized risk report</p>
+    header_left, header_right = st.columns([2.35, 2.65], gap="medium")
+    with header_left:
+        st.markdown(
+            """
+            <div class="page-header">
+                <div class="page-header-left">
+                    <span class="page-icon">🤖</span>
+                    <div>
+                        <p class="page-title">Risk Intelligence Agent</p>
+                        <p class="page-subtitle">Ask questions in plain English — get a full prioritized risk report</p>
+                    </div>
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+    with header_right:
+        render_current_config_box(
+            key_prefix="ctx_agent",
+            year_options=list(range(2025, 2009, -1)),
+        )
 
     index = load_index()
     if not index:
@@ -547,14 +596,23 @@ def render():
             unsafe_allow_html=True,
         )
         companies = sorted(set(r["company"] for r in index))
+        sync_widget_from_context("agent_company", "company", options=companies)
         company = st.selectbox("Company", companies, key="agent_company")
         co_recs = [r for r in index if r["company"] == company]
         years = sorted(set(r["year"] for r in co_recs), reverse=True)
+        sync_widget_from_context("agent_year", "year", options=years)
         year = st.selectbox("Year", years, key="agent_year")
         mapped_ticker = get_company_ticker(company, "")
         if st.session_state.get("agent_stock_ticker_company") != company:
             st.session_state["agent_stock_ticker_company"] = company
-            st.session_state["agent_stock_ticker"] = mapped_ticker
+            ctx = get_global_context()
+            ctx_ticker = str(ctx.get("ticker", "") or "").strip().upper()
+            if str(ctx.get("company", "") or "").strip() == company and ctx_ticker:
+                st.session_state["agent_stock_ticker"] = ctx_ticker
+            else:
+                st.session_state["agent_stock_ticker"] = mapped_ticker
+        ticker_feedback_type = None
+        ticker_feedback_msg = ""
         ticker_col1, ticker_col2 = st.columns([4, 1])
         with ticker_col1:
             stock_ticker = st.text_input(
@@ -567,10 +625,27 @@ def render():
             st.markdown("<div style='height:1.8rem;'></div>", unsafe_allow_html=True)
             if st.button("Save", key="agent_save_ticker_map", use_container_width=True):
                 if not stock_ticker.strip():
-                    st.warning("Please enter a valid ticker before saving.")
+                    ticker_feedback_type = "warning"
+                    ticker_feedback_msg = "Please enter a valid ticker before saving."
                 else:
-                    upsert_company_ticker(company, stock_ticker)
-                    st.success(f"Saved ticker mapping: {company} → {stock_ticker.strip().upper()}")
+                    ok, profile_name, err = _ticker_matches_company(company, stock_ticker)
+                    if not ok:
+                        ticker_feedback_type = "error"
+                        ticker_feedback_msg = err
+                    else:
+                        upsert_company_ticker(company, stock_ticker)
+                        ticker_feedback_type = "success"
+                        ticker_feedback_msg = (
+                            f"Saved ticker mapping: {company} → {stock_ticker.strip().upper()} "
+                            f"(verified as {profile_name})"
+                        )
+        if ticker_feedback_msg:
+            if ticker_feedback_type == "error":
+                st.error(ticker_feedback_msg)
+            elif ticker_feedback_type == "success":
+                st.success(ticker_feedback_msg)
+            else:
+                st.warning(ticker_feedback_msg)
 
         use_compare = st.checkbox("Include YoY comparison", key="agent_use_compare")
         prior_year = None
@@ -690,7 +765,11 @@ def render():
                                         f"{market_context_summary}\n"
                                         "Please use this as supplemental context for risk prioritization."
                                     )
-                                    upsert_company_ticker(company, stock_ticker)
+                                    ok, _, err = _ticker_matches_company(company, stock_ticker)
+                                    if ok:
+                                        upsert_company_ticker(company, stock_ticker)
+                                    else:
+                                        st.warning(err)
 
                             canonical_key = _build_agent_cache_key(
                                 mode="canonical",

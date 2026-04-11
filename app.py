@@ -4,6 +4,7 @@ Entry point: streamlit run app.py
 """
 
 import streamlit as st
+from core.global_context import ensure_global_context
 
 st.set_page_config(
     page_title="RiskLens AI · 10-K Intelligence",
@@ -482,6 +483,7 @@ st.markdown(
 # ── Session state ──────────────────────────────────────────────────────────────
 if "current_page" not in st.session_state:
     st.session_state["current_page"] = "home"
+ensure_global_context()
 
 from core.chat_widget import render_chat_widget
 
@@ -529,10 +531,10 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     _nav("🏠  Home", "home")
-    _nav("📚  Library", "library")
+    _nav("➕  Upload", "upload")
     _nav("📈  Dashboard", "dashboard")
     _nav("💹  Stock", "stock")
-    _nav("➕  Upload", "upload")
+    _nav("📚  Library", "library")
 
     # ANALYSIS group
     st.markdown(

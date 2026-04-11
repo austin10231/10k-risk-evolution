@@ -9,6 +9,8 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 from storage.store import add_record, _s3_write, RESULTS_PREFIX, save_agent_report
+from storage.store import upsert_company_ticker
+from core.global_context import sync_widget_from_context, render_current_config_box
 from core.extractor import (
     extract_item1_overview, extract_item1a_risks,
     extract_text_from_pdf, extract_item1_overview_from_text,
@@ -368,6 +370,14 @@ def _show_result(result, rid):
 
 def _render_manual_upload_panel():
     has_result = "upload_result" in st.session_state
+    year_options = list(range(2025, 2009, -1))
+
+    # Strong-sync defaults from global context (apply before widget creation)
+    sync_widget_from_context("up_company", "company", allow_empty=True)
+    sync_widget_from_context("up_ticker", "ticker", allow_empty=True)
+    sync_widget_from_context("up_year", "year", options=year_options)
+    sync_widget_from_context("up_industry", "industry", options=INDUSTRIES)
+    sync_widget_from_context("up_ftype", "filing_type", options=["10-K", "10-Q (coming soon)"])
 
     # ── Two-column layout ─────────────────────────────────────────────────────
     col_left, col_right = st.columns([2, 3], gap="large")
@@ -384,10 +394,11 @@ def _render_manual_upload_panel():
             key="up_file",
         )
         company = st.text_input("Company Name", key="up_company", placeholder="e.g. Apple Inc.")
+        ticker = st.text_input("Stock Ticker (optional)", key="up_ticker", placeholder="e.g. AAPL")
 
         col_y, col_i = st.columns(2)
         with col_y:
-            year = st.selectbox("Filing Year", list(range(2025, 2009, -1)), key="up_year")
+            year = st.selectbox("Filing Year", year_options, key="up_year")
         with col_i:
             industry = st.selectbox("Industry", INDUSTRIES, key="up_industry")
 
@@ -438,6 +449,7 @@ def _render_manual_upload_panel():
         if not company.strip():
             st.error("Please enter a company name.")
             return
+        ticker = str(ticker or "").strip().upper()
         if uploaded is None:
             st.error("Please upload a file.")
             return
@@ -492,6 +504,11 @@ def _render_manual_upload_panel():
             file_ext="pdf" if is_pdf else "html",
             result_json=result,
         )
+        if ticker:
+            try:
+                upsert_company_ticker(company.strip(), ticker)
+            except Exception:
+                pass
 
         st.session_state["upload_result"] = result
         st.session_state["upload_rid"] = rid
@@ -499,6 +516,14 @@ def _render_manual_upload_panel():
 
 
 def _render_auto_fetch_panel():
+    year_options = list(range(2025, 2009, -1))
+    # Strong-sync defaults from global context (apply before widget creation)
+    sync_widget_from_context("auto_up_company", "company", allow_empty=True)
+    sync_widget_from_context("auto_up_ticker", "ticker", allow_empty=True)
+    sync_widget_from_context("auto_up_industry", "industry", options=INDUSTRIES)
+    sync_widget_from_context("auto_up_start_year", "year", options=year_options)
+    sync_widget_from_context("auto_up_end_year", "year", options=year_options)
+
     st.markdown(
         '<p style="font-size:0.62rem; font-weight:700; color:#94a3b8; text-transform:uppercase;'
         'letter-spacing:0.1em; margin:0 0 0.8rem;">AUTO FETCH CONFIGURE</p>',
@@ -514,9 +539,9 @@ def _render_auto_fetch_panel():
     with c3:
         industry = st.selectbox("Industry", INDUSTRIES, key="auto_up_industry")
     with c4:
-        start_year = st.selectbox("Start Year", list(range(2025, 2009, -1)), index=5, key="auto_up_start_year")
+        start_year = st.selectbox("Start Year", year_options, index=5, key="auto_up_start_year")
     with c5:
-        end_year = st.selectbox("End Year", list(range(2025, 2009, -1)), index=1, key="auto_up_end_year")
+        end_year = st.selectbox("End Year", year_options, index=1, key="auto_up_end_year")
 
     run_auto = st.button(
         "🚀 Auto Fetch from SEC EDGAR",
@@ -537,6 +562,11 @@ def _render_auto_fetch_panel():
     if not company_name:
         st.error("Please enter a company name.")
         return
+    if ticker:
+        try:
+            upsert_company_ticker(company_name, ticker)
+        except Exception:
+            pass
     if int(start_year) > int(end_year):
         st.error("Start year must be less than or equal to end year.")
         return
@@ -649,27 +679,46 @@ def _render_auto_fetch_panel():
 
 def render():
     # ── Page header ───────────────────────────────────────────────────────────
-    st.markdown(
-        """
-        <div class="page-header">
-            <div class="page-header-left">
-                <span class="page-icon">➕</span>
-                <div>
-                    <p class="page-title">Upload Filing</p>
-                    <p class="page-subtitle">Extract risk factors from a new 10-K filing</p>
+    header_left, header_right = st.columns([2.35, 2.65], gap="medium")
+    with header_left:
+        st.markdown(
+            """
+            <div class="page-header">
+                <div class="page-header-left">
+                    <span class="page-icon">🗂️</span>
+                    <div>
+                        <p class="page-title">Filings</p>
+                        <p class="page-subtitle">Ingest new filings and manage existing records in one place</p>
+                    </div>
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+    with header_right:
+        render_current_config_box(
+            key_prefix="ctx_upload",
+            year_options=list(range(2025, 2009, -1)),
+            industry_options=INDUSTRIES,
+        )
 
-    # Determine current step for stepper
-    has_result = "upload_result" in st.session_state
-    _stepper(3 if has_result else 1)
+    mode_ingest, mode_records = st.tabs(["🆕 New Ingestion", "📚 Records"])
 
-    mode_manual, mode_auto = st.tabs(["📄 Manual Upload", "🛰️ Auto Fetch from SEC EDGAR"])
-    with mode_manual:
-        _render_manual_upload_panel()
-    with mode_auto:
-        _render_auto_fetch_panel()
+    with mode_ingest:
+        # Determine current step for stepper
+        has_result = "upload_result" in st.session_state
+        _stepper(3 if has_result else 1)
+        mode_manual, mode_auto = st.tabs(["📄 Manual Upload", "🛰️ Auto Fetch from SEC EDGAR"])
+        with mode_manual:
+            _render_manual_upload_panel()
+        with mode_auto:
+            _render_auto_fetch_panel()
+
+    with mode_records:
+        from views.library import render_records_panel
+        render_records_panel(
+            show_header=False,
+            key_prefix="filings",
+            state_prefix="filings",
+            show_new_filing_button=False,
+        )

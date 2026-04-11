@@ -150,7 +150,7 @@ def _extract_financial_tables_for_record(rec: dict, result: dict, ticker_overrid
     st.rerun()
 
 
-def _show_result(result, record_id, rec):
+def _show_result(result, record_id, rec, index=None, key_scope="lib"):
     """Render the analysis result panel."""
     ov = result.get("company_overview", {})
     risks = result.get("risks", [])
@@ -163,6 +163,60 @@ def _show_result(result, record_id, rec):
     c2.metric("Year", ov.get("year", "—"))
     c3.metric("Risk Categories", len(risks))
     c4.metric("Risk Items", _count_sub_risks(risks))
+
+    # Quick navigation actions (carry selected record context).
+    company = str(rec.get("company", ov.get("company", "")) or "").strip()
+    try:
+        year = int(rec.get("year", ov.get("year", 0)))
+    except Exception:
+        year = 0
+    filing_type = str(rec.get("filing_type", ov.get("filing_type", "10-K")) or "10-K")
+    industry = str(rec.get("industry", "") or "")
+    mapped_ticker = get_company_ticker(company, "") if company else ""
+
+    qa1, qa2, qa3, qa4 = st.columns(4, gap="small")
+    with qa1:
+        if st.button("⚖️ Run Compare", key=f"{key_scope}_go_compare_{record_id}", use_container_width=True):
+            if company and year and index:
+                co_recs = [r for r in index if r.get("company") == company and r.get("filing_type") == filing_type]
+                prior_years = sorted([int(r.get("year", 0)) for r in co_recs if int(r.get("year", 0)) < year], reverse=True)
+                st.session_state["cmp_co"] = company
+                st.session_state["cmp_ft"] = filing_type
+                st.session_state["cmp_ly"] = year
+                if prior_years:
+                    st.session_state["cmp_py"] = [prior_years[0]]
+                st.session_state["cmp_stock_ticker_company"] = company
+                st.session_state["cmp_stock_ticker"] = mapped_ticker
+            st.session_state["current_page"] = "compare"
+            st.rerun()
+    with qa2:
+        if st.button("🤖 Run Agent", key=f"{key_scope}_go_agent_{record_id}", use_container_width=True):
+            if company and year:
+                st.session_state["agent_company"] = company
+                st.session_state["agent_year"] = year
+                st.session_state["agent_stock_ticker_company"] = company
+                st.session_state["agent_stock_ticker"] = mapped_ticker
+            st.session_state["current_page"] = "agent"
+            st.rerun()
+    with qa3:
+        if st.button("📈 Open Dashboard", key=f"{key_scope}_go_dash_{record_id}", use_container_width=True):
+            if industry:
+                st.session_state["dash_global_industry"] = industry
+            if company:
+                st.session_state["dash_market_company_select"] = company
+            st.session_state["current_page"] = "dashboard"
+            st.rerun()
+    with qa4:
+        if st.button("📊 Open Tables", key=f"{key_scope}_go_tables_{record_id}", use_container_width=True):
+            if company and year:
+                st.session_state["tbl_auto_company"] = company
+                st.session_state["tbl_auto_ticker"] = mapped_ticker
+                st.session_state["tbl_auto_year"] = int(year)
+                st.session_state["tbl_auto_industry"] = str(rec.get("industry", "Technology"))
+            st.session_state["current_page"] = "tables"
+            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # AI Summary
     if ai_summary:
@@ -177,7 +231,7 @@ def _show_result(result, record_id, rec):
             else:
                 st.caption(f"Comprehend skipped: {comprehend_meta.get('error', 'unknown reason')}")
     else:
-        if st.button("🤖 Run AI Summarize", key=f"ai_lib_{record_id}"):
+        if st.button("🤖 Run AI Summarize", key=f"ai_{key_scope}_{record_id}"):
             _run_ai(result, record_id)
 
     # Company overview
@@ -218,9 +272,7 @@ def _show_result(result, record_id, rec):
                 st.markdown(f"- **{cat_name}** — 0 items")
 
     st.markdown('<div class="section-header">📊 Financial Tables</div>', unsafe_allow_html=True)
-    company = str(rec.get("company", ov.get("company", "")) or "").strip()
     year = rec.get("year", ov.get("year", ""))
-    filing_type = rec.get("filing_type", ov.get("filing_type", "10-K"))
     table_result = None
     if company and year:
         table_result = load_table_result(company=company, year=year, filing_type=filing_type)
@@ -228,7 +280,7 @@ def _show_result(result, record_id, rec):
     if table_result:
         render_table_output(
             table_result,
-            key_prefix=f"lib_tables_{record_id}",
+            key_prefix=f"{key_scope}_tables_{record_id}",
             show_json_preview=False,
         )
     else:
@@ -242,15 +294,15 @@ def _show_result(result, record_id, rec):
             ticker_input = st.text_input(
                 "Ticker (optional, improves SEC lookup accuracy)",
                 value=ticker_default,
-                key=f"lib_extract_ticker_{record_id}",
+                key=f"{key_scope}_extract_ticker_{record_id}",
                 placeholder="e.g. AAPL",
             )
             c_btn1, c_btn2 = st.columns(2)
             with c_btn1:
-                if st.button("Extract Financial Tables", key=f"lib_extract_tables_{record_id}", type="primary", use_container_width=True):
+                if st.button("Extract Financial Tables", key=f"{key_scope}_extract_tables_{record_id}", type="primary", use_container_width=True):
                     _extract_financial_tables_for_record(rec, result, ticker_override=ticker_input)
             with c_btn2:
-                if st.button("Open Tables Page", key=f"lib_open_tables_{record_id}", use_container_width=True):
+                if st.button("Open Tables Page", key=f"{key_scope}_open_tables_{record_id}", use_container_width=True):
                     st.session_state["tbl_auto_company"] = company
                     st.session_state["tbl_auto_ticker"] = ticker_input
                     st.session_state["tbl_auto_year"] = int(year)
@@ -265,36 +317,37 @@ def _show_result(result, record_id, rec):
         data=json.dumps(result, indent=2, ensure_ascii=False),
         file_name=f"{ov.get('company','export')}_{ov.get('year','')}.json",
         mime="application/json",
-        key=f"dl_lib_{record_id}",
+        key=f"dl_{key_scope}_{record_id}",
         use_container_width=True,
     )
 
 
-def render():
+def render_records_panel(show_header: bool = True, key_prefix: str = "lib", state_prefix: str = "lib", show_new_filing_button: bool = True):
     # ── Page header ───────────────────────────────────────────────────────────
-    col_h, col_btn = st.columns([3, 1])
-    with col_h:
-        st.markdown(
-            """
-            <div class="page-header" style="border-bottom:none; margin-bottom:0.5rem; padding-bottom:0;">
-                <div class="page-header-left">
-                    <span class="page-icon">📚</span>
-                    <div>
-                        <p class="page-title">Library</p>
-                        <p class="page-subtitle">Browse and manage your uploaded 10-K filings</p>
+    if show_header:
+        col_h, col_btn = st.columns([3, 1])
+        with col_h:
+            st.markdown(
+                """
+                <div class="page-header" style="border-bottom:none; margin-bottom:0.5rem; padding-bottom:0;">
+                    <div class="page-header-left">
+                        <span class="page-icon">📚</span>
+                        <div>
+                            <p class="page-title">Library</p>
+                            <p class="page-subtitle">Browse and manage your uploaded 10-K filings</p>
+                        </div>
                     </div>
                 </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with col_btn:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("➕ New Filing", key="lib_go_upload", type="primary"):
-            st.session_state["current_page"] = "upload"
-            st.rerun()
+                """,
+                unsafe_allow_html=True,
+            )
+        with col_btn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if show_new_filing_button and st.button("➕ New Filing", key=f"{key_prefix}_go_upload", type="primary"):
+                st.session_state["current_page"] = "upload"
+                st.rerun()
 
-    st.markdown('<hr style="border:none; border-top:1px solid #e2e8f0; margin:0.5rem 0 1.2rem;">', unsafe_allow_html=True)
+        st.markdown('<hr style="border:none; border-top:1px solid #e2e8f0; margin:0.5rem 0 1.2rem;">', unsafe_allow_html=True)
 
     # ── Load data ─────────────────────────────────────────────────────────────
     index = load_index()
@@ -309,14 +362,14 @@ def render():
             """,
             unsafe_allow_html=True,
         )
-        if st.button("Go to Upload →", key="lib_empty_upload", type="primary"):
+        if st.button("Go to Upload →", key=f"{key_prefix}_empty_upload", type="primary"):
             st.session_state["current_page"] = "upload"
             st.rerun()
         return
 
     # ── Filters ───────────────────────────────────────────────────────────────
     with st.container():
-        flt = library_filters(index, key_prefix="lib")
+        flt = library_filters(index, key_prefix=key_prefix)
 
     filtered = filter_records(
         industry=flt["industry"],
@@ -339,11 +392,13 @@ def render():
         return
 
     table_presence_tokens = load_table_presence_tokens()
+    selected_rid_key = f"{state_prefix}_selected_rid"
+    selected_result_key = f"{state_prefix}_selected_result"
 
     # ── Selected detail panel (moved above card grid for easier access) ─────
-    if "lib_selected_rid" in st.session_state and "lib_selected_result" in st.session_state:
-        result = st.session_state["lib_selected_result"]
-        rid = st.session_state["lib_selected_rid"]
+    if selected_rid_key in st.session_state and selected_result_key in st.session_state:
+        result = st.session_state[selected_result_key]
+        rid = st.session_state[selected_rid_key]
         selected_rec = next((r for r in index if r.get("record_id") == rid), None)
         if result:
             st.markdown(
@@ -355,7 +410,7 @@ def render():
                 unsafe_allow_html=True,
             )
             with st.expander("📌 Loaded Filing Details", expanded=True):
-                _show_result(result, rid, selected_rec or {})
+                _show_result(result, rid, selected_rec or {}, index=index, key_scope=state_prefix)
             st.markdown(
                 '<hr style="border:none; border-top:1px solid #e2e8f0; margin:1.1rem 0 1rem;">',
                 unsafe_allow_html=True,
@@ -374,7 +429,7 @@ def render():
             fmt = rec.get("file_ext", "html").upper()
             rid = rec["record_id"]
             color = INDUSTRY_COLORS.get(industry, "#6b7280")
-            is_selected = st.session_state.get("lib_selected_rid") == rid
+            is_selected = st.session_state.get(selected_rid_key) == rid
             has_tables = has_table_result(
                 company=company,
                 year=year,
@@ -416,14 +471,18 @@ def render():
             with btn_col1:
                 load_type = "primary" if is_selected else "secondary"
                 if st.button("Load" if not is_selected else "✓ Loaded",
-                             key=f"load_{rid}", use_container_width=True, type=load_type):
-                    st.session_state["lib_selected_rid"] = rid
-                    st.session_state["lib_selected_result"] = get_result(rid)
+                             key=f"{key_prefix}_load_{rid}", use_container_width=True, type=load_type):
+                    st.session_state[selected_rid_key] = rid
+                    st.session_state[selected_result_key] = get_result(rid)
                     st.rerun()
             with btn_col2:
-                if st.button("Delete", key=f"del_{rid}", use_container_width=True):
+                if st.button("Delete", key=f"{key_prefix}_del_{rid}", use_container_width=True):
                     delete_record(rid)
-                    if st.session_state.get("lib_selected_rid") == rid:
-                        st.session_state.pop("lib_selected_rid", None)
-                        st.session_state.pop("lib_selected_result", None)
+                    if st.session_state.get(selected_rid_key) == rid:
+                        st.session_state.pop(selected_rid_key, None)
+                        st.session_state.pop(selected_result_key, None)
                     st.rerun()
+
+
+def render():
+    render_records_panel(show_header=True, key_prefix="lib", state_prefix="lib", show_new_filing_button=True)

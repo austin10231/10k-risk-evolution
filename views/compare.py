@@ -18,6 +18,7 @@ from storage.store import (
 )
 from core.comparator import compare_risks
 from core.bedrock import analyze_changes
+from core.global_context import sync_widget_from_context, get_global_context, render_current_config_box
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -44,6 +45,47 @@ def _fetch_stock_history(ticker: str, start_date: str, end_date: str):
             "close": float(close),
         })
     return rows
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_ticker_profile_name(ticker: str) -> str:
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return ""
+    try:
+        info = yf.Ticker(symbol).info or {}
+    except Exception:
+        return ""
+    for k in ("longName", "shortName", "displayName"):
+        v = str(info.get(k, "") or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def _normalize_company_tokens(name: str):
+    raw = re.sub(r"[^a-z0-9]+", " ", str(name or "").lower()).strip()
+    stop = {
+        "inc", "incorporated", "corp", "corporation", "co", "company", "plc",
+        "ltd", "limited", "class", "common", "stock", "holdings", "group", "the",
+    }
+    return {tok for tok in raw.split() if len(tok) > 1 and tok not in stop}
+
+
+def _ticker_matches_company(company: str, ticker: str):
+    symbol = str(ticker or "").strip().upper()
+    if not symbol:
+        return False, "", "Ticker is empty."
+    profile_name = _fetch_ticker_profile_name(symbol)
+    if not profile_name:
+        return False, "", f"Could not verify ticker `{symbol}` from market profile."
+    company_tokens = _normalize_company_tokens(company)
+    profile_tokens = _normalize_company_tokens(profile_name)
+    if company_tokens and profile_tokens and company_tokens.intersection(profile_tokens):
+        return True, profile_name, ""
+    return False, profile_name, (
+        f"Ticker `{symbol}` appears to map to `{profile_name}`, which does not match selected company `{company}`."
+    )
 
 
 def _agent_rating_lookup():
@@ -258,20 +300,27 @@ def _render_stock_event_window_analysis(company: str, ticker: str, latest_year: 
 
 def render():
     # ── Page header ───────────────────────────────────────────────────────────
-    st.markdown(
-        """
-        <div class="page-header">
-            <div class="page-header-left">
-                <span class="page-icon">⚖️</span>
-                <div>
-                    <p class="page-title">Compare</p>
-                    <p class="page-subtitle">Detect risk changes year-over-year or between companies</p>
+    header_left, header_right = st.columns([2.35, 2.65], gap="medium")
+    with header_left:
+        st.markdown(
+            """
+            <div class="page-header">
+                <div class="page-header-left">
+                    <span class="page-icon">⚖️</span>
+                    <div>
+                        <p class="page-title">Compare</p>
+                        <p class="page-subtitle">Detect risk changes year-over-year or between companies</p>
+                    </div>
                 </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+    with header_right:
+        render_current_config_box(
+            key_prefix="ctx_compare",
+            year_options=list(range(2025, 2009, -1)),
+        )
 
     index = load_index()
     if not index:
@@ -308,6 +357,7 @@ def render():
 # ── Year-over-Year ─────────────────────────────────────────────────────────────
 def _render_yoy(index):
     companies = sorted(set(r["company"] for r in index))
+    sync_widget_from_context("cmp_co", "company", options=companies)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -315,6 +365,7 @@ def _render_yoy(index):
     with col2:
         co_recs = [r for r in index if r["company"] == company]
         ftypes = sorted(set(r["filing_type"] for r in co_recs))
+        sync_widget_from_context("cmp_ft", "filing_type", options=ftypes)
         ftype = st.selectbox("Filing Type", ftypes, key="cmp_ft")
 
     type_recs = [r for r in co_recs if r["filing_type"] == ftype]
@@ -326,12 +377,14 @@ def _render_yoy(index):
 
     col3, col4 = st.columns(2)
     with col3:
+        sync_widget_from_context("cmp_ly", "year", options=years[::-1])
         latest_year = st.selectbox("Latest Year", years[::-1], key="cmp_ly")
     with col4:
         prior_opts = [y for y in years if y < latest_year]
         if not prior_opts:
             st.warning("No prior year available.")
             return
+        sync_widget_from_context("cmp_py", "prior_years", options=prior_opts[::-1])
         prior_years = st.multiselect(
             "Prior Year(s)", prior_opts[::-1],
             default=[prior_opts[-1]], key="cmp_py",
@@ -340,7 +393,12 @@ def _render_yoy(index):
     mapped_ticker = get_company_ticker(company, "")
     if st.session_state.get("cmp_stock_ticker_company") != company:
         st.session_state["cmp_stock_ticker_company"] = company
-        st.session_state["cmp_stock_ticker"] = mapped_ticker
+        ctx = get_global_context()
+        ctx_ticker = str(ctx.get("ticker", "") or "").strip().upper()
+        if str(ctx.get("company", "") or "").strip() == company and ctx_ticker:
+            st.session_state["cmp_stock_ticker"] = ctx_ticker
+        else:
+            st.session_state["cmp_stock_ticker"] = mapped_ticker
 
     t1, t2 = st.columns([4, 1])
     with t1:
@@ -356,8 +414,15 @@ def _render_yoy(index):
             if not ticker.strip():
                 st.warning("请输入有效 ticker 后再保存。")
             else:
-                upsert_company_ticker(company, ticker)
-                st.success(f"Saved ticker mapping: {company} → {ticker.strip().upper()}")
+                ok, profile_name, err = _ticker_matches_company(company, ticker)
+                if not ok:
+                    st.error(err)
+                else:
+                    upsert_company_ticker(company, ticker)
+                    st.success(
+                        f"Saved ticker mapping: {company} → {ticker.strip().upper()} "
+                        f"(verified as {profile_name})"
+                    )
 
     if not prior_years:
         st.warning("Select at least one prior year.")
@@ -410,7 +475,11 @@ def _render_yoy(index):
     st.session_state["cmp_last_label_a"] = company
     st.session_state["cmp_last_label_b"] = ""
     if ticker.strip():
-        upsert_company_ticker(company, ticker)
+        ok, _, err = _ticker_matches_company(company, ticker)
+        if ok:
+            upsert_company_ticker(company, ticker)
+        else:
+            st.warning(err)
     _display_compare_results(all_comparisons, company, "", ftype, mode="yoy")
     _render_stock_event_window_analysis(company, ticker, latest_year, prior_years)
 
@@ -418,6 +487,7 @@ def _render_yoy(index):
 # ── Cross-Company ──────────────────────────────────────────────────────────────
 def _render_cross(index):
     companies = sorted(set(r["company"] for r in index))
+    sync_widget_from_context("cmp_co_b", "company", options=companies)
 
     col_a_head, col_b_head = st.columns(2)
     with col_a_head:
@@ -446,8 +516,10 @@ def _render_cross(index):
         co_b = st.selectbox("Company", companies, key="cmp_co_b")
         recs_b = [r for r in index if r["company"] == co_b]
         ftypes_b = sorted(set(r["filing_type"] for r in recs_b))
+        sync_widget_from_context("cmp_ft_b", "filing_type", options=ftypes_b)
         ft_b = st.selectbox("Filing Type", ftypes_b, key="cmp_ft_b")
         years_b = sorted(set(r["year"] for r in recs_b if r["filing_type"] == ft_b), reverse=True)
+        sync_widget_from_context("cmp_yr_b", "year", options=years_b)
         yr_b = st.selectbox("Year", years_b, key="cmp_yr_b")
 
     st.markdown("<br>", unsafe_allow_html=True)
