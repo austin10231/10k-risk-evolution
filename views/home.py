@@ -1,6 +1,7 @@
 """Home page — RiskLens AI landing."""
 
 import streamlit as st
+from core.i18n import current_language, render_language_switcher
 
 
 def _navigate(page: str):
@@ -13,11 +14,12 @@ def _navigate(page: str):
 
 
 def render():
+    current_language()
 
     # ── Hero banner ───────────────────────────────────────────────────────────
     st.markdown(
         """
-        <div style="position:relative; background:linear-gradient(135deg,#7dd3fc 0%,#3b82f6 40%,#2563eb 100%); border-radius:16px;
+        <div class="home-hero-banner" style="position:relative; background:linear-gradient(135deg,#7dd3fc 0%,#3b82f6 40%,#2563eb 100%); border-radius:16px;
              overflow:hidden; padding:3rem 3rem 2.5rem; margin-bottom:2rem;">
             <div style="position:absolute; inset:0;
                  background-image:radial-gradient(rgba(255,255,255,0.12) 1px, transparent 1px);
@@ -68,6 +70,75 @@ def render():
         """,
         unsafe_allow_html=True,
     )
+
+    # Overlay language switcher inside hero (stable CSS-only placement)
+    st.markdown(
+        """
+        <style>
+        .main .block-container {
+            position: relative !important;
+        }
+        .st-key-home_hero_lang_switch {
+            position: absolute !important;
+            top: 4.4rem !important;
+            right: 1.45rem !important;
+            margin: 0 !important;
+            z-index: 18;
+            width: 152px !important;
+        }
+        .st-key-home_hero_lang_switch div[data-testid="stSegmentedControl"] {
+            width: 152px !important;
+            margin: 0 !important;
+        }
+        .st-key-home_hero_lang_switch [data-baseweb="button-group"] {
+            background: rgba(2, 6, 23, 0.56) !important;
+            border: 1px solid rgba(148, 163, 184, 0.42) !important;
+            border-radius: 9px !important;
+            padding: 2px !important;
+            backdrop-filter: blur(3px) !important;
+            box-shadow: 0 5px 16px rgba(2, 6, 23, 0.32) !important;
+        }
+        .st-key-home_hero_lang_switch [data-baseweb="button-group"] button {
+            min-height: 1.52rem !important;
+            border-radius: 7px !important;
+            font-size: 0.72rem !important;
+            font-weight: 700 !important;
+            color: rgba(203, 213, 225, 0.96) !important;
+            letter-spacing: 0.01em !important;
+            padding: 0.01rem 0.52rem !important;
+            border: 1px solid rgba(100, 116, 139, 0.48) !important;
+            background: rgba(15, 23, 42, 0.68) !important;
+            box-shadow: none !important;
+            transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease !important;
+        }
+        .st-key-home_hero_lang_switch [data-baseweb="button-group"] button[aria-pressed="false"],
+        .st-key-home_hero_lang_switch [data-baseweb="button-group"] button[aria-selected="false"] {
+            background: rgba(15, 23, 42, 0.68) !important;
+            border-color: rgba(71, 85, 105, 0.55) !important;
+            color: rgba(203, 213, 225, 0.96) !important;
+        }
+        .st-key-home_hero_lang_switch [data-baseweb="button-group"] button[aria-pressed="true"],
+        .st-key-home_hero_lang_switch [data-baseweb="button-group"] button[aria-selected="true"] {
+            background: rgba(30, 41, 59, 0.95) !important;
+            border-color: rgba(148, 163, 184, 0.62) !important;
+            color: #ffffff !important;
+            text-shadow: 0 1px 1px rgba(2, 6, 23, 0.50) !important;
+            box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.22), 0 0 0 1px rgba(59, 130, 246, 0.14) !important;
+        }
+        .st-key-home_hero_lang_switch [data-baseweb="button-group"] button:hover {
+            background: rgba(15, 23, 42, 0.82) !important;
+            color: #f1f5f9 !important;
+        }
+        .st-key-home_hero_lang_switch [data-baseweb="button-group"] button[aria-pressed="true"]:hover,
+        .st-key-home_hero_lang_switch [data-baseweb="button-group"] button[aria-selected="true"]:hover {
+            background: rgba(30, 41, 59, 0.95) !important;
+            color: #ffffff !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    render_language_switcher("home_hero_lang")
 
     # ── Quick Actions ─────────────────────────────────────────────────────────
     st.markdown(

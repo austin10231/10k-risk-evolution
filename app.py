@@ -5,6 +5,11 @@ Entry point: streamlit run app.py
 
 import streamlit as st
 from core.global_context import ensure_global_context
+from core.i18n import (
+    ensure_language_state,
+    inject_dom_translation,
+    nav_text,
+)
 
 st.set_page_config(
     page_title="RiskLens AI · 10-K Intelligence",
@@ -484,6 +489,7 @@ st.markdown(
 if "current_page" not in st.session_state:
     st.session_state["current_page"] = "home"
 ensure_global_context()
+ensure_language_state()
 
 from core.chat_widget import render_chat_widget
 
@@ -527,34 +533,34 @@ with st.sidebar:
     st.markdown(
         '<p style="font-size:0.58rem; font-weight:700; color:rgba(255,255,255,0.6);'
         'letter-spacing:0.1em; text-transform:uppercase; padding:0 0.9rem;'
-        'margin:1rem 0 0.25rem;">DATA</p>',
+        f'margin:1rem 0 0.25rem;">{nav_text("DATA")}</p>',
         unsafe_allow_html=True,
     )
-    _nav("🏠  Home", "home")
-    _nav("➕  Upload", "upload")
-    _nav("📈  Dashboard", "dashboard")
-    _nav("💹  Stock", "stock")
-    _nav("📰  News", "news")
-    _nav("📚  Library", "library")
+    _nav(f"🏠  {nav_text('Home')}", "home")
+    _nav(f"➕  {nav_text('Upload')}", "upload")
+    _nav(f"📈  {nav_text('Dashboard')}", "dashboard")
+    _nav(f"💹  {nav_text('Stock')}", "stock")
+    _nav(f"📰  {nav_text('News')}", "news")
+    _nav(f"📚  {nav_text('Library')}", "library")
 
     # ANALYSIS group
     st.markdown(
         '<p style="font-size:0.58rem; font-weight:700; color:rgba(255,255,255,0.6);'
         'letter-spacing:0.1em; text-transform:uppercase; padding:0 0.9rem;'
-        'margin:1.1rem 0 0.25rem;">ANALYSIS</p>',
+        f'margin:1.1rem 0 0.25rem;">{nav_text("ANALYSIS")}</p>',
         unsafe_allow_html=True,
     )
-    _nav("⚖️  Compare", "compare")
-    _nav("📊  Tables", "tables")
+    _nav(f"⚖️  {nav_text('Compare')}", "compare")
+    _nav(f"📊  {nav_text('Tables')}", "tables")
 
     # AI group
     st.markdown(
         '<p style="font-size:0.58rem; font-weight:700; color:rgba(255,255,255,0.6);'
         'letter-spacing:0.1em; text-transform:uppercase; padding:0 0.9rem;'
-        'margin:1.1rem 0 0.25rem;">INTELLIGENCE</p>',
+        f'margin:1.1rem 0 0.25rem;">{nav_text("INTELLIGENCE")}</p>',
         unsafe_allow_html=True,
     )
-    _nav("🤖  Agent", "agent")
+    _nav(f"🤖  {nav_text('Agent')}", "agent")
 
     # Footer — absolutely positioned at bottom of sidebar
     st.markdown(
@@ -696,3 +702,6 @@ elif page == "agent":
 
 # ── Global floating assistant (all pages) ─────────────────────────────────────
 render_chat_widget(page)
+
+# ── Apply global DOM translation for zh mode ──────────────────────────────────
+inject_dom_translation()
