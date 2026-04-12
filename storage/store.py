@@ -87,6 +87,24 @@ def _list_s3_objects(prefix: str):
     return items
 
 
+def _invalidate_cached_reads():
+    """Clear cached read helpers after write/delete operations."""
+    for fn in (
+        load_index,
+        get_result,
+        load_table_result,
+        load_table_csv,
+        load_table_presence_tokens,
+        load_agent_reports,
+        load_company_ticker_map,
+    ):
+        try:
+            fn.clear()
+        except Exception:
+            pass
+
+
+@st.cache_data(ttl=180, show_spinner=False)
 def load_index():
     data = _s3_read(INDEX_KEY)
     if data is None:
@@ -133,9 +151,11 @@ def add_record(company, industry, year, filing_type, file_bytes, file_ext, resul
         "created_at": datetime.now().isoformat(),
     })
     _save_index(index)
+    _invalidate_cached_reads()
     return rid
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_result(record_id):
     data = _s3_read(f"{RESULTS_PREFIX}/{record_id}.json")
     return json.loads(data.decode("utf-8")) if data else None
@@ -157,6 +177,7 @@ def delete_record(record_id):
     ext = "pdf" if fe == "pdf" else "html"
     _s3_delete(f"{pfx}/{record_id}.{ext}")
     _s3_delete(f"{RESULTS_PREFIX}/{record_id}.json")
+    _invalidate_cached_reads()
 
 
 def save_table_result(company, year, filing_type, table_json, csv_string=""):
@@ -175,6 +196,7 @@ def save_table_result(company, year, filing_type, table_json, csv_string=""):
     if csv_string:
         _s3_write(f"{base}_tables.csv", csv_string.encode("utf-8"))
 
+    _invalidate_cached_reads()
     return base
 
 
@@ -224,6 +246,7 @@ def has_table_result(company, year, filing_type="10-K", presence_tokens=None):
     return bool(json_key or csv_key)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_table_result(company, year, filing_type="10-K"):
     _, json_key, _ = _latest_table_keys(company, year, filing_type)
     if not json_key:
@@ -237,6 +260,7 @@ def load_table_result(company, year, filing_type="10-K"):
         return None
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_table_csv(company, year, filing_type="10-K"):
     _, _, csv_key = _latest_table_keys(company, year, filing_type)
     if not csv_key:
@@ -250,6 +274,7 @@ def load_table_csv(company, year, filing_type="10-K"):
         return ""
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_table_presence_tokens():
     """Return a set of '<safe_company>_<year>_<safe_filing_type>' tokens with table JSON present."""
     tokens = set()
@@ -288,6 +313,7 @@ def save_compare_result(company, filing_type, latest_year, prior_years, compare_
         key = f"{prefix}/{safe}_{latest_year}_vs_{ps}_{sf}_{sid}.json"
 
     _s3_write(key, json.dumps(compare_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"))
+    _invalidate_cached_reads()
     return key
 
 
@@ -304,9 +330,11 @@ def save_agent_report(company, year, filing_type, report_json):
         key,
         json.dumps(report_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
     )
+    _invalidate_cached_reads()
     return key
 
 
+@st.cache_data(ttl=180, show_spinner=False)
 def load_agent_reports():
     """Load all agent report JSONs from the agent_reports/ prefix.
     Returns a list of parsed report dicts."""
@@ -324,6 +352,7 @@ def load_agent_reports():
     return reports
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_company_ticker_map():
     """Load persisted company->ticker mapping."""
     data = _s3_read(TICKER_MAP_KEY)
@@ -355,6 +384,7 @@ def save_company_ticker_map(mapping):
         if c and t:
             cleaned[c] = t
     _s3_write(TICKER_MAP_KEY, json.dumps(cleaned, indent=2, ensure_ascii=False).encode("utf-8"))
+    _invalidate_cached_reads()
     return cleaned
 
 

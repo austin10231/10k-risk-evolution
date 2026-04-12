@@ -4,7 +4,11 @@ import streamlit as st
 
 
 def _navigate(page: str):
-    st.session_state["current_page"] = page
+    if page == "upload_records":
+        st.session_state["upload_open_records"] = True
+        st.session_state["current_page"] = "upload"
+    else:
+        st.session_state["current_page"] = page
     st.rerun()
 
 
@@ -75,7 +79,7 @@ def render():
                 <p style="font-size:1.05rem; font-weight:800; color:#0f172a; margin:0;
                    letter-spacing:-0.02em; line-height:1.2;">Quick Start</p>
                 <p style="font-size:0.75rem; color:#64748b; margin:0; font-weight:400;">
-                    Choose where to begin
+                    Choose where to begin across 6 core modules
                 </p>
             </div>
         </div>
@@ -88,71 +92,84 @@ def render():
             "key": "upload",
             "icon": "📤",
             "accent": "#6366f1",
-            "title": "Upload & Extract",
-            "desc": "Analyze a new 10-K filing (HTML or PDF) or auto-fetch from SEC EDGAR.",
-            "buttons": [("Start Analyzing →", "upload", "primary")],
+            "title": "Upload & Auto-Fetch",
+            "desc": "Ingest new filings and manage saved Records in one place.",
+            "buttons": [
+                ("Open Upload →", "upload", "primary"),
+                ("Open Records →", "upload_records", "secondary"),
+            ],
         },
         {
-            "key": "library",
-            "icon": "📚",
-            "accent": "#0ea5e9",
-            "title": "Browse Library",
-            "desc": "View, filter, and load previously analyzed filings and saved table results.",
-            "buttons": [("Open Library →", "library", "secondary")],
+            "key": "compare",
+            "icon": "⚖️",
+            "accent": "#f59e0b",
+            "title": "Compare Risks",
+            "desc": "Run year-over-year or cross-company comparisons to detect structural risk changes.",
+            "buttons": [("Open Compare →", "compare", "secondary")],
+        },
+        {
+            "key": "tables",
+            "icon": "📊",
+            "accent": "#10b981",
+            "title": "Financial Tables",
+            "desc": "Extract 5 core statements via Textract and store JSON/CSV for downstream analysis.",
+            "buttons": [("Open Tables →", "tables", "secondary")],
         },
         {
             "key": "agent",
             "icon": "🤖",
             "accent": "#8b5cf6",
-            "title": "Run AI Agent",
-            "desc": "Ask questions in plain English and get prioritized risk insights instantly.",
+            "title": "AI Risk Agent",
+            "desc": "Generate priority scores, key findings, recommendations, and full analyst-ready reports.",
             "buttons": [("Open Agent →", "agent", "secondary")],
         },
         {
-            "key": "monitor",
+            "key": "insight_hub",
             "icon": "📈",
-            "accent": "#10b981",
-            "title": "Monitor Risk + Market",
-            "desc": "Track risk trend and stock context together across Dashboard and Stock tabs.",
+            "accent": "#2563eb",
+            "title": "Dashboard + Stock",
+            "desc": "Monitor portfolio risk and market movement together in one linked workflow.",
             "buttons": [
-                ("Open Dashboard →", "dashboard", "secondary"),
-                ("Open Stock →", "stock", "secondary"),
+                ("Dashboard →", "dashboard", "secondary"),
+                ("Stock →", "stock", "secondary"),
+            ],
+        },
+        {
+            "key": "news",
+            "icon": "📰",
+            "accent": "#0ea5e9",
+            "title": "News Intelligence",
+            "desc": "Track recent company headlines with pressure scoring and risk-linked summaries.",
+            "buttons": [
+                ("Open News →", "news", "secondary"),
             ],
         },
     ]
 
-    quick_cols = st.columns(4, gap="medium")
-    for col, card in zip(quick_cols, quick_cards):
-        with col:
-            accent = card["accent"]
-            st.markdown(
-                f"""
-                <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px;
-                     padding:1.2rem 1.15rem 1rem; margin-bottom:0.45rem;
-                     box-shadow:0 1px 3px rgba(15,23,42,0.05);
-                     border-top:3px solid {accent}; min-height:158px;">
-                    <p style="font-size:1.62rem; margin:0 0 0.62rem; line-height:1;">{card['icon']}</p>
-                    <p style="font-weight:700; color:#0f172a; margin:0 0 0.34rem;
-                       font-size:1rem; letter-spacing:-0.01em;">{card['title']}</p>
-                    <p style="font-size:0.83rem; color:#64748b; margin:0; line-height:1.5;">
-                        {card['desc']}
-                    </p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    for row_start in range(0, len(quick_cards), 3):
+        quick_cols = st.columns(3, gap="medium")
+        for col, card in zip(quick_cols, quick_cards[row_start:row_start + 3]):
+            with col:
+                accent = card["accent"]
+                st.markdown(
+                    f"""
+                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px;
+                         padding:1.15rem 1.05rem 0.95rem; margin-bottom:0.42rem;
+                         box-shadow:0 1px 3px rgba(15,23,42,0.05);
+                         border-top:3px solid {accent}; min-height:150px;">
+                        <p style="font-size:1.56rem; margin:0 0 0.58rem; line-height:1;">{card['icon']}</p>
+                        <p style="font-weight:700; color:#0f172a; margin:0 0 0.3rem;
+                           font-size:0.97rem; letter-spacing:-0.01em;">{card['title']}</p>
+                        <p style="font-size:0.81rem; color:#64748b; margin:0; line-height:1.48;">
+                            {card['desc']}
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
-            if len(card["buttons"]) == 1:
-                label, page, btn_type = card["buttons"][0]
-                if st.button(
-                    label,
-                    key=f"qa_{card['key']}_{page}",
-                    use_container_width=True,
-                    type=btn_type,
-                ):
-                    _navigate(page)
-            else:
-                for label, page, btn_type in card["buttons"]:
+                if len(card["buttons"]) == 1:
+                    label, page, btn_type = card["buttons"][0]
                     if st.button(
                         label,
                         key=f"qa_{card['key']}_{page}",
@@ -160,6 +177,19 @@ def render():
                         type=btn_type,
                     ):
                         _navigate(page)
+                else:
+                    button_cols = st.columns(len(card["buttons"]), gap="small")
+                    for bcol, (label, page, btn_type) in zip(button_cols, card["buttons"]):
+                        with bcol:
+                            if st.button(
+                                label,
+                                key=f"qa_{card['key']}_{page}",
+                                use_container_width=True,
+                                type=btn_type,
+                            ):
+                                _navigate(page)
+        if row_start + 3 < len(quick_cards):
+            st.markdown("<div style='height:0.42rem;'></div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -173,7 +203,7 @@ def render():
                 <p style="font-size:1.05rem; font-weight:800; color:#0f172a; margin:0;
                    letter-spacing:-0.02em; line-height:1.2;">How It Works</p>
                 <p style="font-size:0.75rem; color:#64748b; margin:0; font-weight:400;">
-                    From ingestion to monitoring in 6 steps
+                    Keep the same 6-step flow, now with market and news linkage
                 </p>
             </div>
         </div>
@@ -182,12 +212,12 @@ def render():
     )
 
     steps = [
-        ("1", "#6366f1", "📥", "Ingest Filing", "Manual upload or SEC EDGAR auto-fetch."),
-        ("2", "#0ea5e9", "🧠", "Extract Risks", "Standard parser or AI-enhanced Nova Pro mode."),
-        ("3", "#10b981", "📊", "Extract Tables", "Run Textract to capture 5 core financial statements."),
-        ("4", "#f59e0b", "⚖️", "Compare Changes", "Detect NEW / REMOVED / MODIFIED risks across years."),
-        ("5", "#8b5cf6", "🤖", "Run Agent", "Generate priority score, findings, and recommendations."),
-        ("6", "#2563eb", "📈", "Monitor & Trade Context", "Track in Dashboard + Stock with market linkage."),
+        ("1", "#6366f1", "📥", "Ingest Filing", "Use manual upload or SEC EDGAR auto-fetch to create a new filing record."),
+        ("2", "#0ea5e9", "🧠", "Extract Risks", "Parse Item 1/1A with Standard rules or AI-enhanced Bedrock extraction."),
+        ("3", "#10b981", "📊", "Extract Tables", "Run Textract to capture key financial statements and persist outputs."),
+        ("4", "#f59e0b", "⚖️", "Compare Changes", "Detect NEW / REMOVED / MODIFIED risks across years or companies."),
+        ("5", "#8b5cf6", "🤖", "Run Agent", "Score impact/likelihood/urgency and generate structured analyst guidance."),
+        ("6", "#2563eb", "📰", "Link Market + News", "Overlay risk ratings with stock context and ranked recent news evidence."),
     ]
 
     for row_start in range(0, len(steps), 3):
@@ -242,24 +272,17 @@ def render():
             unsafe_allow_html=True,
         )
         features = [
-            ("10-K upload (HTML & PDF)", "Extraction"),
-            ("SEC EDGAR auto-fetch (Analyze + Tables)", "Direct ingest"),
-            ("Item 1 & 1A risk parsing", "Structured JSON"),
-            ("AI-enhanced extraction mode", "Nova Pro"),
-            ("AI risk classification", "Amazon Bedrock"),
-            ("AI executive summary", "Auto-generated"),
-            ("Year-over-year comparison", "Multi-year"),
-            ("Cross-company risk diff", "Side-by-side"),
-            ("AI change analysis", "Trend detection"),
-            ("Financial table extraction (Textract)", "5 statements"),
-            ("Library table persistence + one-click extract", "Reusable"),
-            ("Risk heatmap dashboard", "Visual matrix"),
-            ("Industry-group category ranking", "By industry"),
-            ("Risk vs return analytics", "Market linked"),
-            ("Dedicated stock tab (search + charts)", "Live market"),
-            ("Risk prioritization agent", "H / M / L scoring"),
-            ("Natural language queries", "Free-text Q&A"),
-            ("JSON & CSV export", "Full download"),
+            ("End-to-end 10-K workflow", "Ingest → Extract → Compare → Agent"),
+            ("Dual risk extraction modes", "Standard + AI-Enhanced"),
+            ("Financial table pipeline", "Textract + JSON/CSV persistence"),
+            ("Structured risk storage and reusable records", "S3-backed"),
+            ("Cross-year and cross-company change detection", "NEW / REMOVED / MODIFIED"),
+            ("AI agent scoring and recommendations", "Impact / Likelihood / Urgency"),
+            ("Risk monitoring dashboard", "Heatmap + ranking + risk/return"),
+            ("Dedicated stock analytics page", "Search + price/volume charts"),
+            ("News intelligence module", "Headline pressure + risk linkage"),
+            ("Global configuration sync across core workflows", "Company / Year / Industry / Ticker"),
+            ("Cloud persistence and analyst export views", "JSON / CSV / report"),
         ]
         rows = "".join(
             f'<div style="display:flex; justify-content:space-between; align-items:center;'
@@ -286,7 +309,7 @@ def render():
                     <p style="font-size:1.05rem; font-weight:800; color:#0f172a; margin:0;
                        letter-spacing:-0.02em; line-height:1.2;">Future Releases</p>
                     <p style="font-size:0.75rem; color:#64748b; margin:0; font-weight:400;">
-                        Coming in future releases
+                        Next optimization priorities
                     </p>
                 </div>
             </div>
@@ -294,10 +317,11 @@ def render():
             unsafe_allow_html=True,
         )
         roadmap = [
-            ("10-Q support", "Quarterly filings"),
-            ("Portfolio risk view", "Multi-company"),
-            ("Automated alerts", "New filing notifications"),
-            ("Peer benchmarking upgrade", "Cross-industry"),
+            ("Higher extraction consistency and confidence calibration", "Accuracy"),
+            ("Stronger risk-market-news linkage scoring", "Correlation"),
+            ("Lower page latency via warm cache and lazy loading", "Performance"),
+            ("Better evidence ranking and duplicate-news suppression", "Signal Quality"),
+            ("More explainable agent reasoning trace for analysts", "Trust"),
         ]
         rows = "".join(
             f'<div style="display:flex; justify-content:space-between; align-items:center;'
@@ -320,33 +344,16 @@ def render():
             unsafe_allow_html=True,
         )
 
-        st.markdown("<div style='height:0.7rem;'></div>", unsafe_allow_html=True)
-
-        news_rows = "".join(
-            f'<div style="display:flex; justify-content:space-between; align-items:center;'
-            f'padding:0.5rem 0; border-bottom:1px solid #f1f5f9;">'
-            f'<span style="font-size:0.81rem; color:#334155; display:flex; align-items:center; gap:6px;">'
-            f'<span style="color:#3b82f6; font-size:0.78rem;">●</span>{title}</span>'
-            f'<span style="font-size:0.69rem; color:#94a3b8; font-weight:500; white-space:nowrap;">{tag}</span>'
-            f'</div>'
-            for title, tag in [
-                ("Company major news feed", "Real-time"),
-                ("Ticker + company watchlist headlines", "Personalized"),
-                ("Event impact summary (market + risk)", "AI digest"),
-                ("News-to-risk link markers in dashboard", "Context layer"),
-            ]
-        )
         st.markdown(
-            f'<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px;'
-            f'overflow:hidden; box-shadow:0 1px 3px rgba(15,23,42,0.04);">'
-            f'<div style="background:linear-gradient(90deg,#0ea5e9,#2563eb); padding:0.7rem 1.3rem;">'
-            f'<p style="font-size:0.72rem; font-weight:600; color:#dbeafe; margin:0; letter-spacing:0.04em;">'
-            f'📰 News Intelligence (Planned)</p></div>'
-            f'<div style="padding:0.55rem 1.3rem 0.75rem;">{news_rows}'
-            f'<p style="font-size:0.72rem; color:#64748b; margin:0.55rem 0 0; line-height:1.55;">'
-            f'Goal: surface recent major news for selected companies so analysts can quickly connect'
-            f' filing risk changes with external events.</p></div>'
-            f'</div>',
+            """
+            <div style="margin-top:0.75rem; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px;
+                 padding:0.9rem 1.15rem; box-shadow:0 1px 2px rgba(15,23,42,0.04);">
+                <p style="font-size:0.77rem; color:#64748b; margin:0; line-height:1.55;">
+                    Current modules are feature-complete for the end-to-end workflow. Future iterations focus on
+                    improving accuracy, cross-signal relevance, and interaction speed as company coverage expands.
+                </p>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 

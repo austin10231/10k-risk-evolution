@@ -894,6 +894,8 @@ def render():
         st.session_state["news_ticker_company"] = ""
     if "news_ticker_hint" not in st.session_state:
         st.session_state["news_ticker_hint"] = ""
+    if "news_ticker_validated_pair" not in st.session_state:
+        st.session_state["news_ticker_validated_pair"] = ""
 
     filter_col1, filter_col2, filter_col3, filter_col4 = st.columns([2.2, 1.5, 1.2, 1.1], gap="small")
     with filter_col1:
@@ -946,7 +948,8 @@ def render():
         elif selected_company and selected_company != "(Manual input)":
             # Safety net: correct stale wrong ticker even if company selection did not change.
             current_ticker = str(st.session_state.get("news_ticker", "") or "").strip().upper()
-            if current_ticker:
+            pair = f"{selected_company}::{current_ticker}"
+            if current_ticker and st.session_state.get("news_ticker_validated_pair") != pair:
                 ok, _, _ = _ticker_matches_company(selected_company, current_ticker)
                 if not ok:
                     guessed = _guess_ticker_from_company(selected_company)
@@ -960,6 +963,11 @@ def render():
                             upsert_company_ticker(selected_company, guessed)
                         except Exception:
                             pass
+                        st.session_state["news_ticker_validated_pair"] = f"{selected_company}::{guessed}"
+                    else:
+                        st.session_state["news_ticker_validated_pair"] = pair
+                else:
+                    st.session_state["news_ticker_validated_pair"] = pair
         ticker = st.text_input("Ticker", key="news_ticker", placeholder="e.g. AAPL").strip().upper()
         ticker_hint = str(st.session_state.get("news_ticker_hint", "") or "").strip()
         if ticker_hint:

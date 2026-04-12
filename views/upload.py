@@ -1,6 +1,7 @@
 """Upload page — new 10-K filing with stepper progress indicator."""
 
 import streamlit as st
+import streamlit.components.v1 as components
 import json
 import time
 import ssl
@@ -702,10 +703,7 @@ def render():
             industry_options=INDUSTRIES,
         )
 
-    mode_ingest, mode_records = st.tabs(["🆕 New Ingestion", "📚 Records"])
-
-    with mode_ingest:
-        # Determine current step for stepper
+    def _render_ingestion_section():
         has_result = "upload_result" in st.session_state
         _stepper(3 if has_result else 1)
         mode_manual, mode_auto = st.tabs(["📄 Manual Upload", "🛰️ Auto Fetch from SEC EDGAR"])
@@ -714,7 +712,7 @@ def render():
         with mode_auto:
             _render_auto_fetch_panel()
 
-    with mode_records:
+    def _render_records_section():
         from views.library import render_records_panel
         render_records_panel(
             show_header=False,
@@ -722,3 +720,40 @@ def render():
             state_prefix="filings",
             show_new_filing_button=False,
         )
+
+    def _activate_records_tab_once():
+        """Switch visual tab to Records while keeping tab order fixed."""
+        components.html(
+            """
+            <script>
+            (function () {
+              let tries = 0;
+              const timer = setInterval(() => {
+                tries += 1;
+                const tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
+                for (const tab of tabs) {
+                  const text = (tab.textContent || "").trim();
+                  if (text.includes("Records")) {
+                    tab.click();
+                    clearInterval(timer);
+                    return;
+                  }
+                }
+                if (tries > 30) clearInterval(timer);
+              }, 80);
+            })();
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+
+    open_records = bool(st.session_state.pop("upload_open_records", False))
+    mode_ingest, mode_records = st.tabs(["🆕 New Ingestion", "📚 Records"])
+    if open_records:
+        _activate_records_tab_once()
+
+    with mode_ingest:
+        _render_ingestion_section()
+    with mode_records:
+        _render_records_section()

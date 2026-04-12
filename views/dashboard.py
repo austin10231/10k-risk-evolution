@@ -409,6 +409,9 @@ def render():
     scoped_index, scoped_results, scoped_agent_reports = _scope_by_industry(
         index, results, agent_reports, selected_industry
     )
+    if "dash_market_data_enabled" not in st.session_state:
+        st.session_state["dash_market_data_enabled"] = False
+    market_data_enabled = bool(st.session_state.get("dash_market_data_enabled", False))
 
     tab_overview, tab_category, tab_market = st.tabs(
         ["Risk Overview", "Category Analysis", "Market Performance"]
@@ -599,108 +602,115 @@ def render():
                 unsafe_allow_html=True,
             )
 
-            ticker_map = _load_company_ticker_map_cached()
-            latest_company_ratings = _latest_agent_rating_by_company(scoped_agent_reports)
-            company_industry = {}
-            for rec in sorted(scoped_index, key=lambda r: int(r.get("year", 0)), reverse=True):
-                company_industry.setdefault(rec.get("company"), rec.get("industry", "Other"))
+            if not market_data_enabled:
+                st.info("Market-linked charts are paused for faster page loading.")
+                if st.button("Load market-linked charts", key="dash_enable_market_data_overview", type="primary"):
+                    st.session_state["dash_market_data_enabled"] = True
+                    st.rerun()
+            else:
+                ticker_map = _load_company_ticker_map_cached()
+                latest_company_ratings = _latest_agent_rating_by_company(scoped_agent_reports)
+                company_industry = {}
+                for rec in sorted(scoped_index, key=lambda r: int(r.get("year", 0)), reverse=True):
+                    company_industry.setdefault(rec.get("company"), rec.get("industry", "Other"))
 
-            scatter_rows = []
-            missing_ticker_companies = []
-            market_errors = []
-            for comp, (latest_year, rating) in sorted(latest_company_ratings.items()):
-                if comp not in company_industry:
-                    continue
-                ticker = str(ticker_map.get(comp, "") or "").strip().upper()
-                if not ticker:
-                    missing_ticker_companies.append(comp)
-                    continue
-                market = _fetch_market_history(ticker)
-                if market.get("error"):
-                    market_errors.append(f"{comp} ({ticker}): {market['error']}")
-                    continue
-                ret_30 = _trailing_return(market.get("history", []), 30)
-                if ret_30 is None:
-                    market_errors.append(f"{comp} ({ticker}): insufficient history for 30D return.")
-                    continue
-                risk_score = _risk_score_for_scatter(rating)
-                if risk_score <= 0:
-                    continue
-                scatter_rows.append(
-                    {
-                        "company": comp,
-                        "industry": company_industry.get(comp, "Other") or "Other",
-                        "ticker": ticker,
-                        "latest_year": latest_year,
-                        "rating": rating,
-                        "risk_score": risk_score,
-                        "ret_30": ret_30,
-                    }
-                )
-
-            if scatter_rows:
-                color_palette = [
-                    "#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6",
-                    "#14b8a6", "#f97316", "#0ea5e9", "#a855f7", "#22c55e",
-                ]
-                industries = sorted({r["industry"] for r in scatter_rows})
-                color_map = {ind: color_palette[i % len(color_palette)] for i, ind in enumerate(industries)}
-
-                fig_rr = go.Figure()
-                for ind in industries:
-                    rows = [r for r in scatter_rows if r["industry"] == ind]
-                    fig_rr.add_trace(
-                        go.Scatter(
-                            x=[r["risk_score"] for r in rows],
-                            y=[r["ret_30"] for r in rows],
-                            text=[r["company"] for r in rows],
-                            mode="markers+text",
-                            textposition="top center",
-                            marker=dict(size=12, color=color_map[ind], line=dict(color="#ffffff", width=1)),
-                            name=ind,
-                            customdata=[[r["ticker"], r["rating"], r["latest_year"]] for r in rows],
-                            hovertemplate=(
-                                "<b>%{text}</b><br>"
-                                "Industry: " + ind + "<br>"
-                                "Ticker: %{customdata[0]}<br>"
-                                "Latest rating: %{customdata[1]} (%{customdata[2]})<br>"
-                                "Risk score: %{x}<br>"
-                                "30D return: %{y:.2f}%<extra></extra>"
-                            ),
-                        )
+                scatter_rows = []
+                missing_ticker_companies = []
+                market_errors = []
+                for comp, (latest_year, rating) in sorted(latest_company_ratings.items()):
+                    if comp not in company_industry:
+                        continue
+                    ticker = str(ticker_map.get(comp, "") or "").strip().upper()
+                    if not ticker:
+                        missing_ticker_companies.append(comp)
+                        continue
+                    market = _fetch_market_history(ticker)
+                    if market.get("error"):
+                        market_errors.append(f"{comp} ({ticker}): {market['error']}")
+                        continue
+                    ret_30 = _trailing_return(market.get("history", []), 30)
+                    if ret_30 is None:
+                        market_errors.append(f"{comp} ({ticker}): insufficient history for 30D return.")
+                        continue
+                    risk_score = _risk_score_for_scatter(rating)
+                    if risk_score <= 0:
+                        continue
+                    scatter_rows.append(
+                        {
+                            "company": comp,
+                            "industry": company_industry.get(comp, "Other") or "Other",
+                            "ticker": ticker,
+                            "latest_year": latest_year,
+                            "rating": rating,
+                            "risk_score": risk_score,
+                            "ret_30": ret_30,
+                        }
                     )
 
-                fig_rr.update_layout(
-                    **_LAYOUT_DEFAULTS,
-                    height=410,
-                    xaxis=dict(
-                        title=dict(text="Latest Agent Risk Score", font=dict(size=11, color=_MUTED)),
-                        tickfont=dict(size=10, color=_MUTED),
-                        range=[0.8, 3.2],
-                        gridcolor=_BORDER,
-                        dtick=0.5,
-                    ),
-                    yaxis=dict(
-                        title=dict(text="30D Return (%)", font=dict(size=11, color=_MUTED)),
-                        tickfont=dict(size=10, color=_MUTED),
-                        gridcolor=_BORDER,
-                        zeroline=True,
-                        zerolinecolor="#cbd5e1",
-                    ),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-                )
-                st.plotly_chart(fig_rr, use_container_width=True, key="dash_risk_return_scatter")
-            else:
-                st.info(
-                    "No Risk vs Return points available yet. Add ticker mappings and run Agent reports first."
-                )
+                if scatter_rows:
+                    color_palette = [
+                        "#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6",
+                        "#14b8a6", "#f97316", "#0ea5e9", "#a855f7", "#22c55e",
+                    ]
+                    industries = sorted({r["industry"] for r in scatter_rows})
+                    color_map = {ind: color_palette[i % len(color_palette)] for i, ind in enumerate(industries)}
 
-            if missing_ticker_companies:
-                st.caption("Missing ticker mapping: " + ", ".join(sorted(missing_ticker_companies)))
-            if market_errors:
-                with st.expander("Market data warnings", expanded=False):
-                    for item in market_errors:
-                        st.caption(f"- {item}")
+                    fig_rr = go.Figure()
+                    for ind in industries:
+                        rows = [r for r in scatter_rows if r["industry"] == ind]
+                        fig_rr.add_trace(
+                            go.Scatter(
+                                x=[r["risk_score"] for r in rows],
+                                y=[r["ret_30"] for r in rows],
+                                text=[r["company"] for r in rows],
+                                mode="markers+text",
+                                textposition="middle right",
+                                textfont=dict(size=11, color=_DARK),
+                                marker=dict(size=12, color=color_map[ind], line=dict(color="#ffffff", width=1)),
+                                name=ind,
+                                customdata=[[r["ticker"], r["rating"], r["latest_year"]] for r in rows],
+                                hovertemplate=(
+                                    "<b>%{text}</b><br>"
+                                    "Industry: " + ind + "<br>"
+                                    "Ticker: %{customdata[0]}<br>"
+                                    "Latest rating: %{customdata[1]} (%{customdata[2]})<br>"
+                                    "Risk score: %{x}<br>"
+                                    "30D return: %{y:.2f}%<extra></extra>"
+                                ),
+                            )
+                        )
+
+                    fig_rr.update_layout(
+                        **_LAYOUT_DEFAULTS,
+                        height=410,
+                        xaxis=dict(
+                            title=dict(text="Latest Agent Risk Score", font=dict(size=11, color=_MUTED)),
+                            tickfont=dict(size=10, color=_MUTED),
+                            range=[0.8, 3.5],
+                            gridcolor=_BORDER,
+                            dtick=0.5,
+                        ),
+                        yaxis=dict(
+                            title=dict(text="30D Return (%)", font=dict(size=11, color=_MUTED)),
+                            tickfont=dict(size=10, color=_MUTED),
+                            gridcolor=_BORDER,
+                            zeroline=True,
+                            zerolinecolor="#cbd5e1",
+                        ),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+                    )
+                    st.plotly_chart(fig_rr, use_container_width=True, key="dash_risk_return_scatter")
+                else:
+                    st.info(
+                        "No Risk vs Return points available yet. Add ticker mappings and run Agent reports first."
+                    )
+
+                if missing_ticker_companies:
+                    st.caption("Missing ticker mapping: " + ", ".join(sorted(missing_ticker_companies)))
+                if market_errors:
+                    with st.expander("Market data warnings", expanded=False):
+                        for item in market_errors:
+                            st.caption(f"- {item}")
 
     with tab_category:
         ranking_scope = "all companies and years"
@@ -814,6 +824,14 @@ def render():
             """,
             unsafe_allow_html=True,
         )
+
+        if not market_data_enabled:
+            st.info("Market Performance is paused to keep Dashboard navigation fast.")
+            if st.button("Enable Market Performance Data", key="dash_enable_market_data_tab", type="primary"):
+                st.session_state["dash_market_data_enabled"] = True
+                st.rerun()
+            st.caption("Once enabled, this section loads ticker cards, sparklines, and detailed market charts.")
+            return
 
         scoped_companies = sorted(set(r["company"] for r in scoped_index))
         watchlist = _load_company_ticker_map_cached()
