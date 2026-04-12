@@ -534,6 +534,7 @@ with st.sidebar:
     _nav("➕  Upload", "upload")
     _nav("📈  Dashboard", "dashboard")
     _nav("💹  Stock", "stock")
+    _nav("📰  News", "news")
     _nav("📚  Library", "library")
 
     # ANALYSIS group
@@ -673,6 +674,9 @@ elif page == "dashboard":
     _render()
 elif page == "stock":
     from views.stock import render as _render
+    _render()
+elif page == "news":
+    from views.news import render as _render
     _render()
 elif page == "library":
     from views.library import render as _render

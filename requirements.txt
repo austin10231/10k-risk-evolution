@@ -6,3 +6,4 @@ PyPDF2>=3.0.0
 plotly>=6.0.0
 strands-agents>=1.0.0
 yfinance>=0.2.60
+certifi>=2024.2.2
