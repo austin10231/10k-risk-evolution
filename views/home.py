@@ -440,7 +440,7 @@ def render():
                 &nbsp;·&nbsp; SCU × AWS Team 1
             </span>
             <span style="font-size:0.72rem; color:#94a3b8;">
-                Mutian He · Yuhan Luan · Jiaoqing Lu · Jiayi Yan &nbsp;·&nbsp; © 2026
+                Mutian He · Yuhan Luan · Jiaqing Lu · Jiayi Yan &nbsp;·&nbsp; © 2026
             </span>
         </div>
         """,

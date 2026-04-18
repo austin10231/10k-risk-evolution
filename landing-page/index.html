@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RiskLens AI | SEC 10-K Risk Intelligence</title>
+  <meta name="description" content="RiskLens AI helps teams turn SEC 10-K filings into structured risk intelligence with AI-powered extraction, comparison, and monitoring." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+            display: ["Space Grotesk", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+          },
+          colors: {
+            brand: {
+              50: "#eff6ff",
+              100: "#dbeafe",
+              200: "#bfdbfe",
+              300: "#93c5fd",
+              400: "#60a5fa",
+              500: "#3b82f6",
+              600: "#2563eb",
+              700: "#1d4ed8",
+              800: "#1e40af",
+              900: "#1e3a8a"
+            }
+          },
+          boxShadow: {
+            soft: "0 10px 30px rgba(30, 58, 138, 0.10)",
+            card: "0 8px 26px rgba(15, 23, 42, 0.07)",
+          }
+        }
+      }
+    }
+  </script>
+
+  <link rel="stylesheet" href="https://unpkg.com/aos@2.3.1/dist/aos.css" />
+
+  <style>
+    html { scroll-behavior: smooth; }
+    body {
+      background: linear-gradient(180deg, #f8fbff 0%, #f3f7fd 45%, #eef4fb 100%);
+      color: #0f172a;
+    }
+    .grid-bg {
+      background-image:
+        linear-gradient(rgba(37, 99, 235, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(37, 99, 235, 0.08) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: radial-gradient(circle at 20% 0%, black 20%, transparent 85%);
+      pointer-events: none;
+    }
+    .section-title-bar {
+      width: 4px;
+      height: 30px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #3b82f6, #2563eb);
+    }
+    .floating-dot {
+      position: absolute;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(59,130,246,0.32), rgba(14,165,233,0.08));
+      border: 1px solid rgba(59,130,246,0.18);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .nav-dropdown:hover .nav-dropdown-menu,
+    .nav-dropdown:focus-within .nav-dropdown-menu {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .nav-dropdown-menu {
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: all 180ms ease;
+    }
+    .hero-glow {
+      position: absolute;
+      width: 400px;
+      height: 400px;
+      right: -90px;
+      top: -120px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(59,130,246,0.18), rgba(59,130,246,0));
+      pointer-events: none;
+    }
+    .feature-card:hover .feature-icon {
+      transform: translateY(-2px) scale(1.03);
+    }
+    .feature-icon {
+      transition: transform 180ms ease;
+    }
+    .price-badge {
+      background: linear-gradient(90deg, #eff6ff, #ecfeff);
+      border: 1px solid #bfdbfe;
+    }
+    .ring-border {
+      position: relative;
+    }
+    .ring-border::before {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      background: linear-gradient(130deg, rgba(59,130,246,0.35), rgba(14,165,233,0.18), rgba(59,130,246,0.05));
+      z-index: -1;
+    }
+    .lang-menu {
+      min-width: 136px;
+    }
+  </style>
+</head>
+<body class="font-sans antialiased overflow-x-hidden">
+  <div class="fixed inset-0 grid-bg"></div>
+  <div id="bg-dots" class="fixed inset-0 pointer-events-none"></div>
+
+  <header class="fixed top-0 inset-x-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+      <nav class="backdrop-blur-xl bg-white/84 border border-brand-100 rounded-2xl px-4 py-3 shadow-soft">
+        <div class="flex items-center justify-between gap-4">
+          <a href="#top" class="flex items-center">
+            <img src="./assets/logo.svg" alt="RiskLens AI Logo" class="h-10 w-auto object-contain" onerror="this.outerHTML='<span class=&quot;text-2xl&quot;>📊</span>';" />
+          </a>
+
+          <div class="hidden lg:flex items-center gap-2">
+            <div class="nav-dropdown relative">
+              <button class="px-3 py-2 rounded-lg text-sm font-semibold text-brand-800 hover:bg-brand-50">Product ▾</button>
+              <div class="nav-dropdown-menu absolute left-0 top-full mt-2 w-60 bg-white border border-brand-100 rounded-xl shadow-card p-2">
+                <a href="#product" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Platform Overview</a>
+                <a href="#features" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Core Features</a>
+                <a href="#use-cases" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Use Cases</a>
+                <a href="./team/index.html" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Know Our Team</a>
+              </div>
+            </div>
+
+            <div class="nav-dropdown relative">
+              <button class="px-3 py-2 rounded-lg text-sm font-semibold text-brand-800 hover:bg-brand-50">Pricing ▾</button>
+              <div class="nav-dropdown-menu absolute left-0 top-full mt-2 w-56 bg-white border border-brand-100 rounded-xl shadow-card p-2">
+                <a href="#pricing" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Plans</a>
+                <a href="#pricing" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Enterprise Contact</a>
+              </div>
+            </div>
+
+            <div class="nav-dropdown relative">
+              <button class="px-3 py-2 rounded-lg text-sm font-semibold text-brand-800 hover:bg-brand-50">Docs ▾</button>
+              <div class="nav-dropdown-menu absolute left-0 top-full mt-2 w-56 bg-white border border-brand-100 rounded-xl shadow-card p-2">
+                <a href="./docs/quick-start.html" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Quick Start</a>
+                <a href="./docs/faq.html" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">FAQ</a>
+                <a href="./docs/api-architecture.html" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">API Architecture</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="hidden sm:flex items-center gap-2">
+            <div class="relative">
+              <button id="lang-btn" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-200 text-brand-800 bg-white hover:bg-brand-50 transition text-sm font-semibold" aria-label="Language">
+                <span aria-hidden="true">🌐</span>
+                <span id="lang-label">EN</span>
+                <span class="text-xs">▾</span>
+              </button>
+              <div id="lang-menu" class="lang-menu hidden absolute right-0 top-full mt-2 bg-white border border-brand-100 rounded-xl shadow-card p-1 z-50">
+                <button data-lang="en" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-brand-50">English</button>
+                <button data-lang="zh" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-brand-50">中文</button>
+              </div>
+            </div>
+            <span class="px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-semibold">Built with AWS</span>
+            <a class="signin-link px-4 py-2 rounded-lg border border-brand-200 text-brand-800 text-sm font-semibold hover:bg-brand-50 transition" href="./auth/index.html?mode=signin" target="_blank" rel="noopener noreferrer">Sign in</a>
+            <a class="signup-link px-4 py-2 rounded-lg bg-gradient-to-r from-brand-600 to-cyan-500 text-white text-sm font-semibold hover:opacity-95 transition shadow-soft" href="./auth/index.html?mode=signup" target="_blank" rel="noopener noreferrer">Sign up</a>
+          </div>
+
+          <button id="mobile-menu-btn" class="lg:hidden inline-flex items-center justify-center h-10 w-10 rounded-lg border border-brand-200 text-brand-800 bg-white" aria-label="Toggle menu">
+            ☰
+          </button>
+        </div>
+
+        <div id="mobile-menu" class="lg:hidden hidden mt-3 border-t border-brand-100 pt-3">
+          <div class="grid gap-2 text-sm">
+            <a href="#product" class="px-3 py-2 rounded-lg hover:bg-brand-50">Product</a>
+            <a href="#pricing" class="px-3 py-2 rounded-lg hover:bg-brand-50">Pricing</a>
+            <a href="#docs" class="px-3 py-2 rounded-lg hover:bg-brand-50">Docs</a>
+            <div class="flex gap-2 mt-2">
+              <div class="relative">
+                <button id="lang-btn-mobile" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-200 text-brand-800 bg-white hover:bg-brand-50 transition text-sm font-semibold" aria-label="Language">
+                  <span aria-hidden="true">🌐</span>
+                  <span id="lang-label-mobile">EN</span>
+                  <span class="text-xs">▾</span>
+                </button>
+                <div id="lang-menu-mobile" class="lang-menu hidden absolute left-0 top-full mt-2 bg-white border border-brand-100 rounded-xl shadow-card p-1 z-50">
+                  <button data-lang="en" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-brand-50">English</button>
+                  <button data-lang="zh" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-brand-50">中文</button>
+                </div>
+              </div>
+              <span class="px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-semibold text-center">Built with AWS</span>
+              <a href="./auth/index.html?mode=signin" class="signin-link flex-1 px-3 py-2 rounded-lg border border-brand-200 text-brand-800 text-center font-semibold" target="_blank" rel="noopener noreferrer">Sign in</a>
+              <a href="./auth/index.html?mode=signup" class="signup-link flex-1 px-3 py-2 rounded-lg bg-brand-600 text-white text-center font-semibold" target="_blank" rel="noopener noreferrer">Sign up</a>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top" class="relative z-10 pt-28 pb-16">
+    <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" id="product">
+      <div class="relative ring-border rounded-3xl p-8 md:p-10 bg-white/90 border border-brand-100 shadow-soft" data-aos="fade-up">
+        <div class="hero-glow"></div>
+        <span class="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 text-brand-700 px-3 py-1 text-xs font-semibold">SEC 10-K Intelligence Platform</span>
+        <h1 class="font-display mt-4 text-4xl md:text-6xl leading-tight font-bold text-slate-900 max-w-4xl">
+          Turn 10-K filings into structured risk intelligence.
+        </h1>
+        <p class="mt-4 text-slate-600 text-lg leading-relaxed max-w-3xl">
+          Upload or auto-fetch filings, extract risk factors and financial tables, compare year-over-year changes, and connect risk with stock and news context in one analyst-ready workflow.
+        </p>
+        <p class="mt-3 text-sm font-medium text-brand-700">
+          In collaboration with AWS technologies for AI, document extraction, and secure cloud persistence.
+        </p>
+
+        <div class="mt-6 flex flex-wrap gap-2 text-xs">
+          <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">AWS Bedrock</span>
+          <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Amazon Textract</span>
+          <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">S3 Persistence</span>
+          <span class="px-3 py-1 rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700 font-semibold">News + Market Linkage</span>
+        </div>
+
+        <div class="mt-8 flex flex-wrap gap-3">
+          <a href="./auth/index.html?mode=signin" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-gradient-to-r from-brand-600 to-cyan-500 text-white font-semibold shadow-soft hover:opacity-95 transition">Get Started</a>
+          <a href="#features" class="inline-flex items-center justify-center px-6 py-3 rounded-xl border border-brand-200 text-brand-800 font-semibold hover:bg-brand-50 transition">Watch Demo</a>
+          <a href="./team/index.html" class="inline-flex items-center justify-center px-6 py-3 rounded-xl border border-brand-200 text-brand-800 font-semibold hover:bg-brand-50 transition">Know Our Team</a>
+        </div>
+
+      </div>
+    </section>
+
+    <section id="features" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-20">
+      <div class="flex items-center gap-3 mb-8" data-aos="fade-up">
+        <div class="section-title-bar"></div>
+        <div>
+          <h2 class="font-display text-2xl font-bold text-slate-900">Core Features</h2>
+          <p class="text-slate-500 text-sm">Three capability layers from ingestion to market-aware decisions.</p>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <article class="feature-card bg-white border border-brand-100 rounded-2xl p-5 shadow-card hover:shadow-soft transition" data-aos="fade-up">
+          <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <p class="text-xs font-bold tracking-widest text-brand-700 uppercase">Layer 1 · Data Foundation</p>
+              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Ingestion & Structuring Pipeline</h3>
+              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Build clean, persistent filing datasets from mixed formats with minimal manual work.</p>
+              <p class="mt-2 text-xs font-semibold text-amber-700">Powered by AWS S3 + Amazon Textract</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-brand-50 border border-brand-100 text-sm font-semibold text-brand-800">📤 Upload</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-brand-50 border border-brand-100 text-sm font-semibold text-brand-800">📊 Tables</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-brand-50 border border-brand-100 text-sm font-semibold text-brand-800">☁️ S3 Records</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="feature-card bg-white border border-brand-100 rounded-2xl p-5 shadow-card hover:shadow-soft transition" data-aos="fade-up" data-aos-delay="60">
+          <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <p class="text-xs font-bold tracking-widest text-cyan-700 uppercase">Layer 2 · Intelligence Engine</p>
+              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Risk Reasoning & Change Detection</h3>
+              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Detect what changed across filings and prioritize what matters using multi-factor AI scoring.</p>
+              <p class="mt-2 text-xs font-semibold text-amber-700">Powered by Amazon Bedrock</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">⚖️ Compare</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">🤖 Agent</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">🧠 Bedrock</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="feature-card bg-white border border-brand-100 rounded-2xl p-5 shadow-card hover:shadow-soft transition" data-aos="fade-up" data-aos-delay="120">
+          <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <p class="text-xs font-bold tracking-widest text-amber-700 uppercase">Layer 3 · Decision Interface</p>
+              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Monitoring with Market & News Context</h3>
+              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Connect filing risk outputs with market movement and headline pressure for clearer decisions.</p>
+              <p class="mt-2 text-xs font-semibold text-amber-700">AWS-integrated data pipelines across market and news context</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-sm font-semibold text-amber-800">📈 Dashboard</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-sm font-semibold text-amber-800">💹 Stock</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-sm font-semibold text-amber-800">📰 News</span>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="use-cases" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-20">
+      <div class="flex items-center gap-3 mb-8" data-aos="fade-up">
+        <div class="section-title-bar"></div>
+        <div>
+          <h2 class="font-display text-2xl font-bold text-slate-900">Use Cases</h2>
+          <p class="text-slate-500 text-sm">Built for teams that need faster and clearer risk intelligence.</p>
+        </div>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-5">
+        <article class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card" data-aos="fade-up">
+          <p class="text-xs inline-flex px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Analysts</p>
+          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Faster filing review</h3>
+          <p class="mt-2 text-sm text-slate-600 leading-relaxed">Cut manual reading time by automatically surfacing critical risks and concise summaries.</p>
+        </article>
+        <article class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card" data-aos="fade-up" data-aos-delay="70">
+          <p class="text-xs inline-flex px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Research Teams</p>
+          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Cross-company insight</h3>
+          <p class="mt-2 text-sm text-slate-600 leading-relaxed">Compare risk evolution across years and peers to identify structural trend shifts quickly.</p>
+        </article>
+        <article class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card" data-aos="fade-up" data-aos-delay="140">
+          <p class="text-xs inline-flex px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Risk & Compliance</p>
+          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Market-aware monitoring</h3>
+          <p class="mt-2 text-sm text-slate-600 leading-relaxed">Link filings with market and news pressure for earlier warning and stronger decision support.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="pricing" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-20">
+      <div class="flex items-center gap-3 mb-8" data-aos="fade-up">
+        <div class="section-title-bar"></div>
+        <div>
+          <h2 class="font-display text-2xl font-bold text-slate-900">Pricing</h2>
+          <p class="text-slate-500 text-sm">Plan structure for product rollout.</p>
+        </div>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-5">
+        <article class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card" data-aos="fade-up">
+          <div class="flex items-center justify-between">
+            <h3 class="font-display text-xl font-bold text-slate-900">Free (Demo)</h3>
+            <span class="price-badge text-xs font-semibold rounded-full px-2.5 py-1 text-brand-700">Coming Soon</span>
+          </div>
+          <p class="mt-4 text-4xl font-display font-bold text-brand-700">$0</p>
+          <ul class="mt-4 space-y-2 text-sm text-slate-600">
+            <li>• Single-user exploration</li>
+            <li>• Core module preview</li>
+            <li>• Community support</li>
+          </ul>
+        </article>
+
+        <article class="bg-white border-2 border-brand-300 rounded-2xl p-6 shadow-soft" data-aos="fade-up" data-aos-delay="70">
+          <div class="flex items-center justify-between">
+            <h3 class="font-display text-xl font-bold text-slate-900">Pro (Team)</h3>
+            <span class="price-badge text-xs font-semibold rounded-full px-2.5 py-1 text-brand-700">Coming Soon</span>
+          </div>
+          <p class="mt-4 text-4xl font-display font-bold text-brand-700">$49<span class="text-lg text-slate-400">/seat</span></p>
+          <ul class="mt-4 space-y-2 text-sm text-slate-600">
+            <li>• Team workspace</li>
+            <li>• Shared records & monitoring</li>
+            <li>• Enhanced AI analysis</li>
+          </ul>
+        </article>
+
+        <article class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card" data-aos="fade-up" data-aos-delay="140">
+          <div class="flex items-center justify-between">
+            <h3 class="font-display text-xl font-bold text-slate-900">Enterprise</h3>
+            <span class="price-badge text-xs font-semibold rounded-full px-2.5 py-1 text-brand-700">Coming Soon</span>
+          </div>
+          <p class="mt-4 text-4xl font-display font-bold text-brand-700">Custom</p>
+          <ul class="mt-4 space-y-2 text-sm text-slate-600">
+            <li>• SSO / IAM integration</li>
+            <li>• Governance & access controls</li>
+            <li>• Dedicated support</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="docs" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-20">
+      <div class="flex items-center gap-3 mb-8" data-aos="fade-up">
+        <div class="section-title-bar"></div>
+        <div>
+          <h2 class="font-display text-2xl font-bold text-slate-900">Documentation Center</h2>
+          <p class="text-slate-500 text-sm">Actionable onboarding, common troubleshooting, and architecture reference.</p>
+        </div>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-5">
+        <a href="./docs/quick-start.html" class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card hover:shadow-soft transition" data-aos="fade-up">
+          <div class="h-11 w-11 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-xl">🚀</div>
+          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Quick Start</h3>
+          <p class="mt-2 text-sm text-slate-600">Follow a practical path from first upload to monitoring and agent analysis.</p>
+        </a>
+
+        <a href="./docs/faq.html" class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card hover:shadow-soft transition" data-aos="fade-up" data-aos-delay="70">
+          <div class="h-11 w-11 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-xl">❓</div>
+          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">FAQ</h3>
+          <p class="mt-2 text-sm text-slate-600">Open common questions and get clear answers for usage, data, and runtime issues.</p>
+        </a>
+
+        <a href="./docs/api-architecture.html" class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card hover:shadow-soft transition" data-aos="fade-up" data-aos-delay="140">
+          <div class="h-11 w-11 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-xl">🧩</div>
+          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">API Architecture</h3>
+          <p class="mt-2 text-sm text-slate-600">See how ingestion, extraction, AI reasoning, and storage connect end-to-end.</p>
+        </a>
+      </div>
+
+      <div class="mt-8 rounded-2xl border border-dashed border-brand-200 bg-gradient-to-r from-brand-50/80 to-cyan-50/80 p-5" data-aos="fade-up">
+        <p class="text-sm font-semibold text-slate-800">Want the full docs?</p>
+        <p class="text-sm text-slate-600 mt-1">Open each card above to view dedicated documentation pages.</p>
+      </div>
+    </section>
+  </main>
+
+  <section class="relative z-10 mt-20 bg-slate-900 text-slate-300 border-t border-slate-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
+      <div class="grid lg:grid-cols-5 gap-8">
+        <div class="lg:col-span-2">
+          <img src="./assets/logo.svg" alt="RiskLens AI" class="h-10 w-auto object-contain opacity-95" onerror="this.outerHTML='<div class=&quot;text-3xl&quot;>📊</div>';" />
+          <h3 class="mt-6 text-4xl leading-tight font-semibold text-white">AI risk intelligence platform for 10-K analysis.</h3>
+          <p class="mt-4 text-slate-400 max-w-md">Built with AWS technologies to help analysts ingest filings, detect changes, and monitor risk with market context.</p>
+        </div>
+        <div>
+          <p class="text-white font-semibold mb-4">Product</p>
+          <ul class="space-y-2 text-sm">
+            <li><a href="#features" class="hover:text-white">Core Features</a></li>
+            <li><a href="#use-cases" class="hover:text-white">Use Cases</a></li>
+            <li><a href="#pricing" class="hover:text-white">Pricing</a></li>
+          </ul>
+        </div>
+        <div>
+          <p class="text-white font-semibold mb-4">Resources</p>
+          <ul class="space-y-2 text-sm">
+            <li><a href="./docs/quick-start.html" class="hover:text-white">Quick Start</a></li>
+            <li><a href="./docs/faq.html" class="hover:text-white">FAQ</a></li>
+            <li><a href="./docs/api-architecture.html" class="hover:text-white">API Architecture</a></li>
+            <li><a href="./team/index.html" class="hover:text-white">Team</a></li>
+          </ul>
+        </div>
+        <div>
+          <p class="text-white font-semibold mb-4">Access</p>
+          <ul class="space-y-2 text-sm">
+            <li><a href="./auth/index.html?mode=signin" target="_blank" rel="noopener noreferrer" class="hover:text-white">Sign in</a></li>
+            <li><a href="./auth/index.html?mode=signup" target="_blank" rel="noopener noreferrer" class="hover:text-white">Sign up</a></li>
+            <li><a href="https://10k-risk-evolution-gsqphv5hqdcvzgeat8g9jp.streamlit.app/" class="hover:text-white">App</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="mt-10 pt-6 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm text-slate-400">
+        <p>© 2026 RiskLens AI · AWS Team #1. All rights reserved.</p>
+        <div class="flex items-center gap-3">
+          <a href="./team/index.html" class="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 bg-slate-800 hover:bg-slate-700" title="Team" aria-label="Team">
+            <svg viewBox="0 0 24 24" class="h-6 w-6 fill-slate-200" aria-hidden="true">
+              <path d="M16 11c1.66 0 2.99-1.57 2.99-3.5S17.66 4 16 4s-3 1.57-3 3.5S14.34 11 16 11Zm-8 0c1.66 0 2.99-1.57 2.99-3.5S9.66 4 8 4 5 5.57 5 7.5 6.34 11 8 11Zm0 2c-2.33 0-7 1.17-7 3.5V20h14v-3.5C15 14.17 10.33 13 8 13Zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.96 1.97 3.45V20h7v-3.5c0-2.33-4.67-3.5-7-3.5Z"/>
+            </svg>
+          </a>
+          <a href="https://github.com/austin10231/10k-risk-evolution.git" target="_blank" rel="noopener noreferrer" class="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 bg-slate-800 hover:bg-slate-700" title="GitHub" aria-label="GitHub">
+            <svg viewBox="0 0 24 24" class="h-5 w-5 fill-slate-200" aria-hidden="true">
+              <path d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.03c-3.34.73-4.04-1.41-4.04-1.41-.55-1.38-1.33-1.75-1.33-1.75-1.09-.73.08-.72.08-.72 1.2.08 1.83 1.22 1.83 1.22 1.07 1.81 2.8 1.29 3.48.99.11-.77.42-1.29.77-1.58-2.66-.3-5.46-1.31-5.46-5.86 0-1.3.47-2.36 1.24-3.19-.12-.3-.54-1.52.12-3.17 0 0 1.01-.32 3.3 1.22a11.6 11.6 0 0 1 6 0c2.28-1.54 3.29-1.22 3.29-1.22.67 1.65.25 2.87.13 3.17.77.83 1.24 1.89 1.24 3.19 0 4.56-2.8 5.56-5.48 5.85.43.37.82 1.09.82 2.2v3.26c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"/>
+            </svg>
+          </a>
+        </div>
+      </div>
+      <p class="mt-3 text-xs text-slate-500">Special thanks to AWS technical collaborators for their continued support.</p>
+    </div>
+  </section>
+
+  <script src="./assets/lang-utils.js"></script>
+  <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script>
+    const APP_URL = "https://10k-risk-evolution-gsqphv5hqdcvzgeat8g9jp.streamlit.app/";
+
+    document.querySelectorAll('.app-link').forEach((el) => {
+      el.setAttribute('href', APP_URL);
+    });
+    const menuBtn = document.getElementById('mobile-menu-btn');
+    const mobileMenu = document.getElementById('mobile-menu');
+    if (menuBtn && mobileMenu) {
+      menuBtn.addEventListener('click', () => {
+        mobileMenu.classList.toggle('hidden');
+      });
+    }
+
+    AOS.init({
+      duration: 650,
+      easing: 'ease-out-cubic',
+      once: true,
+      offset: 30
+    });
+
+    const dotLayer = document.getElementById('bg-dots');
+    if (dotLayer) {
+      const count = window.innerWidth < 768 ? 8 : 16;
+      for (let i = 0; i < count; i += 1) {
+        const dot = document.createElement('span');
+        const size = Math.random() * 12 + 8;
+        dot.className = 'floating-dot';
+        dot.style.width = `${size}px`;
+        dot.style.height = `${size}px`;
+        dot.style.left = `${Math.random() * 100}%`;
+        dot.style.top = `${Math.random() * 100}%`;
+        dotLayer.appendChild(dot);
+
+        gsap.to(dot, {
+          y: Math.random() * 30 - 15,
+          x: Math.random() * 20 - 10,
+          duration: Math.random() * 4 + 4,
+          repeat: -1,
+          yoyo: true,
+          ease: 'sine.inOut',
+          delay: Math.random() * 1.5
+        });
+      }
+    }
+
+    const heroTitle = document.querySelector('h1');
+    const heroSub = document.querySelector('.hero-glow')?.parentElement?.querySelector('p');
+    if (heroTitle) {
+      gsap.from(heroTitle, { y: 12, opacity: 0, duration: 0.7, ease: 'power2.out' });
+    }
+    if (heroSub) {
+      gsap.from(heroSub, { y: 10, opacity: 0, duration: 0.7, delay: 0.16, ease: 'power2.out' });
+    }
+
+    const zhMap = {
+      "Product ▾": "产品 ▾",
+      "Platform Overview": "平台概览",
+      "Core Features": "核心功能",
+      "Use Cases": "使用场景",
+      "Know Our Team": "了解团队",
+      "Pricing ▾": "价格 ▾",
+      "Plans": "方案",
+      "Enterprise Contact": "企业联系",
+      "Docs ▾": "文档 ▾",
+      "Quick Start": "快速开始",
+      "FAQ": "常见问题",
+      "API Architecture": "API 架构",
+      "Built with AWS": "AWS 技术支持",
+      "Sign in": "登录",
+      "Sign up": "注册",
+      "Product": "产品",
+      "Pricing": "价格",
+      "Docs": "文档",
+      "SEC 10-K Intelligence Platform": "SEC 10-K 智能分析平台",
+      "Turn 10-K filings into structured risk intelligence.": "将 10-K 文件转化为结构化风险智能。",
+      "Upload or auto-fetch filings, extract risk factors and financial tables, compare year-over-year changes, and connect risk with stock and news context in one analyst-ready workflow.": "支持上传或自动抓取文件，提取风险项与财务报表，对比年度变化，并将风险与股价及新闻联动，形成面向分析师的一体化工作流。",
+      "In collaboration with AWS technologies for AI, document extraction, and secure cloud persistence.": "依托 AWS 的 AI、文档提取与安全云存储能力协同构建。",
+      "AWS Bedrock": "AWS Bedrock",
+      "Amazon Textract": "Amazon Textract",
+      "S3 Persistence": "S3 持久化",
+      "News + Market Linkage": "新闻 + 市场联动",
+      "Get Started": "开始使用",
+      "Watch Demo": "观看演示",
+      "Three capability layers from ingestion to market-aware decisions.": "从数据接入到市场决策的三层能力。",
+      "Layer 1 · Data Foundation": "第 1 层 · 数据基础",
+      "Ingestion & Structuring Pipeline": "数据接入与结构化流水线",
+      "Build clean, persistent filing datasets from mixed formats with minimal manual work.": "以最少人工操作，从多种格式构建可复用、可持久化的申报数据集。",
+      "Powered by AWS S3 + Amazon Textract": "由 AWS S3 + Amazon Textract 提供支持",
+      "📤 Upload": "📤 上传",
+      "📊 Tables": "📊 报表",
+      "☁️ S3 Records": "☁️ S3 记录",
+      "Layer 2 · Intelligence Engine": "第 2 层 · 智能引擎",
+      "Risk Reasoning & Change Detection": "风险推理与变化识别",
+      "Detect what changed across filings and prioritize what matters using multi-factor AI scoring.": "通过多因子 AI 评分识别申报变化并排序最关键风险。",
+      "Powered by Amazon Bedrock": "由 Amazon Bedrock 提供支持",
+      "⚖️ Compare": "⚖️ 对比",
+      "🤖 Agent": "🤖 智能体",
+      "🧠 Bedrock": "🧠 Bedrock",
+      "Layer 3 · Decision Interface": "第 3 层 · 决策界面",
+      "Monitoring with Market & News Context": "结合市场与新闻语境的监控",
+      "Connect filing risk outputs with market movement and headline pressure for clearer decisions.": "将文件风险输出与市场波动、新闻压力联动，辅助更清晰的决策。",
+      "AWS-integrated data pipelines across market and news context": "覆盖市场与新闻语境的 AWS 集成数据管道",
+      "📈 Dashboard": "📈 看板",
+      "💹 Stock": "💹 股票",
+      "📰 News": "📰 新闻",
+      "Built for teams that need faster and clearer risk intelligence.": "为需要更快、更清晰风险洞察的团队而设计。",
+      "Analysts": "分析师",
+      "Faster filing review": "更快完成文件审阅",
+      "Cut manual reading time by automatically surfacing critical risks and concise summaries.": "自动提取关键风险与摘要，显著减少人工阅读时间。",
+      "Research Teams": "投研团队",
+      "Cross-company insight": "跨公司洞察",
+      "Compare risk evolution across years and peers to identify structural trend shifts quickly.": "跨年份与同业对比风险演化，快速识别结构性趋势变化。",
+      "Risk & Compliance": "风控与合规",
+      "Market-aware monitoring": "结合市场的风险监控",
+      "Link filings with market and news pressure for earlier warning and stronger decision support.": "将文件风险与市场、新闻压力联动，实现更早预警与更强决策支持。",
+      "Plan structure for product rollout.": "产品上线阶段的方案规划。",
+      "Free (Demo)": "免费版（演示）",
+      "Coming Soon": "即将上线",
+      "$0": "$0",
+      "• Single-user exploration": "• 单人体验",
+      "• Core module preview": "• 核心模块预览",
+      "• Community support": "• 社区支持",
+      "Pro (Team)": "专业版（团队）",
+      "• Team workspace": "• 团队协作空间",
+      "• Shared records & monitoring": "• 共享记录与监控",
+      "• Enhanced AI analysis": "• 增强 AI 分析",
+      "Enterprise": "企业版",
+      "Custom": "定制",
+      "• SSO / IAM integration": "• SSO / IAM 集成",
+      "• Governance & access controls": "• 治理与权限控制",
+      "• Dedicated support": "• 专属支持",
+      "Documentation Center": "文档中心",
+      "Actionable onboarding, common troubleshooting, and architecture reference.": "提供可执行上手指南、常见问题解答与架构参考。",
+      "Follow a practical path from first upload to monitoring and agent analysis.": "从首次上传到监控与智能体分析的实践路径。",
+      "Open common questions and get clear answers for usage, data, and runtime issues.": "查看常见问题并获得关于使用、数据和运行时问题的清晰解答。",
+      "See how ingestion, extraction, AI reasoning, and storage connect end-to-end.": "了解接入、提取、AI 推理与存储如何端到端连接。",
+      "Want the full docs?": "想看完整文档？",
+      "Open each card above to view dedicated documentation pages.": "点击上方卡片可进入对应文档页面。",
+      "AI risk intelligence platform for 10-K analysis.": "面向 10-K 分析的 AI 风险智能平台。",
+      "Built with AWS technologies to help analysts ingest filings, detect changes, and monitor risk with market context.": "借助 AWS 技术帮助分析师接入文件、识别变化，并结合市场语境监控风险。",
+      "Resources": "资源",
+      "Access": "访问",
+      "App": "应用",
+      "Team": "团队",
+      "© 2026 RiskLens AI · AWS Team #1. All rights reserved.": "© 2026 RiskLens AI · AWS Team #1. 保留所有权利。",
+      "Special thanks to AWS technical collaborators for their continued support.": "特别感谢 AWS 技术合作伙伴持续支持。",
+      "Language": "语言"
+    };
+
+    window.RiskLensLang.mountSwitcher({
+      buttonId: "lang-btn",
+      menuId: "lang-menu",
+      labelId: "lang-label",
+      textMap: zhMap,
+      titleMap: {
+        en: "RiskLens AI | SEC 10-K Risk Intelligence",
+        zh: "RiskLens AI | SEC 10-K 风险智能"
+      }
+    });
+
+    window.RiskLensLang.mountSwitcher({
+      buttonId: "lang-btn-mobile",
+      menuId: "lang-menu-mobile",
+      labelId: "lang-label-mobile"
+    });
+  </script>
+</body>
+</html>

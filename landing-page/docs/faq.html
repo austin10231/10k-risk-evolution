@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAQ | RiskLens AI Docs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .lang-menu {
+      min-width: 128px;
+    }
+    .grid-bg {
+      background-image:
+        linear-gradient(rgba(37,99,235,0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(37,99,235,0.08) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: radial-gradient(circle at 30% 0%, black 25%, transparent 85%);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-b from-[#f8fbff] via-[#f3f7fd] to-[#eef4fb] text-slate-900 min-h-screen">
+  <div class="fixed inset-0 grid-bg"></div>
+  <main class="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-10">
+    <div class="bg-white/90 border border-blue-100 rounded-2xl px-5 py-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div>
+        <p class="text-xs uppercase tracking-wide text-blue-700 font-semibold">RiskLens Docs</p>
+        <h1 class="text-3xl font-bold">FAQ</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="relative">
+          <button id="lang-btn" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 transition text-sm font-semibold" aria-label="Language">
+            <span aria-hidden="true">🌐</span>
+            <span id="lang-label">EN</span>
+            <span class="text-xs">▾</span>
+          </button>
+          <div id="lang-menu" class="lang-menu hidden absolute right-0 top-full mt-2 bg-white border border-slate-200 rounded-xl shadow-sm p-1 z-50">
+            <button data-lang="en" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">English</button>
+            <button data-lang="zh" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">中文</button>
+          </div>
+        </div>
+        <a href="../index.html#docs" class="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100">Back to Home</a>
+      </div>
+    </div>
+
+    <section class="mt-6 bg-white border border-blue-100 rounded-2xl p-6 shadow-sm">
+      <div class="space-y-3">
+        <details class="rounded-xl border border-blue-100 p-4 open:bg-blue-50/50">
+          <summary class="font-semibold cursor-pointer">Why do Sign in / Sign up open a separate page?</summary>
+          <p class="mt-2 text-slate-600 text-sm">The landing page uses a dedicated auth entry page, and authentication is completed by AWS Cognito Hosted UI.</p>
+        </details>
+        <details class="rounded-xl border border-blue-100 p-4 open:bg-blue-50/50">
+          <summary class="font-semibold cursor-pointer">Can I continue with Google directly?</summary>
+          <p class="mt-2 text-slate-600 text-sm">Yes. Click “Continue with Google” in the auth page. It routes to Cognito OAuth with Google as the identity provider.</p>
+        </details>
+        <details class="rounded-xl border border-blue-100 p-4 open:bg-blue-50/50">
+          <summary class="font-semibold cursor-pointer">Why might I not see the Google account chooser popup?</summary>
+          <p class="mt-2 text-slate-600 text-sm">Browser session state can affect behavior. We force account selection in the auth URL, but Google may still auto-select based on active sessions.</p>
+        </details>
+        <details class="rounded-xl border border-blue-100 p-4 open:bg-blue-50/50">
+          <summary class="font-semibold cursor-pointer">Can I use SEC auto-fetch for all filings?</summary>
+          <p class="mt-2 text-slate-600 text-sm">Not always. Some filings or formats may be unavailable; manual upload remains the fallback path.</p>
+        </details>
+        <details class="rounded-xl border border-blue-100 p-4 open:bg-blue-50/50">
+          <summary class="font-semibold cursor-pointer">How are NEW / REMOVED / MODIFIED risks produced?</summary>
+          <p class="mt-2 text-slate-600 text-sm">Risk items are normalized and aligned across years/companies, then classified into structured change categories.</p>
+        </details>
+        <details class="rounded-xl border border-blue-100 p-4 open:bg-blue-50/50">
+          <summary class="font-semibold cursor-pointer">Where are records and table outputs stored?</summary>
+          <p class="mt-2 text-slate-600 text-sm">Structured results and related artifacts are persisted in your configured AWS-backed storage.</p>
+        </details>
+        <details class="rounded-xl border border-blue-100 p-4 open:bg-blue-50/50">
+          <summary class="font-semibold cursor-pointer">How does News connect to risk analysis?</summary>
+          <p class="mt-2 text-slate-600 text-sm">News cards include pressure scoring and risk-linked labels to help analysts triage relevant headlines faster.</p>
+        </details>
+        <details class="rounded-xl border border-blue-100 p-4 open:bg-blue-50/50">
+          <summary class="font-semibold cursor-pointer">What if I encounter ticker mapping issues?</summary>
+          <p class="mt-2 text-slate-600 text-sm">Use manual ticker override in the app configuration and verify company-ticker mapping before running analyses.</p>
+        </details>
+      </div>
+
+      <div class="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <p class="font-semibold text-emerald-800">Still need help?</p>
+        <p class="text-sm text-emerald-900 mt-1">If your issue is unresolved or you have additional questions, contact us at <a href="mailto:mhe3@scu.edu" class="underline font-semibold">mhe3@scu.edu</a>.</p>
+      </div>
+    </section>
+  </main>
+  <script src="../assets/lang-utils.js"></script>
+  <script>
+    const zhMap = {
+      "RiskLens Docs": "RiskLens 文档",
+      "FAQ": "常见问题",
+      "Back to Home": "返回首页",
+      "Why do Sign in / Sign up open a separate page?": "为什么登录/注册会打开独立页面？",
+      "The landing page uses a dedicated auth entry page, and authentication is completed by AWS Cognito Hosted UI.": "官网使用独立认证入口页，认证流程由 AWS Cognito Hosted UI 完成。",
+      "Can I continue with Google directly?": "可以直接使用 Google 登录吗？",
+      "Yes. Click “Continue with Google” in the auth page. It routes to Cognito OAuth with Google as the identity provider.": "可以。在认证页点击“使用 Google 继续”，会走 Cognito OAuth 并以 Google 作为身份提供方。",
+      "Why might I not see the Google account chooser popup?": "为什么有时看不到 Google 账号选择弹窗？",
+      "Browser session state can affect behavior. We force account selection in the auth URL, but Google may still auto-select based on active sessions.": "浏览器会话状态会影响行为。我们在认证 URL 中强制选择账号，但 Google 仍可能基于当前会话自动选择。",
+      "Can I use SEC auto-fetch for all filings?": "SEC 自动抓取是否适用于所有文件？",
+      "Not always. Some filings or formats may be unavailable; manual upload remains the fallback path.": "不一定。某些文件或格式可能不可用，手动上传仍是兜底方案。",
+      "How are NEW / REMOVED / MODIFIED risks produced?": "NEW / REMOVED / MODIFIED 风险是如何生成的？",
+      "Risk items are normalized and aligned across years/companies, then classified into structured change categories.": "风险条目会先标准化并在跨年/跨公司维度对齐，再归类为结构化变化类型。",
+      "Where are records and table outputs stored?": "记录与报表结果存在哪里？",
+      "Structured results and related artifacts are persisted in your configured AWS-backed storage.": "结构化结果及相关产物会持久化存储到你配置的 AWS 存储中。",
+      "How does News connect to risk analysis?": "News 如何与风险分析联动？",
+      "News cards include pressure scoring and risk-linked labels to help analysts triage relevant headlines faster.": "新闻卡片包含压力评分和风险标签，帮助分析师更快筛选相关资讯。",
+      "What if I encounter ticker mapping issues?": "如果遇到 ticker 映射错误怎么办？",
+      "Use manual ticker override in the app configuration and verify company-ticker mapping before running analyses.": "可在应用配置中手动覆盖 ticker，并在运行分析前确认公司与 ticker 的映射。",
+      "Still need help?": "还需要帮助？",
+      "If your issue is unresolved or you have additional questions, contact us at": "如果你的问题仍未解决或有更多疑问，请联系",
+      "Language": "语言"
+    };
+    window.RiskLensLang.mountSwitcher({
+      buttonId: "lang-btn",
+      menuId: "lang-menu",
+      labelId: "lang-label",
+      textMap: zhMap,
+      titleMap: { en: "FAQ | RiskLens AI Docs", zh: "常见问题 | RiskLens 文档" }
+    });
+  </script>
+</body>
+</html>

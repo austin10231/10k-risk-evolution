@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RiskLens AI | Sign In</title>
+  <meta name="description" content="Sign in to RiskLens AI using AWS Cognito." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .lang-menu {
+      min-width: 128px;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+  <main class="min-h-screen flex items-center justify-center px-4 py-12">
+    <section class="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-sm p-7">
+      <div class="flex justify-end mb-3">
+        <div class="relative">
+          <button id="lang-btn" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 transition text-sm font-semibold" aria-label="Language">
+            <span aria-hidden="true">🌐</span>
+            <span id="lang-label">EN</span>
+            <span class="text-xs">▾</span>
+          </button>
+          <div id="lang-menu" class="lang-menu hidden absolute right-0 top-full mt-2 bg-white border border-slate-200 rounded-xl shadow-sm p-1 z-50">
+            <button data-lang="en" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">English</button>
+            <button data-lang="zh" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">中文</button>
+          </div>
+        </div>
+      </div>
+      <div class="flex justify-center mb-5">
+        <img src="../assets/logo.svg" alt="RiskLens AI" class="h-12 w-auto object-contain" onerror="this.outerHTML='<div class=&quot;text-4xl&quot;>📊</div>';" />
+      </div>
+
+      <h1 id="auth-title" class="text-3xl font-bold text-center">Welcome</h1>
+      <p id="auth-subtitle" class="mt-3 text-center text-slate-600">
+        Sign in to RiskLens AI to continue.
+      </p>
+
+      <a id="google-btn"
+         href="#"
+         class="mt-6 w-full inline-flex items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 py-3 text-lg font-semibold hover:bg-slate-50 transition">
+        <svg width="24" height="24" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.655 32.657 29.263 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.84 1.154 7.951 3.049l5.657-5.657C34.046 6.053 29.27 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
+          <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 16.108 19.003 13 24 13c3.059 0 5.84 1.154 7.951 3.049l5.657-5.657C34.046 6.053 29.27 4 24 4c-7.682 0-14.326 4.337-17.694 10.691z"/>
+          <path fill="#4CAF50" d="M24 44c5.167 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.162 35.091 26.715 36 24 36c-5.243 0-9.623-3.317-11.282-7.946l-6.522 5.025C9.53 39.556 16.227 44 24 44z"/>
+          <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.085 5.57l.003-.002 6.19 5.238C36.971 39.47 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
+        </svg>
+        <span id="google-label">Continue with Google</span>
+      </a>
+
+      <div class="mt-6 flex items-center gap-3">
+        <div class="h-px bg-slate-200 flex-1"></div>
+        <span class="text-sm text-slate-500">OR</span>
+        <div class="h-px bg-slate-200 flex-1"></div>
+      </div>
+
+      <form id="email-form" class="mt-5">
+        <label for="email" class="text-sm font-medium text-slate-700">Work email address</label>
+        <input id="email"
+               name="email"
+               type="email"
+               autocomplete="email"
+               placeholder="you@company.com"
+               class="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500" />
+        <button id="email-submit"
+                type="submit"
+                class="mt-5 w-full rounded-xl bg-slate-900 text-white py-3 text-xl font-semibold hover:bg-slate-800 transition">
+          Continue
+        </button>
+      </form>
+
+      <div class="mt-5 text-center text-sm text-slate-600">
+        <span id="switch-prefix">Don't have an account?</span>
+        <a id="switch-link" href="./index.html?mode=signup" class="text-blue-700 font-semibold hover:underline ml-1">Sign up</a>
+      </div>
+
+      <div class="mt-4 text-center text-xs text-slate-500">
+        <a href="../index.html" class="hover:underline">Back to Landing Page</a>
+      </div>
+    </section>
+  </main>
+
+  <script src="../assets/lang-utils.js"></script>
+  <script>
+    const COGNITO_DOMAIN = "https://us-west-1lmykvd7p8.auth.us-west-1.amazoncognito.com";
+    const COGNITO_CLIENT_ID = "utqsaifm4gt707delac0g54um";
+    const APP_URL = "https://10k-risk-evolution-gsqphv5hqdcvzgeat8g9jp.streamlit.app/";
+    const SCOPE = "openid profile email";
+
+    const params = new URLSearchParams(window.location.search);
+    const mode = (params.get("mode") || "signin").toLowerCase() === "signup" ? "signup" : "signin";
+    const lang = params.get("lang") === "zh" ? "zh" : "en";
+
+    const titleEl = document.getElementById("auth-title");
+    const subtitleEl = document.getElementById("auth-subtitle");
+    const googleLabelEl = document.getElementById("google-label");
+    const submitEl = document.getElementById("email-submit");
+    const switchPrefixEl = document.getElementById("switch-prefix");
+    const switchLinkEl = document.getElementById("switch-link");
+
+    if (mode === "signup") {
+      document.title = lang === "zh" ? "RiskLens AI | 注册" : "RiskLens AI | Sign Up";
+      titleEl.textContent = lang === "zh" ? "创建你的账号" : "Create your account";
+      subtitleEl.textContent = lang === "zh" ? "注册 RiskLens AI 以开始使用。" : "Sign up to RiskLens AI to get started.";
+      googleLabelEl.textContent = lang === "zh" ? "使用 Google 继续" : "Continue with Google";
+      submitEl.textContent = lang === "zh" ? "创建账号" : "Create account";
+      switchPrefixEl.textContent = lang === "zh" ? "已经有账号？" : "Already have an account?";
+      switchLinkEl.textContent = lang === "zh" ? "登录" : "Sign in";
+      switchLinkEl.href = `./index.html?mode=signin&lang=${lang}`;
+    } else {
+      document.title = lang === "zh" ? "RiskLens AI | 登录" : "RiskLens AI | Sign In";
+      titleEl.textContent = lang === "zh" ? "欢迎" : "Welcome";
+      subtitleEl.textContent = lang === "zh" ? "登录 RiskLens AI 继续。" : "Log in to RiskLens AI to continue.";
+      googleLabelEl.textContent = lang === "zh" ? "使用 Google 继续" : "Continue with Google";
+      submitEl.textContent = lang === "zh" ? "继续" : "Continue";
+      switchPrefixEl.textContent = lang === "zh" ? "还没有账号？" : "Don't have an account?";
+      switchLinkEl.textContent = lang === "zh" ? "注册" : "Sign up";
+      switchLinkEl.href = `./index.html?mode=signup&lang=${lang}`;
+    }
+
+    const emailLabel = document.querySelector('label[for="email"]');
+    if (emailLabel) {
+      emailLabel.textContent = lang === "zh" ? "工作邮箱" : "Work email address";
+    }
+    const emailInput = document.getElementById("email");
+    if (emailInput) {
+      emailInput.placeholder = lang === "zh" ? "you@company.com" : "you@company.com";
+    }
+    const backLink = document.querySelector('a[href^="../index.html"]');
+    if (backLink) {
+      backLink.textContent = lang === "zh" ? "返回官网首页" : "Back to Landing Page";
+      backLink.href = `../index.html?lang=${lang}`;
+    }
+    const orText = document.querySelector('.text-sm.text-slate-500');
+    if (orText) {
+      orText.textContent = lang === "zh" ? "或" : "OR";
+    }
+
+    const googleBase = `${COGNITO_DOMAIN}/oauth2/authorize?client_id=${COGNITO_CLIENT_ID}&response_type=code&scope=${encodeURIComponent(SCOPE)}&redirect_uri=${encodeURIComponent(APP_URL)}&identity_provider=Google&idp_identifier=Google`;
+    const googleUrl = `${googleBase}&prompt=select_account%20consent`;
+    document.getElementById("google-btn").href = googleUrl;
+
+    const authBase = mode === "signup"
+      ? `${COGNITO_DOMAIN}/signup?client_id=${COGNITO_CLIENT_ID}&response_type=code&scope=${encodeURIComponent(SCOPE)}&redirect_uri=${encodeURIComponent(APP_URL)}`
+      : `${COGNITO_DOMAIN}/login?client_id=${COGNITO_CLIENT_ID}&response_type=code&scope=${encodeURIComponent(SCOPE)}&redirect_uri=${encodeURIComponent(APP_URL)}&prompt=login`;
+
+    document.getElementById("email-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const email = document.getElementById("email").value.trim();
+      let finalUrl = authBase;
+      if (email) {
+        finalUrl += `&login_hint=${encodeURIComponent(email)}`;
+      }
+      window.location.href = finalUrl;
+    });
+
+    window.RiskLensLang.mountSwitcher({
+      buttonId: "lang-btn",
+      menuId: "lang-menu",
+      labelId: "lang-label"
+    });
+  </script>
+</body>
+</html>

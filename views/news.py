@@ -7,6 +7,7 @@ import html
 import ssl
 import re
 import math
+import hashlib
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -18,6 +19,7 @@ import yfinance as yf
 
 from core.bedrock import _invoke
 from core.global_context import get_global_context, render_current_config_box, sync_widget_from_context
+from core.i18n import current_language
 from storage.store import get_company_ticker, get_result, load_agent_reports, load_index, upsert_company_ticker
 
 
@@ -465,6 +467,201 @@ def _article_image_url(article: dict) -> str:
     return ""
 
 
+def _normalize_ws(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _clip(text: str, n: int) -> str:
+    t = _normalize_ws(text)
+    if len(t) <= n:
+        return t
+    return t[: n - 1].rstrip() + "…"
+
+
+def _extract_json_object(raw: str):
+    txt = str(raw or "").strip()
+    if not txt:
+        return None
+    try:
+        return json.loads(txt)
+    except Exception:
+        pass
+    m = re.search(r"\{[\s\S]*\}", txt)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def _fetch_article_excerpt(url: str, max_chars: int = 3200):
+    """
+    Enhanced mode: fetch article HTML and extract readable text.
+    Falls back gracefully to snippet-only mode.
+    """
+    safe = _safe_external_url(url)
+    if not safe:
+        return "", "snippet"
+    req = Request(
+        safe,
+        headers={
+            "User-Agent": "RiskLens App contact@risklens.com",
+            "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=10, context=_news_ssl_context()) as resp:
+            content_type = str(resp.headers.get("Content-Type", "")).lower()
+            if "text/html" not in content_type:
+                return "", "snippet"
+            raw = resp.read(280000)
+            html_text = raw.decode("utf-8", errors="ignore")
+    except Exception:
+        return "", "snippet"
+
+    # Lightweight HTML -> text extraction (no extra dependency requirement)
+    body = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html_text)
+    body = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", body)
+    body = re.sub(r"(?is)<noscript[^>]*>.*?</noscript>", " ", body)
+    body = re.sub(r"(?is)<[^>]+>", " ", body)
+    body = html.unescape(body)
+    body = _normalize_ws(body)
+    if len(body) < 220:
+        return "", "snippet"
+    return _clip(body, max_chars), "fulltext"
+
+
+def _fallback_card_summary(title: str, snippet: str, lang: str):
+    t = _clip(title, 180)
+    s = _clip(snippet, 320)
+    if lang == "zh":
+        summary = (
+            f"这条新闻核心在于：{t}。"
+            f"主要信息为：{s or '目前可见公开信息有限'}。"
+            "该事件可能影响公司短期市场预期与相关风险暴露。"
+            "建议结合原文与公司当前风险画像进一步核实影响范围。"
+        )
+        why = "建议优先关注与公司现有高风险主题重叠的细节。"
+    else:
+        summary = (
+            f"This headline is mainly about: {t}. "
+            f"Key detail available so far: {s or 'limited public detail in the snippet'}. "
+            "The event may affect near-term expectations and parts of the company risk profile. "
+            "Reviewing the source article is recommended before making decisions."
+        )
+        why = "Prioritize details that overlap with the company’s highest-risk themes."
+    return summary, why, "fallback"
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _generate_news_card_summary(
+    company: str,
+    ticker: str,
+    title: str,
+    snippet: str,
+    source: str,
+    published_at: str,
+    article_url: str,
+    lang: str,
+):
+    """
+    MVP + enhanced:
+    - MVP: title/snippet summarization
+    - Enhanced: tries full article context first, fallback to snippet
+    """
+    lang_norm = "zh" if str(lang or "").lower().startswith("zh") else "en"
+    excerpt, mode = _fetch_article_excerpt(article_url, max_chars=3200)
+    context_text = excerpt if excerpt else _clip(snippet, 800)
+    if not context_text:
+        context_text = _clip(title, 240)
+
+    output_hint = (
+        "Output language must be Simplified Chinese."
+        if lang_norm == "zh"
+        else "Output language must be English."
+    )
+
+    prompt = f"""
+You are a financial news analyst assistant.
+{output_hint}
+
+Company: {company}
+Ticker: {ticker or "N/A"}
+Source: {source}
+Published at: {published_at}
+Headline: {title}
+
+Article context:
+{context_text}
+
+Task:
+1) Write a concise 3-4 sentence summary of what this news says.
+2) Add one short sentence for "why it matters" to an equity/risk analyst.
+
+Strict output format (JSON only):
+{{
+  "summary": "3-4 sentences",
+  "why_it_matters": "one sentence"
+}}
+
+Rules:
+- Do not invent facts not present in context.
+- Keep it concrete and analyst-friendly.
+- No markdown, no extra keys.
+"""
+    try:
+        raw = _invoke(prompt, max_tokens=520)
+        payload = _extract_json_object(raw)
+        if isinstance(payload, dict):
+            summary = _normalize_ws(payload.get("summary", ""))
+            why = _normalize_ws(payload.get("why_it_matters", ""))
+            if summary:
+                return {
+                    "summary": summary,
+                    "why_it_matters": why,
+                    "source_mode": mode,
+                }
+    except Exception:
+        pass
+
+    summary, why, fb_mode = _fallback_card_summary(title, snippet, lang_norm)
+    return {"summary": summary, "why_it_matters": why, "source_mode": fb_mode}
+
+
+def _attach_ai_summaries(news_rows: list[dict], company: str, ticker: str, lang: str):
+    out = []
+    for row in news_rows:
+        title = str(row.get("title", "") or "").strip()
+        snippet = str(row.get("summary", "") or "").strip()
+        source = str(row.get("source", "") or "").strip()
+        published = str(row.get("published_at", "") or "").strip()
+        link = _safe_external_url(row.get("url", "") or "")
+        cache_key = hashlib.sha1(
+            f"{title}|{snippet}|{source}|{published}|{link}|{lang}".encode("utf-8", errors="ignore")
+        ).hexdigest()
+
+        ai = _generate_news_card_summary(
+            company=company,
+            ticker=ticker,
+            title=title,
+            snippet=snippet,
+            source=source,
+            published_at=published,
+            article_url=link,
+            lang=lang,
+        )
+        enriched = dict(row)
+        enriched["ai_summary"] = ai.get("summary", "")
+        enriched["why_it_matters"] = ai.get("why_it_matters", "")
+        enriched["summary_source_mode"] = ai.get("source_mode", "snippet")
+        enriched["summary_cache_key"] = cache_key
+        out.append(enriched)
+    return out
+
+
 def _risk_tag_chip(text: str):
     safe = html.escape(str(text or "").strip())
     if not safe:
@@ -720,7 +917,10 @@ def _render_negative_evidence(news_rows: list[dict]):
 def _render_news_card(article: dict, ticker: str, card_key: str):
     del card_key  # reserved for future per-card interactions
     title = html.escape(str(article.get("title", "") or "Untitled"))
-    summary = html.escape(str(article.get("summary", "") or "No summary available."))
+    raw_brief = html.escape(str(article.get("summary", "") or "No summary available."))
+    ai_summary = html.escape(str(article.get("ai_summary", "") or ""))
+    why_matters = html.escape(str(article.get("why_it_matters", "") or ""))
+    summary_mode = str(article.get("summary_source_mode", "") or "snippet")
     source = html.escape(str(article.get("source", "") or "Unknown Source"))
     published_local = html.escape(_iso_to_local(article.get("published_at", "")))
     link = _safe_external_url(article.get("url", "") or "")
@@ -754,8 +954,10 @@ def _render_news_card(article: dict, ticker: str, card_key: str):
     st.markdown(
         (
             '<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; '
-            'padding:0.95rem 1rem; height:392px; box-shadow:0 4px 16px rgba(15,23,42,0.06); overflow:hidden;">'
+            'padding:0.95rem 1rem; height:528px; box-shadow:0 4px 16px rgba(15,23,42,0.06); overflow:hidden; '
+            'display:flex; flex-direction:column;">'
             f'{media_block}'
+            '<div style="display:flex; flex-direction:column; flex:1; min-height:0;">'
             '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.55rem;">'
             f'<span class="badge badge-gray">{source}</span>'
             '<div style="display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap; justify-content:flex-end;">'
@@ -766,11 +968,22 @@ def _render_news_card(article: dict, ticker: str, card_key: str):
             f'<p style="margin:0.7rem 0 0.45rem; font-size:1rem; font-weight:700; color:#0f172a; line-height:1.35; '
             'display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">'
             f'{title}</p>'
-            f'<p style="margin:0 0 0.55rem; font-size:0.84rem; color:#475569; line-height:1.5; '
-            'display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">'
-            f'{summary}</p>'
-            f'<div style="display:flex; gap:0.35rem; flex-wrap:nowrap; overflow:hidden; margin:0 0 0.55rem;">{tag_html}</div>'
-            f'<p style="margin:0; font-size:0.73rem; color:#94a3b8;">{published_local}</p>'
+            '<div style="margin:0 0 0.48rem; padding:0.52rem 0.58rem; background:#f8fafc; '
+            'border:1px solid #e2e8f0; border-radius:8px;">'
+            '<div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; margin-bottom:0.26rem;">'
+            '<span style="font-size:0.68rem; font-weight:750; color:#334155; letter-spacing:0.04em; text-transform:uppercase;">AI Summary</span>'
+            f'<span style="font-size:0.67rem; color:#64748b;">{"full article" if summary_mode == "fulltext" else "snippet mode"}</span>'
+            '</div>'
+            f'<p style="margin:0; font-size:0.83rem; color:#1f2937; line-height:1.48; '
+            'display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;">'
+            f'{ai_summary or raw_brief}</p>'
+            '</div>'
+            f'<p style="margin:0 0 0.5rem; font-size:0.79rem; color:#475569; line-height:1.44; '
+            'display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">'
+            f'<span style="font-weight:700; color:#334155;">Why it matters:</span> {why_matters or "Provides additional context for analyst review."}</p>'
+            f'<div style="display:flex; gap:0.35rem; flex-wrap:nowrap; overflow:hidden; margin:0 0 0.4rem;">{tag_html}</div>'
+            f'<p style="margin-top:auto; margin-bottom:0; font-size:0.73rem; color:#94a3b8;">{published_local}</p>'
+            '</div>'
             '</div>'
         ),
         unsafe_allow_html=True,
@@ -842,6 +1055,7 @@ Use plain business English and keep it concise.
 
 
 def render():
+    lang = current_language()
     header_left, header_right = st.columns([2.35, 2.65], gap="medium")
     with header_left:
         st.markdown(
@@ -1018,6 +1232,12 @@ def render():
     snapshot_company = query_company if query_company != "(Manual input)" else manual_company
     risk_snapshot = _latest_company_risk_snapshot(snapshot_company)
     news_rows = _enrich_news_rows(news_rows, snapshot=risk_snapshot, ticker=ticker)
+    news_rows = _attach_ai_summaries(
+        news_rows,
+        company=snapshot_company or query_company or "",
+        ticker=ticker,
+        lang=lang,
+    )
     display_rows = _sort_news_rows_for_display(news_rows)
 
     rating, rating_year = _latest_agent_rating(snapshot_company)
