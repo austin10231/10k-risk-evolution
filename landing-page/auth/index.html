@@ -11,27 +11,11 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    .lang-menu {
-      min-width: 128px;
-    }
   </style>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-900">
   <main class="min-h-screen flex items-center justify-center px-4 py-12">
     <section class="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-sm p-7">
-      <div class="flex justify-end mb-3">
-        <div class="relative">
-          <button id="lang-btn" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 transition text-sm font-semibold" aria-label="Language">
-            <span aria-hidden="true">🌐</span>
-            <span id="lang-label">EN</span>
-            <span class="text-xs">▾</span>
-          </button>
-          <div id="lang-menu" class="lang-menu hidden absolute right-0 top-full mt-2 bg-white border border-slate-200 rounded-xl shadow-sm p-1 z-50">
-            <button data-lang="en" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">English</button>
-            <button data-lang="zh" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">中文</button>
-          </div>
-        </div>
-      </div>
       <div class="flex justify-center mb-5">
         <img src="../assets/logo.svg" alt="RiskLens AI" class="h-12 w-auto object-contain" onerror="this.outerHTML='<div class=&quot;text-4xl&quot;>📊</div>';" />
       </div>
@@ -159,11 +143,7 @@
       window.location.href = finalUrl;
     });
 
-    window.RiskLensLang.mountSwitcher({
-      buttonId: "lang-btn",
-      menuId: "lang-menu",
-      labelId: "lang-label"
-    });
+    window.RiskLensLang.mountSwitcher();
   </script>
 </body>
 </html>

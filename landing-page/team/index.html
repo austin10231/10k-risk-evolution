@@ -11,9 +11,6 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    .lang-menu {
-      min-width: 128px;
-    }
     .grid-bg {
       background-image:
         linear-gradient(rgba(37,99,235,0.08) 1px, transparent 1px),
@@ -51,17 +48,6 @@
           <p class="mt-2 text-slate-600">Meet the builders behind the platform and our faculty advisor.</p>
         </div>
         <div class="flex items-center gap-2">
-          <div class="relative">
-            <button id="lang-btn" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 transition text-sm font-semibold" aria-label="Language">
-              <span aria-hidden="true">🌐</span>
-              <span id="lang-label">EN</span>
-              <span class="text-xs">▾</span>
-            </button>
-            <div id="lang-menu" class="lang-menu hidden absolute right-0 top-full mt-2 bg-white border border-slate-200 rounded-xl shadow-sm p-1 z-50">
-              <button data-lang="en" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">English</button>
-              <button data-lang="zh" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">中文</button>
-            </div>
-          </div>
           <a href="../index.html" class="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100">Back to Home</a>
         </div>
       </div>
@@ -73,7 +59,7 @@
         <article class="bg-white border border-blue-100 rounded-2xl p-5 shadow-sm">
           <div class="avatar-wrap h-20 w-20 mx-auto">
             <span class="avatar-fallback">MH</span>
-            <img src="../assets/team/mutian-he.jpg" alt="Mutian He" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
+            <img src="../assets/team/mutian-he.png" alt="Mutian He" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
           </div>
           <h3 class="mt-4 text-center font-semibold">Mutian He</h3>
           <p class="text-center text-xs text-blue-700 font-medium mt-1">Project Lead · Full-stack + AI</p>
@@ -82,7 +68,7 @@
         <article class="bg-white border border-blue-100 rounded-2xl p-5 shadow-sm">
           <div class="avatar-wrap h-20 w-20 mx-auto">
             <span class="avatar-fallback">YL</span>
-            <img src="../assets/team/yuhan-luan.jpg" alt="Yuhan Luan" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
+            <img src="../assets/team/yuhan-luan.png" alt="Yuhan Luan" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
           </div>
           <h3 class="mt-4 text-center font-semibold">Yuhan Luan</h3>
           <p class="text-center text-xs text-blue-700 font-medium mt-1">Data & Modeling</p>
@@ -91,16 +77,16 @@
         <article class="bg-white border border-blue-100 rounded-2xl p-5 shadow-sm">
           <div class="avatar-wrap h-20 w-20 mx-auto">
             <span class="avatar-fallback">JL</span>
-            <img src="../assets/team/jiaqing-lu.jpg" alt="Jiaqing Lu" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
+            <img src="../assets/team/jiaqing-lu.png" alt="Jiaoqing Lu" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
           </div>
-          <h3 class="mt-4 text-center font-semibold">Jiaqing Lu</h3>
+          <h3 class="mt-4 text-center font-semibold">Jiaoqing Lu</h3>
           <p class="text-center text-xs text-blue-700 font-medium mt-1">Visualization & UX</p>
         </article>
 
         <article class="bg-white border border-blue-100 rounded-2xl p-5 shadow-sm">
           <div class="avatar-wrap h-20 w-20 mx-auto">
             <span class="avatar-fallback">JY</span>
-            <img src="../assets/team/jiayi-yan.jpg" alt="Jiayi Yan" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
+            <img src="../assets/team/jiayi-yan.png" alt="Jiayi Yan" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
           </div>
           <h3 class="mt-4 text-center font-semibold">Jiayi Yan</h3>
           <p class="text-center text-xs text-blue-700 font-medium mt-1">Research & Validation</p>
@@ -114,7 +100,7 @@
         <div class="flex items-start gap-4">
           <div class="avatar-wrap h-20 w-20 shrink-0">
             <span class="avatar-fallback">HL</span>
-            <img src="../assets/team/professor.jpg" alt="Haibing Lu" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
+            <img src="../assets/team/haibing-lu.png" alt="Haibing Lu" class="avatar-img h-20 w-20 rounded-full object-cover" onerror="this.style.display='none'" />
           </div>
           <div>
             <h3 class="text-xl font-semibold">Haibing Lu</h3>
@@ -142,9 +128,6 @@
       "Language": "语言"
     };
     window.RiskLensLang.mountSwitcher({
-      buttonId: "lang-btn",
-      menuId: "lang-menu",
-      labelId: "lang-label",
       textMap: zhMap,
       titleMap: { en: "Our Team | RiskLens AI", zh: "团队介绍 | RiskLens AI" }
     });

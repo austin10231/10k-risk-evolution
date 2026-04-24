@@ -10,9 +10,6 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    .lang-menu {
-      min-width: 128px;
-    }
     .grid-bg {
       background-image:
         linear-gradient(rgba(37,99,235,0.08) 1px, transparent 1px),
@@ -32,17 +29,6 @@
         <h1 class="text-3xl font-bold">API Architecture</h1>
       </div>
       <div class="flex items-center gap-2">
-        <div class="relative">
-          <button id="lang-btn" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 transition text-sm font-semibold" aria-label="Language">
-            <span aria-hidden="true">🌐</span>
-            <span id="lang-label">EN</span>
-            <span class="text-xs">▾</span>
-          </button>
-          <div id="lang-menu" class="lang-menu hidden absolute right-0 top-full mt-2 bg-white border border-slate-200 rounded-xl shadow-sm p-1 z-50">
-            <button data-lang="en" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">English</button>
-            <button data-lang="zh" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">中文</button>
-          </div>
-        </div>
         <a href="../index.html#docs" class="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100">Back to Home</a>
       </div>
     </div>
@@ -69,11 +55,19 @@
         </div>
       </div>
 
-      <div class="mt-6 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/40 p-8 text-center">
-        <p class="text-sm uppercase tracking-wide text-blue-700 font-semibold">Architecture Diagram Placeholder</p>
-        <p class="mt-2 text-slate-600">Replace this block with your final system architecture image.</p>
-        <div class="mt-5 h-56 rounded-xl border border-blue-200 bg-white/80 flex items-center justify-center text-slate-400 text-sm">
-          Diagram area (PNG / SVG)
+      <div class="mt-6 rounded-2xl border border-blue-200 bg-blue-50/40 p-5">
+        <p class="text-sm uppercase tracking-wide text-blue-700 font-semibold">System Architecture</p>
+        <p class="mt-2 text-slate-600">Full workflow diagram for ingestion, AI analysis, storage, and delivery layers.</p>
+        <div class="mt-4 rounded-xl border border-blue-200 bg-white p-3">
+          <img
+            src="../assets/architecture/system-architecture-cropped.svg"
+            alt="RiskLens AI System Architecture Diagram"
+            class="w-full h-auto rounded-lg"
+            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+          />
+          <div class="hidden h-56 rounded-lg border border-blue-200 bg-white/80 items-center justify-center text-slate-400 text-sm">
+            Diagram file not found at `landing-page/assets/architecture/system-architecture-cropped.svg`
+          </div>
         </div>
       </div>
 
@@ -97,16 +91,13 @@
       "Bedrock agent scoring & reasoning": "Bedrock 智能体评分与推理",
       "Delivery": "交付",
       "Dashboard / Stock / News": "看板 / 股票 / 新闻",
-      "Architecture Diagram Placeholder": "架构图占位",
-      "Replace this block with your final system architecture image.": "请将此区域替换为最终系统架构图。",
-      "Diagram area (PNG / SVG)": "架构图区域（PNG / SVG）",
+      "System Architecture": "系统架构图",
+      "Full workflow diagram for ingestion, AI analysis, storage, and delivery layers.": "展示从接入、AI 分析、存储到结果交付的完整流程。",
+      "Diagram file not found at `landing-page/assets/architecture/system-architecture-cropped.svg`": "未找到架构图文件：landing-page/assets/architecture/system-architecture-cropped.svg",
       "Tip: Keep this page synced with deployment regions, Cognito auth flow, and external API dependencies.": "提示：请保持此页与部署区域、Cognito 认证流程及外部 API 依赖一致。",
       "Language": "语言"
     };
     window.RiskLensLang.mountSwitcher({
-      buttonId: "lang-btn",
-      menuId: "lang-menu",
-      labelId: "lang-label",
       textMap: zhMap,
       titleMap: { en: "API Architecture | RiskLens AI Docs", zh: "API 架构 | RiskLens 文档" }
     });

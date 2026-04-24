@@ -10,9 +10,6 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    .lang-menu {
-      min-width: 128px;
-    }
     .grid-bg {
       background-image:
         linear-gradient(rgba(37,99,235,0.08) 1px, transparent 1px),
@@ -32,17 +29,6 @@
         <h1 class="text-3xl font-bold">FAQ</h1>
       </div>
       <div class="flex items-center gap-2">
-        <div class="relative">
-          <button id="lang-btn" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 transition text-sm font-semibold" aria-label="Language">
-            <span aria-hidden="true">🌐</span>
-            <span id="lang-label">EN</span>
-            <span class="text-xs">▾</span>
-          </button>
-          <div id="lang-menu" class="lang-menu hidden absolute right-0 top-full mt-2 bg-white border border-slate-200 rounded-xl shadow-sm p-1 z-50">
-            <button data-lang="en" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">English</button>
-            <button data-lang="zh" class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-slate-100">中文</button>
-          </div>
-        </div>
         <a href="../index.html#docs" class="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100">Back to Home</a>
       </div>
     </div>
@@ -116,9 +102,6 @@
       "Language": "语言"
     };
     window.RiskLensLang.mountSwitcher({
-      buttonId: "lang-btn",
-      menuId: "lang-menu",
-      labelId: "lang-label",
       textMap: zhMap,
       titleMap: { en: "FAQ | RiskLens AI Docs", zh: "常见问题 | RiskLens 文档" }
     });
