@@ -60,25 +60,40 @@ def _s3_client():
 
 
 def _read_s3_bytes(key: str) -> Optional[bytes]:
+    bucket = _bucket()
+    if not bucket:
+        return None
     try:
-        obj = _s3_client().get_object(Bucket=_bucket(), Key=key)
+        obj = _s3_client().get_object(Bucket=bucket, Key=key)
         return obj["Body"].read()
     except Exception as e:
         msg = str(e)
-        if "NoSuchKey" in msg or "404" in msg:
+        if (
+            "NoSuchKey" in msg
+            or "404" in msg
+            or "NoSuchBucket" in msg
+            or "Invalid bucket name" in msg
+            or "AccessDenied" in msg
+        ):
             return None
         raise
 
 
 def _list_s3_keys(prefix: str) -> List[str]:
+    bucket = _bucket()
+    if not bucket:
+        return []
     keys: List[str] = []
     s3 = _s3_client()
     paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=_bucket(), Prefix=prefix):
-        for item in page.get("Contents", []):
-            k = str(item.get("Key", "") or "")
-            if k:
-                keys.append(k)
+    try:
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for item in page.get("Contents", []):
+                k = str(item.get("Key", "") or "")
+                if k:
+                    keys.append(k)
+    except Exception:
+        return []
     return keys
 
 
@@ -92,7 +107,14 @@ def _json_from_bytes(data: Optional[bytes], fallback: Any):
 
 
 def _load_index() -> List[dict]:
-    return _json_from_bytes(_read_s3_bytes(INDEX_KEY), [])
+    raw = _json_from_bytes(_read_s3_bytes(INDEX_KEY), [])
+    if isinstance(raw, list):
+        return [r for r in raw if isinstance(r, dict)]
+    if isinstance(raw, dict):
+        candidates = raw.get("items")
+        if isinstance(candidates, list):
+            return [r for r in candidates if isinstance(r, dict)]
+    return []
 
 
 def _load_result(record_id: str) -> Optional[dict]:
@@ -173,6 +195,8 @@ def _find_record(company: str, year: int) -> Optional[dict]:
 
 
 def _record_summary(rec: dict, include_result: bool = False) -> dict:
+    if not isinstance(rec, dict):
+        rec = {}
     base = {
         "record_id": rec.get("record_id"),
         "company": rec.get("company"),
@@ -183,13 +207,18 @@ def _record_summary(rec: dict, include_result: bool = False) -> dict:
         "created_at": rec.get("created_at"),
     }
     if include_result:
-        result = _load_result(str(rec.get("record_id", "") or ""))
-        if isinstance(result, dict):
-            risks = _extract_sub_risks(result)
-            base["risk_items"] = len(risks)
-            base["risk_categories"] = len(result.get("risks", [])) if isinstance(result.get("risks"), list) else 0
-            base["has_ai_summary"] = bool(result.get("ai_summary"))
-        else:
+        try:
+            result = _load_result(str(rec.get("record_id", "") or ""))
+            if isinstance(result, dict):
+                risks = _extract_sub_risks(result)
+                base["risk_items"] = len(risks)
+                base["risk_categories"] = len(result.get("risks", [])) if isinstance(result.get("risks"), list) else 0
+                base["has_ai_summary"] = bool(result.get("ai_summary"))
+            else:
+                base["risk_items"] = 0
+                base["risk_categories"] = 0
+                base["has_ai_summary"] = False
+        except Exception:
             base["risk_items"] = 0
             base["risk_categories"] = 0
             base["has_ai_summary"] = False
