@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional, Set
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 import boto3
@@ -284,10 +284,73 @@ def _dashboard_summary() -> dict:
 
 
 def _yahoo_json(url: str) -> dict:
-    req = Request(url, headers={"User-Agent": "RiskLens/1.0"}, method="GET")
+    req = Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json,text/plain,*/*",
+        },
+        method="GET",
+    )
     with urlopen(req, timeout=20) as resp:
         raw = resp.read()
     return json.loads(raw.decode("utf-8", errors="ignore"))
+
+
+def _stooq_history(symbol: str) -> List[dict]:
+    sym = str(symbol or "").strip().lower()
+    if not sym:
+        return []
+
+    candidates = [sym]
+    if "." not in sym:
+        candidates.append(f"{sym}.us")
+
+    for candidate in candidates:
+        url = f"https://stooq.com/q/d/l/?s={quote(candidate)}&i=d"
+        req = Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                )
+            },
+            method="GET",
+        )
+        try:
+            with urlopen(req, timeout=20) as resp:
+                text = resp.read().decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if len(lines) <= 1:
+            continue
+
+        out: List[dict] = []
+        for line in lines[1:]:
+            parts = line.split(",")
+            if len(parts) < 5:
+                continue
+            dt = parts[0].strip()
+            close_raw = parts[4].strip()
+            if not dt or not close_raw or close_raw.lower() == "null":
+                continue
+            try:
+                close_val = float(close_raw)
+            except Exception:
+                continue
+            out.append({"date": dt, "close": close_val})
+        if out:
+            return out
+
+    return []
 
 
 def _stock_quote(symbol: str) -> dict:
@@ -298,11 +361,18 @@ def _stock_quote(symbol: str) -> dict:
     quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={sym}"
     chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1y&interval=1d"
 
+    quote_payload: dict = {}
+    chart_payload: dict = {}
+    errors: List[str] = []
+
     try:
         quote_payload = _yahoo_json(quote_url)
+    except Exception as e:
+        errors.append(f"quote: {type(e).__name__}: {e}")
+    try:
         chart_payload = _yahoo_json(chart_url)
     except Exception as e:
-        return {"error": f"Failed to fetch stock data: {type(e).__name__}: {e}"}
+        errors.append(f"chart: {type(e).__name__}: {e}")
 
     quote_result = (
         quote_payload.get("quoteResponse", {}).get("result", [])
@@ -331,12 +401,34 @@ def _stock_quote(symbol: str) -> dict:
                 continue
             history.append({"date": dt, "close": float(c)})
 
+    if not history:
+        history = _stooq_history(sym)
+
+    price = row.get("regularMarketPrice")
+    change = row.get("regularMarketChange")
+    change_percent = row.get("regularMarketChangePercent")
+    if (price is None or change is None or change_percent is None) and len(history) >= 2:
+        last_close = history[-1]["close"]
+        prev_close = history[-2]["close"]
+        delta = float(last_close) - float(prev_close)
+        pct = (delta / float(prev_close) * 100.0) if float(prev_close) != 0 else None
+        if price is None:
+            price = float(last_close)
+        if change is None:
+            change = delta
+        if change_percent is None:
+            change_percent = pct
+
+    if not row and not history:
+        detail = "; ".join(errors) if errors else "no data returned by upstream providers"
+        return {"error": f"Failed to fetch stock data: {detail}"}
+
     return {
         "symbol": sym,
         "name": row.get("longName") or row.get("shortName") or sym,
-        "price": row.get("regularMarketPrice"),
-        "change": row.get("regularMarketChange"),
-        "change_percent": row.get("regularMarketChangePercent"),
+        "price": price,
+        "change": change,
+        "change_percent": change_percent,
         "market_cap": row.get("marketCap"),
         "pe_ratio": row.get("trailingPE"),
         "high_52": row.get("fiftyTwoWeekHigh"),
