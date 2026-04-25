@@ -380,6 +380,9 @@ def _fetch_news(company: str, ticker: str, days: int, limit: int):
 
 def _allowed_origins() -> Set[str]:
     raw = _env("CORS_ALLOW_ORIGINS", "")
+    if not raw.strip():
+        # Safe default for early integration stage; tighten later in production.
+        return {"*"}
     origins = set()
     for part in raw.split(","):
         v = part.strip()

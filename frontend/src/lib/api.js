@@ -2,11 +2,14 @@ const rawBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 export const API_BASE_URL = rawBase.replace(/\/$/, '')
 
 async function request(path, options = {}) {
+  const method = (options.method || 'GET').toUpperCase()
+  const baseHeaders = { ...(options.headers || {}) }
+  if (method !== 'GET' && method !== 'HEAD') {
+    baseHeaders['Content-Type'] = baseHeaders['Content-Type'] || 'application/json'
+  }
+
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
+    headers: baseHeaders,
     ...options,
   })
 
