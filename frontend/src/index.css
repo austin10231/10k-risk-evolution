@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply m-0 bg-slate-100 text-slate-800 font-sans;
+  background-image:
+    radial-gradient(1200px 500px at 0% -10%, #e8f2ff 0%, transparent 60%),
+    linear-gradient(180deg, #f8fbff 0%, #f1f5f9 70%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.card {
+  @apply bg-white border border-slate-200 rounded-2xl shadow-card;
+}
+
+.section-title {
+  @apply text-xs uppercase tracking-[0.14em] font-extrabold text-slate-500;
+}
+
+.input {
+  @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition-all;
+}
+
+.btn-primary {
+  @apply btn bg-brand-500 text-white hover:bg-brand-600;
+}
+
+.btn-secondary {
+  @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+}
