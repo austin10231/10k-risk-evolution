@@ -776,6 +776,10 @@ body {
   line-height: 1.35;
 }
 
+.rl-landing-send {
+  justify-self: end;
+}
+
 .rl-landing-support {
   width: min(770px, 100%);
   margin: 14px auto 0;
@@ -809,49 +813,6 @@ body {
   transform: translateY(-1px);
 }
 
-.rl-landing-recent {
-  margin: 0 auto;
-  width: min(580px, 100%);
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  border-radius: 12px;
-  background: rgba(248, 250, 252, 0.68);
-  padding: 8px;
-}
-
-.rl-landing-recent .label {
-  margin: 0 0 6px;
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 800;
-  color: #64748b;
-}
-
-.rl-landing-recent .items {
-  display: grid;
-  gap: 5px;
-}
-
-.rl-landing-recent .item {
-  width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #1e293b;
-  text-align: left;
-  font-size: 0.74rem;
-  padding: 6px 8px;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.rl-landing-recent .item:hover {
-  border-color: rgba(56, 189, 248, 0.44);
-  background: rgba(239, 246, 255, 0.94);
-}
-
 .rl-global-dock {
   position: fixed;
   left: calc(var(--sidebar-width) + 18px);
@@ -880,13 +841,13 @@ body {
 
 .rl-global-dock-composer {
   border: 1px solid rgba(148, 163, 184, 0.34);
-  border-radius: 16px;
+  border-radius: 18px;
   background: rgba(245, 248, 252, 0.92);
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
-  padding: 6px 8px;
+  padding: 8px 10px;
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: 9px;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, padding 0.16s ease;
 }
 
@@ -896,45 +857,45 @@ body {
   resize: none;
   border: 0;
   outline: 0;
-  min-height: 24px;
-  max-height: 90px;
+  min-height: 28px;
+  max-height: 96px;
   background: transparent;
   color: #0f172a;
-  font-size: 0.79rem;
+  font-size: 0.8rem;
   line-height: 1.35;
   transition: min-height 0.16s ease, max-height 0.16s ease, font-size 0.16s ease;
 }
 
 .rl-global-dock.compact .rl-global-dock-composer {
-  padding: 5px 8px;
-  gap: 7px;
+  padding: 7px 10px;
+  gap: 8px;
 }
 
 .rl-global-dock.compact .rl-global-dock-composer textarea {
-  min-height: 22px;
-  max-height: 56px;
+  min-height: 26px;
+  max-height: 68px;
   font-size: 0.77rem;
 }
 
 .rl-global-dock.expanded .rl-global-dock-composer {
-  padding: 8px 10px;
-  gap: 8px;
+  padding: 9px 11px;
+  gap: 9px;
   border-color: rgba(100, 116, 139, 0.44);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
   background: rgba(246, 249, 253, 0.96);
 }
 
 .rl-global-dock.expanded .rl-global-dock-composer textarea {
-  min-height: 34px;
-  max-height: 92px;
+  min-height: 40px;
+  max-height: 118px;
   font-size: 0.81rem;
 }
 
 .rl-chat-submit-btn {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
   aspect-ratio: 1 / 1;
   padding: 0 !important;
   border-radius: 9999px !important;
@@ -2550,23 +2511,15 @@ body {
     padding: 5px 10px;
   }
 
-  .rl-landing-recent {
-    padding: 7px;
-  }
-
-  .rl-landing-recent .item {
-    font-size: 0.71rem;
-  }
-
   .rl-chat-submit-btn {
-    width: 28px;
-    height: 28px;
-    min-width: 28px;
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
   }
 
   .rl-chat-submit-btn svg {
-    width: 11px;
-    height: 11px;
+    width: 12px;
+    height: 12px;
   }
 
   .rl-global-dock {
@@ -2580,23 +2533,23 @@ body {
   }
 
   .rl-global-dock-composer {
-    border-radius: 14px;
-    padding: 6px 8px;
-    gap: 7px;
+    border-radius: 15px;
+    padding: 7px 9px;
+    gap: 8px;
   }
 
   .rl-global-dock-composer textarea {
-    min-height: 24px;
+    min-height: 26px;
   }
 
   .rl-global-dock.compact .rl-global-dock-composer textarea {
-    min-height: 22px;
-    max-height: 50px;
+    min-height: 24px;
+    max-height: 58px;
   }
 
   .rl-global-dock.expanded .rl-global-dock-composer textarea {
-    min-height: 30px;
-    max-height: 72px;
+    min-height: 34px;
+    max-height: 84px;
   }
 
   .rl-ask-head {

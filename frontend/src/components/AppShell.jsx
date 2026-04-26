@@ -179,7 +179,6 @@ export default function AppShell({ children }) {
     () => filteredHistoryItems.find((t) => t.id === activeMenuThreadId) || null,
     [filteredHistoryItems, activeMenuThreadId],
   )
-  const recentLandingThreads = useMemo(() => historyItems.slice(0, 3), [historyItems])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -545,7 +544,7 @@ export default function AppShell({ children }) {
                   }}
                 />
                 <button
-                  className={`btn-primary rl-chat-submit-btn ${loading ? 'loading' : ''}`}
+                  className={`btn-primary rl-chat-submit-btn rl-landing-send ${loading ? 'loading' : ''}`}
                   type="submit"
                   disabled={!String(query || '').trim() || loading}
                   aria-label={loading ? 'Thinking' : 'Send'}
@@ -561,19 +560,6 @@ export default function AppShell({ children }) {
                     </button>
                   ))}
                 </div>
-
-                {recentLandingThreads.length ? (
-                  <div className="rl-landing-recent">
-                    <p className="label">Recent</p>
-                    <div className="items">
-                      {recentLandingThreads.map((thread) => (
-                        <button key={thread.id} type="button" className="item" onClick={() => openThread(thread.id)}>
-                          {thread.title || 'New conversation'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
               </div>
               {error ? <p className="rl-global-dock-error">{error}</p> : null}
             </section>
