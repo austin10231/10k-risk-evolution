@@ -45,6 +45,15 @@ function routeLabel(pathname) {
   return 'Home'
 }
 
+function SendArrowIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 17V7" />
+      <path d="M7.5 11.5L12 7L16.5 11.5" />
+    </svg>
+  )
+}
+
 export default function FloatingChatWidget() {
   const location = useLocation()
   const [open, setOpen] = useState(false)
@@ -281,8 +290,13 @@ export default function FloatingChatWidget() {
               <button className="btn-secondary text-xs" onClick={clearChat} disabled={loading}>
                 Clear
               </button>
-              <button className="btn-primary text-xs" onClick={send} disabled={!canSend}>
-                {loading ? '...' : 'Send'}
+              <button
+                className={`btn-primary rl-chat-send-round ${loading ? 'loading' : ''}`}
+                onClick={send}
+                disabled={!canSend}
+                aria-label={loading ? 'Thinking' : 'Send'}
+              >
+                <SendArrowIcon />
               </button>
             </div>
           </footer>

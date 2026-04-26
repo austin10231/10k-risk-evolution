@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
-import brandLogo from '../assets/logo.svg'
+import brandIcon from '../assets/logo-icon.svg'
 
 const WORKSPACE_TABS = [
   { to: '/upload', label: 'Upload' },
@@ -71,18 +71,30 @@ const ICONS = {
     </>
   ),
   check: <path d="M5.5 12.5L10 17L18.5 8.5" />,
+  home: (
+    <>
+      <path d="M4.5 11.2L12 5L19.5 11.2" />
+      <path d="M6.7 10.5V19H17.3V10.5" />
+    </>
+  ),
   chevronLeft: <path d="M14.5 6.5L9 12L14.5 17.5" />,
   chevronRight: <path d="M9.5 6.5L15 12L9.5 17.5" />,
+  panelSplit: (
+    <>
+      <rect x="4.2" y="4.2" width="15.6" height="15.6" rx="2.8" />
+      <path d="M11.8 4.2V19.8" />
+    </>
+  ),
 }
 
-function NavIcon({ name, className = '' }) {
+function NavIcon({ name, className = '', strokeWidth = 1.8 }) {
   return (
     <svg
       className={className}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -131,7 +143,7 @@ function getHistoryMenuPosition(rect) {
 export default function AppShell({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { threads, currentThreadId, switchThread, deleteThread, updateThreadTitle } = useChatMemory()
+  const { threads, currentThreadId, currentThread, switchThread, deleteThread, updateThreadTitle } = useChatMemory()
   const {
     query,
     setQuery,
@@ -266,7 +278,12 @@ export default function AppShell({ children }) {
   }, [showLandingComposer, dockExpanded, error, location.pathname, loading, query])
 
   const handleNewChat = () => {
-    startNewThread()
+    const hasAskedQuestion = (currentThread?.messages || []).some(
+      (message) => message.role === 'user' && String(message.text || '').trim(),
+    )
+    if (hasAskedQuestion) {
+      startNewThread()
+    }
     navigate('/agent')
     setDockFocused(false)
     setMobileNavOpen(false)
@@ -333,6 +350,14 @@ export default function AppShell({ children }) {
     navigate('/agent')
   }
 
+  const openLandingPage = () => {
+    if (typeof window === 'undefined') return
+    const currentLang = new URLSearchParams(window.location.search).get('lang')
+    const inferredLang = /^zh/i.test(window.navigator?.language || '') ? 'zh' : 'en'
+    const lang = currentLang || inferredLang
+    window.location.assign(`/?lang=${lang}`)
+  }
+
   const SidebarContent = () => (
     <>
       <div className="rl-sidebar-scroll">
@@ -345,7 +370,7 @@ export default function AppShell({ children }) {
               title={sidebarCollapsed ? 'Expand sidebar' : 'Go to chat home'}
             >
               <span className="rl-brand-icon" aria-hidden="true">
-                <img src={brandLogo} alt="" className="rl-brand-icon-image" />
+                <img src={brandIcon} alt="" className="rl-brand-icon-image" />
               </span>
             </button>
             <div className="rl-brand-copy">
@@ -361,9 +386,7 @@ export default function AppShell({ children }) {
             aria-label="Toggle conversation sidebar"
             title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            <span>
-              <NavIcon name={sidebarCollapsed ? 'chevronRight' : 'chevronLeft'} />
-            </span>
+            <NavIcon name="panelSplit" strokeWidth={1.6} />
           </button>
         </div>
 
@@ -454,8 +477,18 @@ export default function AppShell({ children }) {
       </div>
 
       <div className="rl-sidebar-footer">
-        <div className="dot" />
-        <p>© 2026 SCU · AWS Team 1</p>
+        <div className="rl-sidebar-footer-copy">
+          <div className="dot" />
+          <p>© 2026 SCU · AWS Team 1</p>
+        </div>
+        <button
+          className="rl-footer-landing-btn"
+          onClick={openLandingPage}
+          aria-label="Back to landing page"
+          title="Back to landing page"
+        >
+          <NavIcon name="home" />
+        </button>
       </div>
     </>
   )
@@ -468,7 +501,7 @@ export default function AppShell({ children }) {
         </button>
         <button className="rl-mobile-brand" onClick={() => navigate('/agent')} aria-label="Go to Ask workspace">
           <span className="rl-mobile-brand-dot" aria-hidden="true">
-            <img src={brandLogo} alt="" className="rl-mobile-brand-logo" />
+            <img src={brandIcon} alt="" className="rl-mobile-brand-logo" />
           </span>
           <span>RiskLens AI</span>
         </button>
@@ -518,52 +551,55 @@ export default function AppShell({ children }) {
         <div className={`rl-main-inner rl-workspace-content ${showLandingComposer ? 'landing' : ''}`}>
           {children}
           {showLandingComposer ? (
-            <section className="rl-landing-center">
-              <p className="rl-landing-brand">
-                <span className="brand-main">RiskLens</span>
-                <span className="brand-ai">AI</span>
-              </p>
-              <form
-                className="rl-landing-composer"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  submitQuery()
-                }}
-              >
-                <textarea
-                  value={query}
-                  onChange={(e) => {
-                    if (error) clearError()
-                    setQuery(e.target.value)
+            <>
+              <div className="rl-landing-bubbles" aria-hidden="true" />
+              <section className="rl-landing-center">
+                <p className="rl-landing-brand">
+                  <span className="brand-main">RiskLens</span>
+                  <span className="brand-ai">AI</span>
+                </p>
+                <form
+                  className="rl-landing-composer"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    submitQuery()
                   }}
-                  placeholder="Ask about any company, filing, comparison, stock, or news signal…"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      submitQuery()
-                    }
-                  }}
-                />
-                <button
-                  className={`btn-primary rl-chat-submit-btn rl-landing-send ${loading ? 'loading' : ''}`}
-                  type="submit"
-                  disabled={!String(query || '').trim() || loading}
-                  aria-label={loading ? 'Thinking' : 'Send'}
                 >
-                  <SubmitArrowIcon />
-                </button>
-              </form>
-              <div className="rl-landing-support">
-                <div className="rl-landing-chips" aria-label="Quick prompt suggestions">
-                  {LANDING_QUICK_PROMPTS.map((prompt) => (
-                    <button key={prompt} type="button" className="rl-landing-chip" onClick={() => submitQuery(prompt)} disabled={loading}>
-                      {prompt}
-                    </button>
-                  ))}
+                  <textarea
+                    value={query}
+                    onChange={(e) => {
+                      if (error) clearError()
+                      setQuery(e.target.value)
+                    }}
+                    placeholder="Ask about any company, filing, comparison, stock, or news signal…"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        submitQuery()
+                      }
+                    }}
+                  />
+                  <button
+                    className={`btn-primary rl-chat-submit-btn rl-landing-send ${loading ? 'loading' : ''}`}
+                    type="submit"
+                    disabled={!String(query || '').trim() || loading}
+                    aria-label={loading ? 'Thinking' : 'Send'}
+                  >
+                    <SubmitArrowIcon />
+                  </button>
+                </form>
+                <div className="rl-landing-support">
+                  <div className="rl-landing-chips" aria-label="Quick prompt suggestions">
+                    {LANDING_QUICK_PROMPTS.map((prompt) => (
+                      <button key={prompt} type="button" className="rl-landing-chip" onClick={() => submitQuery(prompt)} disabled={loading}>
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              {error ? <p className="rl-global-dock-error">{error}</p> : null}
-            </section>
+                {error ? <p className="rl-global-dock-error">{error}</p> : null}
+              </section>
+            </>
           ) : null}
         </div>
       </main>
