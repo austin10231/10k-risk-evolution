@@ -301,6 +301,109 @@ def _yahoo_json(url: str) -> dict:
     return json.loads(raw.decode("utf-8", errors="ignore"))
 
 
+def _to_float(value, default=None):
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            v = value.strip().replace(",", "")
+            if v.endswith("%"):
+                v = v[:-1]
+            if not v:
+                return default
+            return float(v)
+        return float(value)
+    except Exception:
+        return default
+
+
+def _twelvedata_api_key() -> str:
+    return (
+        _env("TWELVEDATA_API_KEY", "").strip()
+        or _env("TWELVE_DATA_API_KEY", "").strip()
+        or _env("TWELVE_DATA_KEY", "").strip()
+    )
+
+
+def _twelvedata_json(url: str) -> dict:
+    req = Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json,text/plain,*/*",
+        },
+        method="GET",
+    )
+    with urlopen(req, timeout=20) as resp:
+        raw = resp.read()
+    payload = json.loads(raw.decode("utf-8", errors="ignore"))
+    if isinstance(payload, dict) and str(payload.get("status", "")).lower() == "error":
+        code = payload.get("code")
+        message = payload.get("message") or "unknown error"
+        raise RuntimeError(f"{code}: {message}" if code else str(message))
+    if not isinstance(payload, dict):
+        raise RuntimeError("invalid response payload")
+    return payload
+
+
+def _twelvedata_quote(symbol: str, api_key: str) -> dict:
+    sym = str(symbol or "").strip().upper()
+    url = f"https://api.twelvedata.com/quote?symbol={quote(sym)}&apikey={quote(api_key)}"
+    payload = _twelvedata_json(url)
+
+    price = _to_float(payload.get("close"))
+    previous_close = _to_float(payload.get("previous_close"))
+    change = _to_float(payload.get("change"))
+    change_percent = _to_float(payload.get("percent_change"))
+    if change is None and price is not None and previous_close is not None:
+        change = price - previous_close
+    if change_percent is None and change is not None and previous_close not in (None, 0):
+        change_percent = change / previous_close * 100.0
+
+    fifty_two = payload.get("fifty_two_week", {}) if isinstance(payload.get("fifty_two_week"), dict) else {}
+
+    return {
+        "symbol": payload.get("symbol") or sym,
+        "name": payload.get("name") or sym,
+        "price": price,
+        "change": change,
+        "change_percent": change_percent,
+        "market_cap": _to_float(payload.get("market_cap")),
+        "pe_ratio": _to_float(payload.get("pe")),
+        "high_52": _to_float(fifty_two.get("high"), _to_float(payload.get("fifty_two_week_high"))),
+        "low_52": _to_float(fifty_two.get("low"), _to_float(payload.get("fifty_two_week_low"))),
+        "exchange": payload.get("exchange") or payload.get("mic_code") or "",
+    }
+
+
+def _twelvedata_history(symbol: str, api_key: str) -> List[dict]:
+    sym = str(symbol or "").strip().upper()
+    url = (
+        "https://api.twelvedata.com/time_series"
+        f"?symbol={quote(sym)}&interval=1day&outputsize=260&apikey={quote(api_key)}"
+    )
+    payload = _twelvedata_json(url)
+    rows = payload.get("values", []) if isinstance(payload, dict) else []
+    out: List[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw_dt = str(row.get("datetime") or row.get("date") or "").strip()
+        if not raw_dt:
+            continue
+        dt = raw_dt[:10]
+        close_val = _to_float(row.get("close"))
+        if close_val is None:
+            continue
+        out.append({"date": dt, "close": close_val})
+    out.sort(key=lambda x: x.get("date", ""))
+    return out
+
+
 def _stooq_history(symbol: str) -> List[dict]:
     sym = str(symbol or "").strip().lower()
     if not sym:
@@ -358,55 +461,108 @@ def _stock_quote(symbol: str) -> dict:
     if not sym:
         return {"error": "Ticker is required."}
 
-    quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={sym}"
-    chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1y&interval=1d"
-
-    quote_payload: dict = {}
-    chart_payload: dict = {}
+    name = sym
+    price = None
+    change = None
+    change_percent = None
+    market_cap = None
+    pe_ratio = None
+    high_52 = None
+    low_52 = None
+    exchange = ""
+    history: List[dict] = []
     errors: List[str] = []
 
-    try:
-        quote_payload = _yahoo_json(quote_url)
-    except Exception as e:
-        errors.append(f"quote: {type(e).__name__}: {e}")
-    try:
-        chart_payload = _yahoo_json(chart_url)
-    except Exception as e:
-        errors.append(f"chart: {type(e).__name__}: {e}")
+    twelvedata_key = _twelvedata_api_key()
+    if twelvedata_key:
+        try:
+            td_quote = _twelvedata_quote(sym, twelvedata_key)
+            name = td_quote.get("name") or name
+            price = td_quote.get("price")
+            change = td_quote.get("change")
+            change_percent = td_quote.get("change_percent")
+            market_cap = td_quote.get("market_cap")
+            pe_ratio = td_quote.get("pe_ratio")
+            high_52 = td_quote.get("high_52")
+            low_52 = td_quote.get("low_52")
+            exchange = td_quote.get("exchange") or exchange
+        except Exception as e:
+            errors.append(f"twelvedata quote: {type(e).__name__}: {e}")
+        try:
+            history = _twelvedata_history(sym, twelvedata_key)
+        except Exception as e:
+            errors.append(f"twelvedata history: {type(e).__name__}: {e}")
 
-    quote_result = (
-        quote_payload.get("quoteResponse", {}).get("result", [])
-        if isinstance(quote_payload, dict) else []
-    )
-    row = quote_result[0] if quote_result else {}
+    # Fallback to Yahoo only if Twelve Data is unavailable or incomplete.
+    need_yahoo_quote = any(
+        v is None for v in [price, change, change_percent, market_cap, pe_ratio, high_52, low_52]
+    ) or not exchange
+    need_yahoo_chart = not history
 
-    chart = chart_payload.get("chart", {}) if isinstance(chart_payload, dict) else {}
-    results = chart.get("result", []) if isinstance(chart, dict) else []
-    history: List[dict] = []
-    if results:
-        first = results[0] if isinstance(results[0], dict) else {}
-        ts = first.get("timestamp", []) or []
-        q = first.get("indicators", {}).get("quote", []) or []
-        closes = q[0].get("close", []) if q and isinstance(q[0], dict) else []
-        for i, t in enumerate(ts):
+    if need_yahoo_quote or need_yahoo_chart:
+        quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={sym}"
+        chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1y&interval=1d"
+        quote_payload: dict = {}
+        chart_payload: dict = {}
+        row: dict = {}
+
+        if need_yahoo_quote:
             try:
-                c = closes[i]
-            except Exception:
-                c = None
-            if c is None:
-                continue
+                quote_payload = _yahoo_json(quote_url)
+                quote_result = (
+                    quote_payload.get("quoteResponse", {}).get("result", [])
+                    if isinstance(quote_payload, dict) else []
+                )
+                row = quote_result[0] if quote_result else {}
+            except Exception as e:
+                errors.append(f"yahoo quote: {type(e).__name__}: {e}")
+
+            name = row.get("longName") or row.get("shortName") or name
+            if price is None:
+                price = _to_float(row.get("regularMarketPrice"))
+            if change is None:
+                change = _to_float(row.get("regularMarketChange"))
+            if change_percent is None:
+                change_percent = _to_float(row.get("regularMarketChangePercent"))
+            if market_cap is None:
+                market_cap = _to_float(row.get("marketCap"))
+            if pe_ratio is None:
+                pe_ratio = _to_float(row.get("trailingPE"))
+            if high_52 is None:
+                high_52 = _to_float(row.get("fiftyTwoWeekHigh"))
+            if low_52 is None:
+                low_52 = _to_float(row.get("fiftyTwoWeekLow"))
+            exchange = exchange or row.get("fullExchangeName") or row.get("exchange") or ""
+
+        if need_yahoo_chart:
             try:
-                dt = datetime.fromtimestamp(int(t), tz=timezone.utc).strftime("%Y-%m-%d")
-            except Exception:
-                continue
-            history.append({"date": dt, "close": float(c)})
+                chart_payload = _yahoo_json(chart_url)
+            except Exception as e:
+                errors.append(f"yahoo chart: {type(e).__name__}: {e}")
+
+            chart = chart_payload.get("chart", {}) if isinstance(chart_payload, dict) else {}
+            results = chart.get("result", []) if isinstance(chart, dict) else []
+            if results:
+                first = results[0] if isinstance(results[0], dict) else {}
+                ts = first.get("timestamp", []) or []
+                q = first.get("indicators", {}).get("quote", []) or []
+                closes = q[0].get("close", []) if q and isinstance(q[0], dict) else []
+                for i, t in enumerate(ts):
+                    try:
+                        c = closes[i]
+                    except Exception:
+                        c = None
+                    if c is None:
+                        continue
+                    try:
+                        dt = datetime.fromtimestamp(int(t), tz=timezone.utc).strftime("%Y-%m-%d")
+                    except Exception:
+                        continue
+                    history.append({"date": dt, "close": float(c)})
 
     if not history:
         history = _stooq_history(sym)
 
-    price = row.get("regularMarketPrice")
-    change = row.get("regularMarketChange")
-    change_percent = row.get("regularMarketChangePercent")
     if (price is None or change is None or change_percent is None) and len(history) >= 2:
         last_close = history[-1]["close"]
         prev_close = history[-2]["close"]
@@ -419,21 +575,21 @@ def _stock_quote(symbol: str) -> dict:
         if change_percent is None:
             change_percent = pct
 
-    if not row and not history:
+    if price is None and not history:
         detail = "; ".join(errors) if errors else "no data returned by upstream providers"
         return {"error": f"Failed to fetch stock data: {detail}"}
 
     return {
         "symbol": sym,
-        "name": row.get("longName") or row.get("shortName") or sym,
+        "name": name,
         "price": price,
         "change": change,
         "change_percent": change_percent,
-        "market_cap": row.get("marketCap"),
-        "pe_ratio": row.get("trailingPE"),
-        "high_52": row.get("fiftyTwoWeekHigh"),
-        "low_52": row.get("fiftyTwoWeekLow"),
-        "exchange": row.get("fullExchangeName") or row.get("exchange"),
+        "market_cap": market_cap,
+        "pe_ratio": pe_ratio,
+        "high_52": high_52,
+        "low_52": low_52,
+        "exchange": exchange,
         "history": history,
         "error": "",
     }
