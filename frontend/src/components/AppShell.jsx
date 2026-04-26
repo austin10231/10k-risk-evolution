@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
+import brandLogo from '../assets/logo.svg'
 
 const WORKSPACE_TABS = [
   { to: '/upload', label: 'Upload' },
@@ -343,11 +344,9 @@ export default function AppShell({ children }) {
               aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Go to chat home'}
               title={sidebarCollapsed ? 'Expand sidebar' : 'Go to chat home'}
             >
-              <div className="rl-brand-icon" aria-hidden="true">
-                <span className="bar b1" />
-                <span className="bar b2" />
-                <span className="bar b3" />
-              </div>
+              <span className="rl-brand-icon" aria-hidden="true">
+                <img src={brandLogo} alt="" className="rl-brand-icon-image" />
+              </span>
             </button>
             <div className="rl-brand-copy">
               <p className="rl-brand-title">
@@ -468,7 +467,9 @@ export default function AppShell({ children }) {
           <NavIcon name="menu" />
         </button>
         <button className="rl-mobile-brand" onClick={() => navigate('/agent')} aria-label="Go to Ask workspace">
-          <span className="rl-mobile-brand-dot" />
+          <span className="rl-mobile-brand-dot" aria-hidden="true">
+            <img src={brandLogo} alt="" className="rl-mobile-brand-logo" />
+          </span>
           <span>RiskLens AI</span>
         </button>
         <button className="rl-mobile-icon-btn" onClick={handleNewChat} aria-label="Start new chat">

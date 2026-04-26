@@ -1,0 +1,57 @@
+<svg width="560" height="160" viewBox="0 0 560 160" xmlns="http://www.w3.org/2000/svg">
+
+<defs>
+<linearGradient id="brandGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stop-color="#56CCF2"/>
+<stop offset="50%" stop-color="#4BA8ED"/>
+<stop offset="100%" stop-color="#6B8CFF"/>
+</linearGradient>
+<linearGradient id="brandGradH" x1="0%" y1="0%" x2="100%" y2="0%">
+<stop offset="0%" stop-color="#56CCF2"/>
+<stop offset="100%" stop-color="#6B8CFF"/>
+</linearGradient>
+<linearGradient id="chartGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+<stop offset="0%" stop-color="rgba(255,255,255,0.55)"/>
+<stop offset="100%" stop-color="rgba(255,255,255,0.95)"/>
+</linearGradient>
+<linearGradient id="glowTop" x1="0%" y1="0%" x2="0%" y2="100%">
+<stop offset="0%" stop-color="rgba(255,255,255,0.15)"/>
+<stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+</linearGradient>
+<clipPath id="sClip">
+<path d="M 50 6 L 95 23 Q 99 25 99 29 L 99 74 Q 99 116 50 145 Q 1 116 1 74 L 1 29 Q 1 25 5 23 Z"/>
+</clipPath>
+</defs>
+
+<!-- Shield icon -->
+<g transform="translate(15, 3)">
+<path d="M 50 10 L 93 26 Q 96 28 96 31 L 96 73 Q 96 112 50 139 Q 4 112 4 73 L 4 31 Q 4 28 7 26 Z" fill="#1a3a5c" opacity="0.07" transform="translate(2,3)"/>
+<path d="M 50 6 L 95 23 Q 99 25 99 29 L 99 74 Q 99 116 50 145 Q 1 116 1 74 L 1 29 Q 1 25 5 23 Z" fill="url(#brandGrad)"/>
+<path d="M 50 6 L 95 23 Q 99 25 99 29 L 99 54 L 1 54 L 1 29 Q 1 25 5 23 Z" fill="url(#glowTop)" clip-path="url(#sClip)"/>
+<path d="M 50 19 L 86 33 Q 88 34 88 36 L 88 72 Q 88 106 50 130 Q 12 106 12 72 L 12 36 Q 12 34 14 33 Z" fill="none" stroke="white" stroke-width="0.7" opacity="0.22"/>
+<line x1="19" y1="54" x2="81" y2="54" stroke="white" stroke-width="0.4" opacity="0.13"/>
+<line x1="17" y1="70" x2="83" y2="70" stroke="white" stroke-width="0.4" opacity="0.13"/>
+<line x1="15" y1="86" x2="85" y2="86" stroke="white" stroke-width="0.4" opacity="0.13"/>
+<line x1="17" y1="102" x2="83" y2="102" stroke="white" stroke-width="0.4" opacity="0.13"/>
+<path d="M 22,96 L 34,83 L 46,89 L 58,63 L 70,55 L 78,59 L 78,110 Q 78,114 50,126 Q 28,116 22,110 Z" fill="white" opacity="0.07" clip-path="url(#sClip)"/>
+<polyline points="22,96 34,83 46,89 58,63 70,55 78,59" fill="none" stroke="url(#chartGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="22" cy="96" r="2.2" fill="white" opacity="0.45"/>
+<circle cx="34" cy="83" r="2.2" fill="white" opacity="0.55"/>
+<circle cx="46" cy="89" r="2.5" fill="white" opacity="0.65"/>
+<circle cx="58" cy="63" r="2.8" fill="white" opacity="0.85"/>
+<circle cx="58" cy="63" r="5.5" fill="none" stroke="white" stroke-width="0.7" opacity="0.3"/>
+<circle cx="70" cy="55" r="3" fill="white"/>
+<circle cx="70" cy="55" r="5.8" fill="none" stroke="white" stroke-width="0.7" opacity="0.35"/>
+<circle cx="78" cy="59" r="2.2" fill="white" opacity="0.6"/>
+<line x1="70" y1="53" x2="70" y2="39" stroke="white" stroke-width="1.8" stroke-linecap="round" opacity="0.85"/>
+<polyline points="65,44 70,37 75,44" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+<circle cx="85" cy="114" r="13" fill="rgba(255,255,255,0.05)" stroke="white" stroke-width="1.8" opacity="0.5"/>
+<circle cx="85" cy="114" r="9" fill="none" stroke="white" stroke-width="0.5" opacity="0.25"/>
+<line x1="94" y1="123" x2="103" y2="132" stroke="white" stroke-width="2.2" stroke-linecap="round" opacity="0.5"/>
+<circle cx="80" cy="108" r="1.1" fill="white" opacity="0.45"/>
+</g>
+
+<!-- Wordmark: RiskLens AI -->
+<text x="170" y="100" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-size="62" font-weight="600" letter-spacing="-0.5" fill="url(#brandGradH)">RiskLens AI</text>
+
+</svg>
