@@ -580,7 +580,7 @@ export default function AppShell({ children }) {
                     }}
                   />
                   <button
-                    className={`btn-primary rl-chat-submit-btn rl-landing-send ${loading ? 'loading' : ''}`}
+                    className={`rl-chat-submit-btn rl-landing-send ${loading ? 'loading' : ''}`}
                     type="submit"
                     disabled={!String(query || '').trim() || loading}
                     aria-label={loading ? 'Thinking' : 'Send'}
@@ -633,7 +633,7 @@ export default function AppShell({ children }) {
                 }}
               />
               <button
-                className={`btn-primary rl-global-dock-send rl-chat-submit-btn ${loading ? 'loading' : ''}`}
+                className={`rl-global-dock-send rl-chat-submit-btn ${loading ? 'loading' : ''}`}
                 type="submit"
                 disabled={!String(query || '').trim() || loading}
                 aria-label={loading ? 'Thinking' : 'Send'}

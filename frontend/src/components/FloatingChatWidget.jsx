@@ -291,7 +291,7 @@ export default function FloatingChatWidget() {
                 Clear
               </button>
               <button
-                className={`btn-primary rl-chat-send-round ${loading ? 'loading' : ''}`}
+                className={`rl-chat-send-round ${loading ? 'loading' : ''}`}
                 onClick={send}
                 disabled={!canSend}
                 aria-label={loading ? 'Thinking' : 'Send'}
