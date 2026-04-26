@@ -352,10 +352,7 @@ export default function AppShell({ children }) {
 
   const openLandingPage = () => {
     if (typeof window === 'undefined') return
-    const currentLang = new URLSearchParams(window.location.search).get('lang')
-    const inferredLang = /^zh/i.test(window.navigator?.language || '') ? 'zh' : 'en'
-    const lang = currentLang || inferredLang
-    window.location.assign(`/?lang=${lang}`)
+    window.location.assign('https://risklens.pages.dev/')
   }
 
   const SidebarContent = () => (
