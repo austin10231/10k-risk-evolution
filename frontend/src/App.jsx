@@ -1,6 +1,7 @@
 import React from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from './components/AppShell'
+import FloatingChatWidget from './components/FloatingChatWidget'
 import DashboardPage from './pages/DashboardPage'
 import LibraryPage from './pages/LibraryPage'
 import UploadPage from './pages/UploadPage'
@@ -35,6 +36,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/agent" replace />} />
             </Routes>
           </AppShell>
+          <FloatingChatWidget />
         </WorkspaceChatProvider>
       </ChatMemoryProvider>
     </GlobalConfigProvider>

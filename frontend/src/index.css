@@ -739,7 +739,7 @@ body {
 
 .rl-workspace-content.landing > .rl-landing-bubbles {
   z-index: 1;
-  opacity: 0.95;
+  opacity: 0.96;
 }
 
 .rl-landing-bubbles {
@@ -749,79 +749,37 @@ body {
   pointer-events: none;
 }
 
-.rl-landing-bubbles::before,
-.rl-landing-bubbles::after {
-  content: '';
+.rl-landing-bubble {
   position: absolute;
-  width: 8px;
-  height: 8px;
+  left: var(--bubble-x);
+  top: var(--bubble-y);
+  width: var(--bubble-size, 9px);
+  height: var(--bubble-size, 9px);
   border-radius: 999px;
-}
-
-.rl-landing-bubbles::before {
-  left: -4%;
-  top: 6%;
-  background: rgba(125, 211, 252, 0.34);
+  background: radial-gradient(circle at 35% 35%, rgba(224, 242, 254, 0.9), rgba(125, 211, 252, 0.42));
   box-shadow:
-    12vw 14vh 0 1px rgba(125, 211, 252, 0.26),
-    24vw 28vh 0 0 rgba(96, 165, 250, 0.24),
-    34vw 8vh 0 1px rgba(186, 230, 253, 0.2),
-    46vw 35vh 0 0 rgba(59, 130, 246, 0.2),
-    58vw 18vh 0 1px rgba(125, 211, 252, 0.22),
-    68vw 41vh 0 0 rgba(96, 165, 250, 0.22),
-    82vw 22vh 0 1px rgba(125, 211, 252, 0.22),
-    96vw 33vh 0 0 rgba(186, 230, 253, 0.18),
-    22vw 58vh 0 1px rgba(125, 211, 252, 0.2),
-    40vw 67vh 0 0 rgba(96, 165, 250, 0.2),
-    64vw 72vh 0 1px rgba(125, 211, 252, 0.18),
-    90vw 64vh 0 0 rgba(186, 230, 253, 0.18);
-  animation: rl-landing-bubbles-a 24s ease-in-out infinite alternate;
+    0 0 0 1px rgba(186, 230, 253, 0.5),
+    0 6px 14px rgba(56, 189, 248, 0.14);
+  animation: rl-landing-bubble-float var(--bubble-duration, 22s) ease-in-out infinite;
+  animation-delay: var(--bubble-delay, 0s);
 }
 
-.rl-landing-bubbles::after {
-  left: 4%;
-  top: 16%;
-  width: 6px;
-  height: 6px;
-  background: rgba(191, 219, 254, 0.3);
-  box-shadow:
-    10vw 11vh 0 0 rgba(186, 230, 253, 0.2),
-    20vw 36vh 0 1px rgba(125, 211, 252, 0.18),
-    32vw 19vh 0 0 rgba(191, 219, 254, 0.18),
-    43vw 52vh 0 1px rgba(125, 211, 252, 0.16),
-    55vw 30vh 0 0 rgba(96, 165, 250, 0.18),
-    66vw 12vh 0 1px rgba(125, 211, 252, 0.18),
-    74vw 57vh 0 0 rgba(191, 219, 254, 0.17),
-    88vw 43vh 0 1px rgba(125, 211, 252, 0.16),
-    94vw 76vh 0 0 rgba(191, 219, 254, 0.15),
-    28vw 74vh 0 1px rgba(125, 211, 252, 0.15);
-  animation: rl-landing-bubbles-b 28s ease-in-out infinite;
-}
-
-@keyframes rl-landing-bubbles-a {
+@keyframes rl-landing-bubble-float {
   0% {
     transform: translate3d(0, 0, 0);
+    opacity: 0.66;
   }
   40% {
-    transform: translate3d(1.3vw, -1.8vh, 0);
-  }
-  100% {
-    transform: translate3d(-1.8vw, -3.2vh, 0);
-  }
-}
-
-@keyframes rl-landing-bubbles-b {
-  0% {
-    transform: translate3d(0, 0, 0);
-  }
-  35% {
-    transform: translate3d(-1.1vw, -1.5vh, 0);
+    transform: translate3d(1vw, -1.4vh, 0);
+    opacity: 0.9;
   }
   70% {
-    transform: translate3d(1.4vw, -2.4vh, 0);
+    transform: translate3d(-0.8vw, -2.1vh, 0);
+    opacity: 0.78;
   }
   100% {
-    transform: translate3d(-0.8vw, -3.1vh, 0);
+    transform: translate3d(0.6vw, -3.2vh, 0);
+    opacity: 0.72;
   }
 }
 
