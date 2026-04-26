@@ -330,20 +330,6 @@ export default function UploadPage() {
 
       {tab === 'ingest' ? (
         <>
-          <section className="rl-up-stepper">
-            <div className="rl-step active">
-              <span>1</span> Configure
-            </div>
-            <div className="rl-step-line" />
-            <div className="rl-step">
-              <span>2</span> Extract
-            </div>
-            <div className="rl-step-line" />
-            <div className="rl-step">
-              <span>3</span> Results
-            </div>
-          </section>
-
           <section className="rl-up-strip">
             <button
               className={`rl-strip-tab ${ingestMode === 'manual' ? 'active' : ''}`}

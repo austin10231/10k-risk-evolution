@@ -14,13 +14,7 @@ function createSeedThread() {
     title: 'New conversation',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    messages: [
-      {
-        role: 'assistant',
-        text: 'Hi, I am RiskLens Agent. Ask naturally and I will plan the best risk analysis path.',
-        meta: { timestamp: Date.now(), lang: 'English', tools: ['Risk Synthesis'] },
-      },
-    ],
+    messages: [],
   }
 }
 
@@ -30,6 +24,7 @@ const ChatMemoryContext = createContext({
   currentThread: null,
   createThread: () => {},
   switchThread: () => {},
+  deleteThread: () => {},
   appendMessage: () => {},
   replaceMessages: () => {},
   updateThreadTitle: () => {},
@@ -100,6 +95,20 @@ export function ChatMemoryProvider({ children }) {
     setCurrentThreadId(id)
   }
 
+  const deleteThread = (id) => {
+    const nextThreads = (threads || []).filter((t) => t.id !== id)
+    if (!nextThreads.length) {
+      const seed = createSeedThread()
+      setThreads([seed])
+      setCurrentThreadId(seed.id)
+      return
+    }
+    setThreads(nextThreads)
+    if (currentThreadId === id) {
+      setCurrentThreadId(nextThreads[0].id)
+    }
+  }
+
   const appendMessage = (threadId, message) => {
     setThreads((prev) =>
       prev.map((t) => {
@@ -144,6 +153,7 @@ export function ChatMemoryProvider({ children }) {
     currentThread,
     createThread,
     switchThread,
+    deleteThread,
     appendMessage,
     replaceMessages,
     updateThreadTitle,
@@ -155,4 +165,3 @@ export function ChatMemoryProvider({ children }) {
 export function useChatMemory() {
   return useContext(ChatMemoryContext)
 }
-
