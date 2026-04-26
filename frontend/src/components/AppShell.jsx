@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
@@ -103,6 +104,22 @@ function dockPlaceholder(pathname) {
   return 'Ask any risk question…'
 }
 
+function getHistoryMenuPosition(rect) {
+  if (typeof window === 'undefined') {
+    return { top: rect.bottom + 6, left: rect.left }
+  }
+  const menuWidth = 148
+  const menuHeight = 84
+  const viewportPadding = 8
+  let left = rect.right - menuWidth
+  left = Math.min(Math.max(viewportPadding, left), window.innerWidth - menuWidth - viewportPadding)
+  let top = rect.bottom + 6
+  if (top + menuHeight > window.innerHeight - viewportPadding) {
+    top = Math.max(viewportPadding, rect.top - menuHeight - 6)
+  }
+  return { top: Math.round(top), left: Math.round(left) }
+}
+
 export default function AppShell({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -115,15 +132,18 @@ export default function AppShell({ children }) {
     error,
     clearError,
     isConversationStarted,
-    lastAssistantMessage,
     startNewThread,
   } = useWorkspaceChat()
 
+  const workspaceAppRef = useRef(null)
+  const dockRef = useRef(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [threadQuery, setThreadQuery] = useState('')
   const [activeMenuThreadId, setActiveMenuThreadId] = useState('')
+  const [activeMenuPosition, setActiveMenuPosition] = useState({ top: 0, left: 0 })
   const [editingThreadId, setEditingThreadId] = useState('')
   const [editingTitle, setEditingTitle] = useState('')
+  const [dockFocused, setDockFocused] = useState(false)
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -147,6 +167,11 @@ export default function AppShell({ children }) {
 
   const isAgentRoute = location.pathname === '/agent'
   const showLandingComposer = isAgentRoute && !isConversationStarted && !loading
+  const dockExpanded = dockFocused || loading || Boolean(String(query || '').trim())
+  const activeMenuThread = useMemo(
+    () => filteredHistoryItems.find((t) => t.id === activeMenuThreadId) || null,
+    [filteredHistoryItems, activeMenuThreadId],
+  )
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -162,11 +187,22 @@ export default function AppShell({ children }) {
     if (!activeMenuThreadId) return undefined
     const closeMenu = (event) => {
       const target = event.target
-      if (target instanceof Element && target.closest('.rl-history-actions')) return
+      if (target instanceof Element && (target.closest('.rl-history-actions') || target.closest('.rl-floating-history-menu'))) return
       setActiveMenuThreadId('')
     }
     document.addEventListener('pointerdown', closeMenu)
     return () => document.removeEventListener('pointerdown', closeMenu)
+  }, [activeMenuThreadId])
+
+  useEffect(() => {
+    if (!activeMenuThreadId) return undefined
+    const closeMenu = () => setActiveMenuThreadId('')
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+    return () => {
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
+    }
   }, [activeMenuThreadId])
 
   useEffect(() => {
@@ -186,9 +222,45 @@ export default function AppShell({ children }) {
     }
   }, [mobileNavOpen])
 
+  useEffect(() => {
+    const host = workspaceAppRef.current
+    if (!host) return undefined
+
+    const setDockHeight = (value) => {
+      host.style.setProperty('--dock-height', `${Math.max(0, Math.round(value))}px`)
+    }
+
+    if (showLandingComposer || !dockRef.current) {
+      setDockHeight(0)
+      return undefined
+    }
+
+    const dockElement = dockRef.current
+    const updateDockHeight = () => {
+      setDockHeight(dockElement.getBoundingClientRect().height)
+    }
+
+    updateDockHeight()
+    window.addEventListener('resize', updateDockHeight)
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(updateDockHeight)
+      observer.observe(dockElement)
+      return () => {
+        observer.disconnect()
+        window.removeEventListener('resize', updateDockHeight)
+      }
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateDockHeight)
+    }
+  }, [showLandingComposer, dockExpanded, error, location.pathname, loading, query])
+
   const handleNewChat = () => {
     startNewThread()
     navigate('/agent')
+    setDockFocused(false)
     setMobileNavOpen(false)
     setThreadQuery('')
     setActiveMenuThreadId('')
@@ -199,6 +271,7 @@ export default function AppShell({ children }) {
   const openThread = (threadId) => {
     switchThread(threadId)
     navigate('/agent')
+    setDockFocused(false)
     setMobileNavOpen(false)
     setActiveMenuThreadId('')
     setEditingThreadId('')
@@ -228,10 +301,20 @@ export default function AppShell({ children }) {
     if (editingThreadId === threadId) cancelRenameThread()
   }
 
+  const toggleHistoryMenu = (threadId, triggerElement) => {
+    if (activeMenuThreadId === threadId) {
+      setActiveMenuThreadId('')
+      return
+    }
+    setActiveMenuPosition(getHistoryMenuPosition(triggerElement.getBoundingClientRect()))
+    setActiveMenuThreadId(threadId)
+  }
+
   const submitQuery = async (forced) => {
     const text = String(forced ?? query).trim()
     if (!text || loading) return
     await send(text)
+    setDockFocused(false)
   }
 
   const SidebarContent = () => (
@@ -344,25 +427,12 @@ export default function AppShell({ children }) {
                     ) : (
                       <button
                         className="rl-history-menu-btn"
-                        onClick={() => setActiveMenuThreadId((prev) => (prev === t.id ? '' : t.id))}
+                        onClick={(e) => toggleHistoryMenu(t.id, e.currentTarget)}
                         aria-label="Conversation options"
                         title="Options"
                       >
                         <NavIcon name="more" />
                       </button>
-                    )}
-
-                    {isMenuOpen && (
-                      <div className="rl-history-menu" role="menu">
-                        <button className="rl-history-menu-item" onClick={() => startRenameThread(t)}>
-                          <NavIcon name="edit" />
-                          <span>Rename</span>
-                        </button>
-                        <button className="rl-history-menu-item danger" onClick={() => handleDeleteThread(t.id)}>
-                          <NavIcon name="trash" />
-                          <span>Delete</span>
-                        </button>
-                      </div>
                     )}
                   </div>
                 </div>
@@ -380,7 +450,7 @@ export default function AppShell({ children }) {
   )
 
   return (
-    <div className={`rl-app rl-workspace-app ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <div ref={workspaceAppRef} className={`rl-app rl-workspace-app ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <div className="rl-mobile-topbar">
         <button className="rl-mobile-icon-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open conversation menu">
           <NavIcon name="menu" />
@@ -477,18 +547,8 @@ export default function AppShell({ children }) {
       </main>
 
       {!showLandingComposer ? (
-        <div className="rl-global-dock" aria-live="polite">
+        <div ref={dockRef} className={`rl-global-dock ${dockExpanded ? 'expanded' : 'compact'}`} aria-live="polite">
           <div className="rl-global-dock-inner">
-            {!isAgentRoute && lastAssistantMessage ? (
-              <button className="rl-global-dock-preview" onClick={() => navigate('/agent')}>
-                <span className="left">
-                  <span className="title">Latest agent reply</span>
-                  <span className="text">{lastAssistantMessage.text}</span>
-                </span>
-                <span className="link">Open Ask view</span>
-              </button>
-            ) : null}
-
             {error ? <p className="rl-global-dock-error">{error}</p> : null}
 
             <form
@@ -504,6 +564,8 @@ export default function AppShell({ children }) {
                   if (error) clearError()
                   setQuery(e.target.value)
                 }}
+                onFocus={() => setDockFocused(true)}
+                onBlur={() => setDockFocused(false)}
                 placeholder={dockPlaceholder(location.pathname)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
@@ -524,6 +586,26 @@ export default function AppShell({ children }) {
           </div>
         </div>
       ) : null}
+
+      {activeMenuThread && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className="rl-history-menu rl-floating-history-menu"
+              role="menu"
+              style={{ top: `${activeMenuPosition.top}px`, left: `${activeMenuPosition.left}px` }}
+            >
+              <button className="rl-history-menu-item" onClick={() => startRenameThread(activeMenuThread)}>
+                <NavIcon name="edit" />
+                <span>Rename</span>
+              </button>
+              <button className="rl-history-menu-item danger" onClick={() => handleDeleteThread(activeMenuThread.id)}>
+                <NavIcon name="trash" />
+                <span>Delete</span>
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }
