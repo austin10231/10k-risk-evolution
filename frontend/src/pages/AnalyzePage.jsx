@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { get } from '../lib/api'
+import { companyOverview, groupedRiskTitles, riskCategoryCount, riskItemCount } from '../lib/records'
 
 export default function AnalyzePage() {
+  const [tab, setTab] = useState('library')
   const [records, setRecords] = useState([])
   const [selectedId, setSelectedId] = useState('')
   const [result, setResult] = useState(null)
@@ -12,12 +14,12 @@ export default function AnalyzePage() {
   useEffect(() => {
     let mounted = true
     setLoading(true)
-    get('/api/records')
+    get('/api/records?include_result=1')
       .then((res) => {
         if (!mounted) return
-        const items = res?.items || []
+        const items = Array.isArray(res?.items) ? res.items : []
         setRecords(items)
-        if (items.length > 0) setSelectedId(items[0].record_id)
+        if (items[0]?.record_id) setSelectedId(String(items[0].record_id))
       })
       .catch((e) => {
         if (!mounted) return
@@ -37,7 +39,7 @@ export default function AnalyzePage() {
     let mounted = true
     setLoadingDetail(true)
     setResult(null)
-    get(`/api/records/${selectedId}`)
+    get(`/api/records/${encodeURIComponent(selectedId)}`)
       .then((res) => {
         if (!mounted) return
         setResult(res?.result || null)
@@ -55,56 +57,122 @@ export default function AnalyzePage() {
     }
   }, [selectedId])
 
-  const riskBlocks = useMemo(() => result?.risks || [], [result])
+  const selectedRec = useMemo(
+    () => records.find((r) => String(r.record_id) === String(selectedId)) || null,
+    [records, selectedId],
+  )
+  const overview = companyOverview(result)
+  const grouped = groupedRiskTitles(result)
 
   return (
-    <div className="space-y-4">
+    <div className="rl-page-shell">
       <section className="card p-5">
-        <p className="section-title">Analyze Filing</p>
-        <h3 className="mt-1 text-2xl font-extrabold text-slate-900">Record Drilldown</h3>
-        <p className="mt-1 text-sm text-slate-500">Select one record to inspect overview, summary, and risk categories.</p>
+        <div className="page-header !mb-0 !pb-0">
+          <div className="page-header-left">
+            <span className="page-icon">🔬</span>
+            <div>
+              <p className="page-title">Analyze</p>
+              <p className="page-subtitle">Inspect filing output, summary and risk category details</p>
+            </div>
+          </div>
+        </div>
       </section>
 
-      {error && <div className="card border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
-
       <section className="card p-5">
-        <label className="section-title">Record</label>
-        <select className="input mt-2" value={selectedId} onChange={(e) => setSelectedId(e.target.value)} disabled={loading}>
-          {records.map((r) => (
-            <option key={r.record_id} value={r.record_id}>{`${r.company} · ${r.year} · ${r.filing_type}`}</option>
-          ))}
-        </select>
+        <div className="rl-tabs">
+          <button className={`rl-tab-btn ${tab === 'library' ? 'active' : ''}`} onClick={() => setTab('library')}>
+            📚 Library
+          </button>
+          <button className={`rl-tab-btn ${tab === 'new' ? 'active' : ''}`} onClick={() => setTab('new')}>
+            ➕ New Analysis
+          </button>
+        </div>
       </section>
 
-      {loadingDetail && <div className="card p-4 text-sm text-slate-500">Loading record detail…</div>}
+      {error ? <div className="card border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
 
-      {!loadingDetail && result && (
+      {tab === 'library' ? (
         <>
           <section className="card p-5">
-            <p className="section-title">Executive Summary</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{result.ai_summary || 'No AI summary stored yet.'}</p>
+            <label className="section-title">Select A Record</label>
+            <select className="input mt-2" value={selectedId} onChange={(e) => setSelectedId(e.target.value)} disabled={loading}>
+              {records.map((r) => (
+                <option key={r.record_id} value={r.record_id}>
+                  {`${r.company} · ${r.year} · ${r.filing_type || '10-K'} · ${r.industry || 'Other'}`}
+                </option>
+              ))}
+            </select>
           </section>
 
-          <section className="card p-5">
-            <p className="section-title">Risk Categories</p>
-            <div className="mt-3 space-y-3">
-              {riskBlocks.length === 0 && <p className="text-sm text-slate-500">No risk entries in this record.</p>}
-              {riskBlocks.map((block, idx) => (
-                <details key={`${block.category}-${idx}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <summary className="cursor-pointer text-sm font-bold text-slate-800">
-                    {block.category || 'Unknown'} ({(block.sub_risks || []).length})
-                  </summary>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                    {(block.sub_risks || []).map((risk, i) => {
-                      const title = typeof risk === 'string' ? risk : risk?.title || ''
-                      return <li key={i}>{title}</li>
-                    })}
-                  </ul>
-                </details>
-              ))}
-            </div>
-          </section>
+          {loadingDetail ? <div className="card p-4 text-sm text-slate-500">Loading record detail…</div> : null}
+
+          {!loadingDetail && result ? (
+            <>
+              <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="metric-card">
+                  <p className="metric-label">Company</p>
+                  <p className="metric-value">{overview.company || selectedRec?.company || '—'}</p>
+                </div>
+                <div className="metric-card">
+                  <p className="metric-label">Year</p>
+                  <p className="metric-value">{overview.year || selectedRec?.year || '—'}</p>
+                </div>
+                <div className="metric-card">
+                  <p className="metric-label">Risk Categories</p>
+                  <p className="metric-value">{riskCategoryCount(result)}</p>
+                </div>
+                <div className="metric-card">
+                  <p className="metric-label">Risk Items</p>
+                  <p className="metric-value">{riskItemCount(result)}</p>
+                </div>
+              </section>
+
+              <section className="card p-5">
+                <div className="rl-section-header">🤖 AI Executive Summary</div>
+                <div className="rl-info-box whitespace-pre-wrap">{result.ai_summary || 'No AI summary stored yet.'}</div>
+              </section>
+
+              {overview.background ? (
+                <section className="card p-5">
+                  <div className="rl-section-header">🏢 Company Overview</div>
+                  <p className="rl-body-text">{overview.background}</p>
+                </section>
+              ) : null}
+
+              <section className="card p-5">
+                <div className="rl-section-header">⚠️ Risk Categories ({grouped.length})</div>
+                <div className="space-y-2">
+                  {grouped.length === 0 ? <p className="text-sm text-slate-500">No risk entries in this record.</p> : null}
+                  {grouped.map((g) => (
+                    <details key={g.category} className="rl-expander">
+                      <summary>
+                        {g.category} ({g.titles.length})
+                      </summary>
+                      <ul>
+                        {g.titles.slice(0, 36).map((title, idx) => (
+                          <li key={`${g.category}-${idx}`}>{title}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  ))}
+                </div>
+              </section>
+            </>
+          ) : null}
         </>
+      ) : (
+        <section className="card p-5">
+          <div className="rl-section-header">➕ New Analysis</div>
+          <p className="rl-body-text">
+            This decoupled frontend keeps the same visual workflow. Manual upload / SEC auto-fetch execution currently runs through the
+            Streamlit runtime path, and will be migrated into API endpoints in the next backend phase.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="rl-mini-tile">Upload filing HTML/PDF</div>
+            <div className="rl-mini-tile">Choose year + industry + extraction mode</div>
+            <div className="rl-mini-tile">Save record + result to runtime store</div>
+          </div>
+        </section>
       )}
     </div>
   )

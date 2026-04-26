@@ -12,3 +12,9 @@ data/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Frontend local artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+.env.local

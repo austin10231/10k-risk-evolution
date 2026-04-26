@@ -1,64 +1,149 @@
-import React from 'react'
-import { NavLink } from 'react-router-dom'
+import React, { useEffect, useMemo, useState } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import FloatingChatWidget from './FloatingChatWidget'
+import { useChatMemory } from '../lib/chatMemory'
 
-const NAV = [
-  { to: '/', label: 'Home' },
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/library', label: 'Library' },
-  { to: '/analyze', label: 'Analyze' },
-  { to: '/compare', label: 'Compare' },
-  { to: '/news', label: 'News' },
-  { to: '/stock', label: 'Stock' },
-  { to: '/agent', label: 'Agent' },
+const NAV_GROUPS = [
+  {
+    label: 'DATA',
+    items: [
+      { to: '/home', icon: '🏠', label: 'Home' },
+      { to: '/upload', icon: '➕', label: 'Upload' },
+      { to: '/dashboard', icon: '📈', label: 'Dashboard' },
+      { to: '/stock', icon: '💹', label: 'Stock' },
+      { to: '/news', icon: '📰', label: 'News' },
+      { to: '/library', icon: '📚', label: 'Library' },
+    ],
+  },
+  {
+    label: 'ANALYSIS',
+    items: [
+      { to: '/compare', icon: '⚖️', label: 'Compare' },
+      { to: '/tables', icon: '📊', label: 'Tables' },
+    ],
+  },
+  {
+    label: 'INTELLIGENCE',
+    items: [{ to: '/agent', icon: '🤖', label: 'Agent' }],
+  },
 ]
 
 export default function AppShell({ children }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { threads, currentThreadId, switchThread, createThread } = useChatMemory()
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('risklens_sidebar_collapsed_v1') === '1'
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('risklens_sidebar_collapsed_v1', sidebarCollapsed ? '1' : '0')
+  }, [sidebarCollapsed])
+
+  const historyItems = useMemo(
+    () =>
+      (threads || [])
+        .slice()
+        .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+        .slice(0, 10),
+    [threads],
+  )
+
   return (
-    <div className="min-h-screen">
-      <div className="mx-auto flex max-w-[1400px] gap-4 px-4 py-4 lg:px-6">
-        <aside className="sticky top-4 hidden h-[calc(100vh-2rem)] w-64 flex-col rounded-2xl border border-slate-200 bg-slate-900 p-4 text-slate-100 shadow-card lg:flex">
-          <div className="mb-5 border-b border-slate-700 pb-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">RiskLens</p>
-            <h1 className="mt-1 text-2xl font-extrabold leading-tight">Product Suite</h1>
-            <p className="mt-2 text-xs text-slate-400">Frontend decoupled from backend runtime</p>
+    <div className="rl-app">
+      <aside className={`rl-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+        <div className="rl-sidebar-scroll">
+          <div className="rl-brand">
+            <div className="rl-brand-icon" aria-hidden="true">
+              <span className="bar b1" />
+              <span className="bar b2" />
+              <span className="bar b3" />
+            </div>
+            <div>
+              <p className="rl-brand-title">
+                RiskLens<span>AI</span>
+              </p>
+              <p className="rl-brand-sub">10-K Risk Intelligence</p>
+            </div>
           </div>
 
-          <nav className="space-y-1">
-            {NAV.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `block rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                    isActive
-                      ? 'bg-white/15 text-white'
-                      : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                  }`
-                }
+          <div className="rl-chat-nav-block">
+            <div className="rl-chat-nav-head">
+              <p>Conversations</p>
+              <button
+                className="rl-new-chat-btn"
+                onClick={() => {
+                  createThread()
+                  navigate('/agent')
+                }}
               >
-                {item.label}
-              </NavLink>
+                + New
+              </button>
+            </div>
+
+            <div className="rl-history-list">
+              {historyItems.map((t) => (
+                <button
+                  key={t.id}
+                  className={`rl-history-item ${currentThreadId === t.id && location.pathname === '/agent' ? 'active' : ''}`}
+                  onClick={() => {
+                    switchThread(t.id)
+                    navigate('/agent')
+                  }}
+                >
+                  <span className="dot" />
+                  <span className="text">{t.title || 'New conversation'}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <nav className="rl-nav">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.label} className="rl-nav-group">
+                <p className="rl-nav-group-label">{group.label}</p>
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={({ isActive }) =>
+                      `rl-nav-item ${isActive ? 'active' : ''}`
+                    }
+                  >
+                    <span className="rl-nav-item-inner">
+                      <span className="rl-nav-icon">{item.icon}</span>
+                      <span className="rl-nav-label">{item.label}</span>
+                    </span>
+                  </NavLink>
+                ))}
+              </div>
             ))}
           </nav>
+        </div>
 
-          <div className="mt-auto rounded-xl border border-slate-700 bg-slate-800/80 p-3 text-xs text-slate-300">
-            Ask in English or Chinese. UI stays English by design.
-          </div>
-        </aside>
+        <div className="rl-sidebar-footer">
+          <div className="dot" />
+          <p>© 2026 SCU · AWS Team 1</p>
+        </div>
+      </aside>
 
-        <main className="min-w-0 flex-1">
-          <header className="card mb-4 flex items-center justify-between px-5 py-4">
-            <div>
-              <h2 className="text-xl font-extrabold text-slate-900">Risk Intelligence Workspace</h2>
-              <p className="text-sm text-slate-500">Chat-first agent + records + market context</p>
-            </div>
-            <span className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-bold text-brand-700">
-              API mode
-            </span>
-          </header>
+      <button
+        className={`rl-sidebar-toggle ${sidebarCollapsed ? 'collapsed' : ''}`}
+        onClick={() => setSidebarCollapsed((v) => !v)}
+        aria-label="Toggle navigation sidebar"
+      >
+        <span>{sidebarCollapsed ? '›' : '‹'}</span>
+      </button>
+
+      <main className="rl-main">
+        <div className="rl-main-inner">
           {children}
-        </main>
-      </div>
+        </div>
+      </main>
+      <FloatingChatWidget />
     </div>
   )
 }
