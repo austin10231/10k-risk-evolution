@@ -866,6 +866,96 @@ body {
   @apply rounded-2xl border border-slate-200 bg-white p-4;
 }
 
+.rl-up-records > h3 {
+  margin: 0;
+}
+
+.rl-up-records-table-wrap {
+  margin-top: 10px;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  overflow: auto;
+  max-height: 460px;
+  background: #ffffff;
+}
+
+.rl-up-record-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 980px;
+}
+
+.rl-up-record-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fbff;
+  border-bottom: 1px solid #dbe3ef;
+  color: #64748b;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 800;
+  padding: 9px 11px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.rl-up-record-table tbody td {
+  border-bottom: 1px solid #eef2f7;
+  color: #334155;
+  font-size: 0.82rem;
+  padding: 9px 11px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.rl-up-record-row {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.rl-up-record-row:hover {
+  background: #f8fbff;
+}
+
+.rl-up-record-row.active {
+  background: #eff6ff;
+}
+
+.rl-up-company-cell strong {
+  display: block;
+  color: #0f172a;
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.rl-up-company-cell span {
+  display: block;
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rl-up-row-btn {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  border-radius: 10px;
+}
+
+.rl-up-record-empty {
+  padding: 16px 12px !important;
+  text-align: center;
+  color: #64748b !important;
+  font-size: 0.84rem !important;
+}
+
 .rl-up-form {
   border: 1px solid rgba(203, 213, 225, 0.7);
   border-radius: 16px;
