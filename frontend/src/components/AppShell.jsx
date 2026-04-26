@@ -22,18 +22,6 @@ const LANDING_QUICK_PROMPTS = [
   'Find red flags in the latest 10-K filing quickly',
 ]
 
-const LANDING_BUBBLES = [
-  { x: '8%', y: '14%', size: '11px', delay: '0s', duration: '22s' },
-  { x: '16%', y: '68%', size: '9px', delay: '1.4s', duration: '25s' },
-  { x: '28%', y: '22%', size: '8px', delay: '0.9s', duration: '19s' },
-  { x: '38%', y: '78%', size: '10px', delay: '2.3s', duration: '24s' },
-  { x: '52%', y: '16%', size: '8px', delay: '1.8s', duration: '20s' },
-  { x: '64%', y: '72%', size: '11px', delay: '0.6s', duration: '27s' },
-  { x: '74%', y: '28%', size: '9px', delay: '2.1s', duration: '23s' },
-  { x: '84%', y: '60%', size: '8px', delay: '1.2s', duration: '21s' },
-  { x: '92%', y: '20%', size: '10px', delay: '2.8s', duration: '26s' },
-]
-
 const ICONS = {
   plus: (
     <>
@@ -567,21 +555,6 @@ export default function AppShell({ children }) {
           {children}
           {showLandingComposer ? (
             <>
-              <div className="rl-landing-bubbles" aria-hidden="true">
-                {LANDING_BUBBLES.map((bubble, idx) => (
-                  <span
-                    key={`landing-bubble-${idx}`}
-                    className="rl-landing-bubble"
-                    style={{
-                      '--bubble-x': bubble.x,
-                      '--bubble-y': bubble.y,
-                      '--bubble-size': bubble.size,
-                      '--bubble-delay': bubble.delay,
-                      '--bubble-duration': bubble.duration,
-                    }}
-                  />
-                ))}
-              </div>
               <section className="rl-landing-center">
                 <p className="rl-landing-brand">
                   <span className="brand-main">RiskLens</span>

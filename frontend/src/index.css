@@ -724,9 +724,17 @@ body {
   inset: 0;
   background-image:
     linear-gradient(rgba(148, 163, 184, 0.075) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.065) 1px, transparent 1px);
-  background-size: 48px 48px;
-  opacity: 0.3;
+    linear-gradient(90deg, rgba(148, 163, 184, 0.065) 1px, transparent 1px),
+    radial-gradient(rgba(148, 163, 184, 0.09) 0.65px, transparent 0.8px);
+  background-size:
+    48px 48px,
+    48px 48px,
+    3px 3px;
+  background-position:
+    0 0,
+    0 0,
+    1px 1px;
+  opacity: 0.28;
   mask-image: radial-gradient(circle at 50% 42%, black 18%, transparent 78%);
   pointer-events: none;
   z-index: 0;
@@ -735,52 +743,6 @@ body {
 .rl-workspace-content.landing > * {
   position: relative;
   z-index: 2;
-}
-
-.rl-workspace-content.landing > .rl-landing-bubbles {
-  z-index: 1;
-  opacity: 0.96;
-}
-
-.rl-landing-bubbles {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.rl-landing-bubble {
-  position: absolute;
-  left: var(--bubble-x);
-  top: var(--bubble-y);
-  width: var(--bubble-size, 9px);
-  height: var(--bubble-size, 9px);
-  border-radius: 999px;
-  background: radial-gradient(circle at 35% 35%, rgba(224, 242, 254, 0.9), rgba(125, 211, 252, 0.42));
-  box-shadow:
-    0 0 0 1px rgba(186, 230, 253, 0.5),
-    0 6px 14px rgba(56, 189, 248, 0.14);
-  animation: rl-landing-bubble-float var(--bubble-duration, 22s) ease-in-out infinite;
-  animation-delay: var(--bubble-delay, 0s);
-}
-
-@keyframes rl-landing-bubble-float {
-  0% {
-    transform: translate3d(0, 0, 0);
-    opacity: 0.66;
-  }
-  40% {
-    transform: translate3d(1vw, -1.4vh, 0);
-    opacity: 0.9;
-  }
-  70% {
-    transform: translate3d(-0.8vw, -2.1vh, 0);
-    opacity: 0.78;
-  }
-  100% {
-    transform: translate3d(0.6vw, -3.2vh, 0);
-    opacity: 0.72;
-  }
 }
 
 .rl-landing-center {

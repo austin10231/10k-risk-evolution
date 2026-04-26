@@ -1,5 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import React, { useEffect, useRef, useState } from 'react'
 import { post } from '../lib/api'
 
 const MAX_MESSAGES = 30
@@ -34,17 +33,6 @@ function defaultMessage() {
   }
 }
 
-function routeLabel(pathname) {
-  if (pathname.startsWith('/dashboard')) return 'Dashboard'
-  if (pathname.startsWith('/library')) return 'Library'
-  if (pathname.startsWith('/analyze')) return 'Analyze'
-  if (pathname.startsWith('/compare')) return 'Compare'
-  if (pathname.startsWith('/news')) return 'News'
-  if (pathname.startsWith('/stock')) return 'Stock'
-  if (pathname.startsWith('/agent')) return 'Agent'
-  return 'Home'
-}
-
 function SendArrowIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -55,7 +43,6 @@ function SendArrowIcon() {
 }
 
 export default function FloatingChatWidget() {
-  const location = useLocation()
   const [open, setOpen] = useState(false)
   const [fabPos, setFabPos] = useState(() => {
     if (typeof window === 'undefined') return { x: 0, y: 0 }
@@ -132,8 +119,6 @@ export default function FloatingChatWidget() {
       return getDefaultPanelPos(fabPos)
     })
   }, [open, fabPos])
-
-  const page = useMemo(() => routeLabel(location.pathname), [location.pathname])
 
   const canSend = query.trim().length > 0 && !loading
 
@@ -250,7 +235,6 @@ export default function FloatingChatWidget() {
           <header className="rl-chat-header" onPointerDown={startPanelDrag}>
             <div>
               <p className="rl-chat-title">RiskLens AI Assistant</p>
-              <p className="rl-chat-subtitle">Current page: {page}</p>
             </div>
             <button className="rl-chat-close" onClick={() => setOpen(false)} aria-label="Close chat">
               ×
