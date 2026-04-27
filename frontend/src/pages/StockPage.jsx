@@ -11,6 +11,109 @@ const STOCK_RECENT_TICKERS_KEY = 'rl_stock_recent_tickers_v1'
 const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v1_'
 const STOCK_BUNDLE_TTL_MS = 1000 * 60 * 60 * 12
 
+const LOGO_DOMAIN_BY_TICKER = {
+  AAPL: 'apple.com',
+  MSFT: 'microsoft.com',
+  NVDA: 'nvidia.com',
+  AMZN: 'amazon.com',
+  GOOGL: 'google.com',
+  GOOG: 'google.com',
+  META: 'meta.com',
+  TSLA: 'tesla.com',
+  NFLX: 'netflix.com',
+  ORCL: 'oracle.com',
+  IBM: 'ibm.com',
+  INTC: 'intel.com',
+  AMD: 'amd.com',
+  AVGO: 'broadcom.com',
+  ADBE: 'adobe.com',
+  CSCO: 'cisco.com',
+  QCOM: 'qualcomm.com',
+  SAP: 'sap.com',
+  JPM: 'jpmorganchase.com',
+  BAC: 'bankofamerica.com',
+  WFC: 'wellsfargo.com',
+  C: 'citigroup.com',
+  V: 'visa.com',
+  MA: 'mastercard.com',
+  'BRK.B': 'berkshirehathaway.com',
+  WMT: 'walmart.com',
+  COST: 'costco.com',
+  PG: 'pg.com',
+  KO: 'coca-colacompany.com',
+  PEP: 'pepsico.com',
+  MCD: 'mcdonalds.com',
+  NKE: 'nike.com',
+  XOM: 'exxonmobil.com',
+  CVX: 'chevron.com',
+  BA: 'boeing.com',
+  CAT: 'cat.com',
+  GE: 'ge.com',
+  UNH: 'unitedhealthgroup.com',
+  JNJ: 'jnj.com',
+  PFE: 'pfizer.com',
+  LLY: 'lilly.com',
+  MRK: 'merck.com',
+  TMO: 'thermofisher.com',
+  ABBV: 'abbvie.com',
+  DIS: 'disney.com',
+  CMCSA: 'corporate.comcast.com',
+  T: 'att.com',
+  VZ: 'verizon.com',
+  TMUS: 't-mobile.com',
+  AAL: 'aa.com',
+  UAL: 'united.com',
+  DAL: 'delta.com',
+  AIR: 'airbus.com',
+}
+
+const SECTOR_BY_TICKER = {
+  AAPL: 'Technology',
+  MSFT: 'Technology',
+  NVDA: 'Technology',
+  AMD: 'Technology',
+  INTC: 'Technology',
+  QCOM: 'Technology',
+  CSCO: 'Technology',
+  ORCL: 'Technology',
+  META: 'Communication Services',
+  GOOGL: 'Communication Services',
+  GOOG: 'Communication Services',
+  NFLX: 'Communication Services',
+  CMCSA: 'Communication Services',
+  T: 'Communication Services',
+  VZ: 'Communication Services',
+  TMUS: 'Communication Services',
+  AMZN: 'Consumer Cyclical',
+  TSLA: 'Consumer Cyclical',
+  MCD: 'Consumer Cyclical',
+  NKE: 'Consumer Cyclical',
+  WMT: 'Consumer Defensive',
+  COST: 'Consumer Defensive',
+  PG: 'Consumer Defensive',
+  KO: 'Consumer Defensive',
+  PEP: 'Consumer Defensive',
+  JPM: 'Financial Services',
+  BAC: 'Financial Services',
+  WFC: 'Financial Services',
+  C: 'Financial Services',
+  V: 'Financial Services',
+  MA: 'Financial Services',
+  'BRK.B': 'Financial Services',
+  XOM: 'Energy',
+  CVX: 'Energy',
+  BA: 'Industrials',
+  CAT: 'Industrials',
+  GE: 'Industrials',
+  UNH: 'Healthcare',
+  JNJ: 'Healthcare',
+  PFE: 'Healthcare',
+  LLY: 'Healthcare',
+  MRK: 'Healthcare',
+  TMO: 'Healthcare',
+  ABBV: 'Healthcare',
+}
+
 function normalizeTicker(raw) {
   return String(raw || '')
     .trim()
@@ -334,17 +437,119 @@ function initialsFor(name, ticker) {
   return String(ticker || '').slice(0, 2).toUpperCase() || 'ST'
 }
 
-function logoStyle(seed) {
-  const text = String(seed || 'stock')
-  let hash = 0
-  for (let i = 0; i < text.length; i += 1) {
-    hash = text.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  const h1 = Math.abs(hash) % 360
-  const h2 = (h1 + 48) % 360
-  return {
-    background: `linear-gradient(135deg, hsl(${h1} 68% 52%), hsl(${h2} 76% 43%))`,
-  }
+function normalizeCompanyRoot(raw) {
+  let s = String(raw || '').trim().toLowerCase()
+  if (!s) return ''
+  s = s.replace(/[.,()']/g, ' ')
+  s = s.replace(/\b(inc|incorporated|corp|corporation|company|co|ltd|limited|plc|holdings?|group|class [ab])\b/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  const token = s.split(' ').filter(Boolean)[0] || ''
+  return token.replace(/[^a-z0-9-]/g, '')
+}
+
+function logoCandidates(ticker, companyName) {
+  const sym = normalizeTicker(ticker)
+  const domains = []
+  const mappedDomain = LOGO_DOMAIN_BY_TICKER[sym]
+  if (mappedDomain) domains.push(mappedDomain)
+
+  const root = normalizeCompanyRoot(companyName)
+  if (root && root.length >= 3) domains.push(`${root}.com`)
+
+  const uniq = Array.from(new Set(domains))
+  const urls = []
+  uniq.forEach((domain) => {
+    urls.push(`https://logo.clearbit.com/${domain}`)
+    urls.push(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`)
+  })
+  return urls
+}
+
+function normalizeSectorName(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return ''
+  const lower = text.toLowerCase()
+  const replacements = [
+    ['information technology', 'Technology'],
+    ['technology', 'Technology'],
+    ['communication services', 'Communication Services'],
+    ['communications', 'Communication Services'],
+    ['consumer discretionary', 'Consumer Cyclical'],
+    ['consumer cyclical', 'Consumer Cyclical'],
+    ['consumer defensive', 'Consumer Defensive'],
+    ['consumer staples', 'Consumer Defensive'],
+    ['financials', 'Financial Services'],
+    ['financial services', 'Financial Services'],
+    ['health care', 'Healthcare'],
+    ['healthcare', 'Healthcare'],
+    ['energy', 'Energy'],
+    ['industrials', 'Industrials'],
+    ['industrial', 'Industrials'],
+    ['utilities', 'Utilities'],
+    ['real estate', 'Real Estate'],
+    ['materials', 'Basic Materials'],
+    ['basic materials', 'Basic Materials'],
+  ]
+  const found = replacements.find(([k]) => lower.includes(k))
+  if (found) return found[1]
+  return text
+}
+
+function inferSectorFromName(companyName = '') {
+  const c = String(companyName || '').toLowerCase()
+  if (!c) return ''
+  if (/(bank|capital|financial|insurance|asset|trust|credit)/.test(c)) return 'Financial Services'
+  if (/(health|pharma|therapeutics|medical|biotech)/.test(c)) return 'Healthcare'
+  if (/(energy|oil|gas|petro)/.test(c)) return 'Energy'
+  if (/(software|semiconductor|micro|tech|cloud|systems|electronics)/.test(c)) return 'Technology'
+  if (/(media|communications|telecom|wireless|internet)/.test(c)) return 'Communication Services'
+  if (/(retail|consumer|restaurant|auto|apparel|travel)/.test(c)) return 'Consumer Cyclical'
+  if (/(beverage|food|grocery|household)/.test(c)) return 'Consumer Defensive'
+  if (/(industrial|machinery|aerospace|airlines|logistics)/.test(c)) return 'Industrials'
+  return ''
+}
+
+function resolveEquitySector({ filingIndustry, quoteSector, ticker, company }) {
+  const filing = normalizeSectorName(filingIndustry)
+  if (filing && filing.toLowerCase() !== 'other') return filing
+
+  const quote = normalizeSectorName(quoteSector)
+  if (quote && quote.toLowerCase() !== 'other') return quote
+
+  const mapped = normalizeSectorName(SECTOR_BY_TICKER[normalizeTicker(ticker)])
+  if (mapped) return mapped
+
+  const inferred = inferSectorFromName(company)
+  if (inferred) return inferred
+
+  return 'Other'
+}
+
+function CompanyLogo({ ticker, company }) {
+  const [cursor, setCursor] = useState(0)
+  const candidates = useMemo(() => logoCandidates(ticker, company), [ticker, company])
+  const src = candidates[cursor] || ''
+
+  useEffect(() => {
+    setCursor(0)
+  }, [ticker, company])
+
+  return (
+    <div className="rl-stock-logo" aria-hidden="true">
+      {src ? (
+        <img
+          key={`${ticker}-${cursor}`}
+          className="rl-stock-logo-img"
+          src={src}
+          alt=""
+          loading="lazy"
+          onError={() => setCursor((idx) => idx + 1)}
+        />
+      ) : (
+        <span className="rl-stock-logo-fallback">{initialsFor(company, ticker)}</span>
+      )}
+    </div>
+  )
 }
 
 function toneClass(v) {
@@ -706,10 +911,16 @@ export default function StockPage() {
     return tickers.map((tk) => {
       const meta = companyMapByTicker[tk] || {}
       const payload = bundleMap[tk]?.data || null
+      const company = meta.company || payload?.name || tk
       return {
         ticker: tk,
-        company: meta.company || payload?.name || tk,
-        industry: meta.industry || 'Other',
+        company,
+        industry: resolveEquitySector({
+          filingIndustry: meta.industry,
+          quoteSector: payload?.sector,
+          ticker: tk,
+          company,
+        }),
         year: meta.year || null,
         data: payload,
         change_percent: Number(payload?.change_percent),
@@ -1048,7 +1259,7 @@ export default function StockPage() {
                 <article key={`spot-${row.ticker}`} className="rl-stock-spotlight-item">
                   <div className="rl-stock-spotlight-head">
                     <div className="rl-stock-company-mini" onClick={() => setSelectedTicker(row.ticker)}>
-                      <div className="rl-stock-logo" style={logoStyle(row.ticker)}>{initialsFor(row.company, row.ticker)}</div>
+                      <CompanyLogo ticker={row.ticker} company={row.company} />
                       <div>
                         <p>{row.company}</p>
                         <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
@@ -1090,7 +1301,7 @@ export default function StockPage() {
                 return (
                   <button key={`popular-${row.ticker}`} className="rl-stock-company-item" onClick={() => setSelectedTicker(row.ticker)}>
                     <div className="rl-stock-company-mini">
-                      <div className="rl-stock-logo" style={logoStyle(row.ticker)}>{initialsFor(row.company, row.ticker)}</div>
+                      <CompanyLogo ticker={row.ticker} company={row.company} />
                       <div>
                         <p>{row.company}</p>
                         <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
@@ -1110,7 +1321,6 @@ export default function StockPage() {
           <section className="rl-stock-side-card">
             <div className="rl-stock-side-head">
               <p>Leaders Board</p>
-              <span>Switch gainers / losers / active</span>
             </div>
             <div className="rl-stock-board-tabs">
               {[
@@ -1125,7 +1335,7 @@ export default function StockPage() {
               {boardRows.map((row) => (
                 <div key={`board-${row.ticker}`} className="rl-stock-board-item">
                   <div className="rl-stock-company-mini">
-                    <div className="rl-stock-logo" style={logoStyle(row.ticker)}>{initialsFor(row.company, row.ticker)}</div>
+                    <CompanyLogo ticker={row.ticker} company={row.company} />
                     <div>
                       <p>{row.company}</p>
                       <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
@@ -1143,8 +1353,7 @@ export default function StockPage() {
 
           <section className="rl-stock-side-card">
             <div className="rl-stock-side-head">
-              <p>Industry Buckets</p>
-              <span>Grouped by uploaded filing industry</span>
+              <p>Equity Sectors</p>
             </div>
             <div className="rl-stock-sector-list">
               {sectorRows.map((row) => (
@@ -1154,7 +1363,7 @@ export default function StockPage() {
                   <em className={toneClass(row.avgPct)}>{fmtPct(row.avgPct)}</em>
                 </div>
               ))}
-              {!sectorRows.length ? <p className="rl-stock-muted">Industry buckets appear after stock quotes load.</p> : null}
+              {!sectorRows.length ? <p className="rl-stock-muted">No sector data yet.</p> : null}
             </div>
           </section>
 

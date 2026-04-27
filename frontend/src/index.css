@@ -2081,13 +2081,11 @@ select.input {
 }
 
 .rl-stock-side-card {
-  border: 1px solid rgba(184, 200, 223, 0.86);
-  border-radius: 14px;
-  background:
-    radial-gradient(130% 135% at 100% 0%, rgba(30, 64, 175, 0.1), rgba(30, 64, 175, 0)),
-    rgba(246, 250, 255, 0.9);
+  border: 1px solid rgba(182, 197, 220, 0.82);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.9), rgba(243, 248, 255, 0.86));
   padding: 10px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.055);
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.045);
 }
 
 .rl-stock-side-head {
@@ -2413,17 +2411,29 @@ select.input {
 }
 
 .rl-stock-logo {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
   display: grid;
   place-items: center;
-  color: #ffffff;
-  font-size: 0.73rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  border: 1px solid rgba(190, 205, 226, 0.9);
+  background: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
   flex: 0 0 auto;
+}
+
+.rl-stock-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.rl-stock-logo-fallback {
+  color: #334155;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 
 .rl-stock-company-price {
@@ -2504,9 +2514,9 @@ select.input {
 
 .rl-stock-company-item,
 .rl-stock-board-item {
-  border: 1px solid rgba(193, 206, 226, 0.84);
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(195, 208, 227, 0.86);
+  border-radius: 10px;
+  background: rgba(252, 254, 255, 0.78);
   padding: 8px 9px;
   display: flex;
   justify-content: space-between;
@@ -2541,8 +2551,30 @@ select.input {
 }
 
 .rl-stock-board-tabs button.active {
-  background: rgba(59, 130, 246, 0.9);
+  background: rgba(37, 99, 235, 0.88);
   color: #ffffff;
+}
+
+.rl-stock-company-list .rl-stock-company-mini p,
+.rl-stock-board-list .rl-stock-company-mini p {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.rl-stock-company-list .rl-stock-company-mini span,
+.rl-stock-board-list .rl-stock-company-mini span {
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.rl-stock-company-list .rl-stock-company-price strong,
+.rl-stock-board-list .rl-stock-company-price strong {
+  font-size: 0.88rem;
+}
+
+.rl-stock-company-list .rl-stock-company-price em,
+.rl-stock-board-list .rl-stock-company-price em {
+  font-size: 0.78rem;
 }
 
 .rl-stock-sector-item {
