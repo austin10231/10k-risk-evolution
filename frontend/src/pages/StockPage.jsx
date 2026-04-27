@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { get } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 
 const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL']
 const RANGE_OPTIONS = ['1W', '1M', '3M', '6M', '1Y']
 const RANGE_SIZE = { '1W': 5, '1M': 22, '3M': 66, '6M': 132, '1Y': 252 }
+
 const STOCK_LAST_TICKER_KEY = 'rl_stock_last_ticker_v1'
 const STOCK_RECENT_TICKERS_KEY = 'rl_stock_recent_tickers_v1'
 const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v1_'
@@ -45,7 +45,7 @@ function writeLocalJson(key, value) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value))
   } catch {
-    // ignore write failures
+    // ignore
   }
 }
 
@@ -63,7 +63,7 @@ function writeLastTicker(ticker) {
   try {
     window.localStorage.setItem(STOCK_LAST_TICKER_KEY, normalizeTicker(ticker))
   } catch {
-    // ignore write failures
+    // ignore
   }
 }
 
@@ -74,7 +74,7 @@ function readRecentTickers() {
 }
 
 function writeRecentTickers(list) {
-  writeLocalJson(STOCK_RECENT_TICKERS_KEY, mergeTickers(list).slice(0, 10))
+  writeLocalJson(STOCK_RECENT_TICKERS_KEY, mergeTickers(list).slice(0, 12))
 }
 
 function cacheKeyForTicker(ticker) {
@@ -88,51 +88,17 @@ function readBundleCache(ticker) {
   const savedAt = Number(payload.saved_at || 0)
   const data = payload.data && typeof payload.data === 'object' ? payload.data : null
   if (!data) return null
-  return {
-    savedAt: Number.isFinite(savedAt) ? savedAt : 0,
-    data,
-  }
+  return { savedAt: Number.isFinite(savedAt) ? savedAt : 0, data }
 }
 
 function writeBundleCache(ticker, data) {
   if (!ticker || !data || typeof data !== 'object') return
-  writeLocalJson(cacheKeyForTicker(ticker), {
-    saved_at: Date.now(),
-    data,
-  })
+  writeLocalJson(cacheKeyForTicker(ticker), { saved_at: Date.now(), data })
 }
 
 function isBundleStale(savedAt) {
   if (!Number.isFinite(savedAt) || savedAt <= 0) return true
   return Date.now() - savedAt > STOCK_BUNDLE_TTL_MS
-}
-
-function fmtPrice(v) {
-  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—'
-  return `$${Number(v).toFixed(2)}`
-}
-
-function fmtPct(v) {
-  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—'
-  const n = Number(v)
-  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
-}
-
-function fmtCompact(v) {
-  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—'
-  const n = Number(v)
-  const abs = Math.abs(n)
-  if (abs >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(2)}T`
-  if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`
-  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-  if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return n.toLocaleString()
-}
-
-function fmtSigned(v) {
-  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—'
-  const n = Number(v)
-  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}`
 }
 
 function timeAgoFrom(ts) {
@@ -144,8 +110,36 @@ function timeAgoFrom(ts) {
   if (mins < 60) return `${mins}m ago`
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+function fmtPrice(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return `$${n.toFixed(2)}`
+}
+
+function fmtPct(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
+}
+
+function fmtSigned(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}`
+}
+
+function fmtCompact(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  const abs = Math.abs(n)
+  if (abs >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(2)}T`
+  if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return n.toLocaleString()
 }
 
 function providerLabel(raw) {
@@ -166,15 +160,9 @@ function buildBundleHint(payload, mode = '') {
   const warning = String(p.warning || '').trim()
   const fromCache = mode === 'cache' || Boolean(p.cache_hit)
 
-  if (warning && fromCache) {
-    return `Live refresh rate-limited; using cached view. Quote: ${quoteSource} · History: ${historySource}`
-  }
-  if (warning) {
-    return `${warning} Quote: ${quoteSource} · History: ${historySource}`
-  }
-  if (fromCache) {
-    return `Cached data active. Quote: ${quoteSource} · History: ${historySource}`
-  }
+  if (warning && fromCache) return `Rate-limited refresh, showing cache. Quote: ${quoteSource} · History: ${historySource}`
+  if (warning) return `${warning} Quote: ${quoteSource} · History: ${historySource}`
+  if (fromCache) return `Cached data active. Quote: ${quoteSource} · History: ${historySource}`
   return `Live data. Quote: ${quoteSource} · History: ${historySource}`
 }
 
@@ -190,9 +178,21 @@ function sanitizeCompanyName(raw) {
 function buildCompanyQuery(name) {
   const normalized = sanitizeCompanyName(name)
   if (!normalized) return ''
-  const tokens = normalized.split(' ').filter(Boolean)
-  if (!tokens.length) return ''
-  return tokens.slice(0, 2).join(' ')
+  return normalized.split(' ').filter(Boolean).slice(0, 2).join(' ')
+}
+
+function clipHistory(history, key) {
+  const rows = (Array.isArray(history) ? history : [])
+    .map((row) => ({
+      date: String(row?.date || ''),
+      close: Number(row?.close),
+      volume: Number(row?.volume || 0),
+    }))
+    .filter((row) => row.date && Number.isFinite(row.close))
+
+  if (!rows.length) return []
+  const size = RANGE_SIZE[key] || RANGE_SIZE['1M']
+  return rows.length <= size ? rows : rows.slice(-size)
 }
 
 function numericSeries(history, key) {
@@ -216,68 +216,36 @@ function drawdownSeries(closeVals) {
   })
 }
 
-function rangeSize(key) {
-  return RANGE_SIZE[key] || RANGE_SIZE['1M']
-}
-
-function clipHistory(history, key) {
-  const rows = Array.isArray(history) ? history : []
-  const cleaned = rows
-    .map((row) => ({
-      date: String(row?.date || ''),
-      close: Number(row?.close),
-      volume: Number(row?.volume || 0),
-    }))
-    .filter((row) => row.date && Number.isFinite(row.close))
-
-  if (!cleaned.length) return []
-  const size = rangeSize(key)
-  return cleaned.length <= size ? cleaned : cleaned.slice(-size)
-}
-
-function chartColorFor(values, fallbackUp = '#2563eb', fallbackDown = '#dc2626') {
-  if (!Array.isArray(values) || values.length < 2) return fallbackUp
-  const last = Number(values[values.length - 1])
-  const first = Number(values[0])
-  if (!Number.isFinite(last) || !Number.isFinite(first)) return fallbackUp
-  return last >= first ? fallbackUp : fallbackDown
+function chartColorFor(values, up = '#16a34a', down = '#ef4444') {
+  if (!Array.isArray(values) || values.length < 2) return '#2563eb'
+  return Number(values[values.length - 1]) >= Number(values[0]) ? up : down
 }
 
 function lineGeometry(values, width, height, padding = 12) {
-  if (!Array.isArray(values) || !values.length) {
-    return { path: '', areaPath: '', points: [], min: 0, max: 0 }
-  }
+  if (!Array.isArray(values) || !values.length) return { path: '', areaPath: '', points: [], min: 0, max: 0 }
   const min = Math.min(...values)
   const max = Math.max(...values)
-  const minSafe = Number.isFinite(min) ? min : 0
-  const maxSafe = Number.isFinite(max) ? max : 0
-  const span = Math.max(1e-6, maxSafe - minSafe)
+  const span = Math.max(1e-6, max - min)
   const innerW = Math.max(1, width - padding * 2)
   const innerH = Math.max(1, height - padding * 2)
 
-  const points = values.map((v, i) => {
-    const x = padding + (values.length <= 1 ? 0 : (innerW * i) / (values.length - 1))
-    const y = padding + innerH - ((v - minSafe) / span) * innerH
-    return { x, y, v }
-  })
+  const points = values.map((v, i) => ({
+    x: padding + (values.length <= 1 ? 0 : (innerW * i) / (values.length - 1)),
+    y: padding + innerH - ((v - min) / span) * innerH,
+    v,
+  }))
 
-  const path = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`)
-    .join(' ')
-
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ')
   const first = points[0]
   const last = points[points.length - 1]
   const areaPath = `${path} L ${last.x.toFixed(2)} ${(height - padding).toFixed(2)} L ${first.x.toFixed(2)} ${(height - padding).toFixed(2)} Z`
-
-  return { path, areaPath, points, min: minSafe, max: maxSafe }
+  return { path, areaPath, points, min, max }
 }
 
 function barsGeometry(values, width, height, padding = 12) {
-  if (!Array.isArray(values) || !values.length) {
-    return { bars: [], max: 0 }
-  }
+  if (!Array.isArray(values) || !values.length) return { bars: [] }
   const max = Math.max(...values, 0)
-  const maxSafe = Math.max(max, 1)
+  const maxSafe = Math.max(1, max)
   const innerW = Math.max(1, width - padding * 2)
   const innerH = Math.max(1, height - padding * 2)
   const slotW = innerW / values.length
@@ -285,18 +253,43 @@ function barsGeometry(values, width, height, padding = 12) {
 
   const bars = values.map((v, i) => {
     const h = (Math.max(0, v) / maxSafe) * innerH
-    const x = padding + i * slotW + (slotW - barW) / 2
-    const y = padding + innerH - h
-    return { x, y, w: barW, h }
+    return {
+      x: padding + i * slotW + (slotW - barW) / 2,
+      y: padding + innerH - h,
+      w: barW,
+      h,
+    }
   })
+  return { bars }
+}
 
-  return { bars, max: maxSafe }
+function buildUploadedCompanies(items) {
+  const rows = Array.isArray(items) ? items : []
+  const sorted = [...rows].sort((a, b) => String(b?.created_at || '').localeCompare(String(a?.created_at || '')))
+  const seen = new Set()
+  const out = []
+  sorted.forEach((r) => {
+    const company = String(r?.company || '').trim()
+    const ticker = normalizeTicker(r?.ticker)
+    if (!company || !ticker) return
+    const key = `${sanitizeCompanyName(company)}::${ticker}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({
+      company,
+      ticker,
+      industry: String(r?.industry || '').trim() || 'Other',
+      year: Number(r?.year) || null,
+      record_id: String(r?.record_id || ''),
+      created_at: String(r?.created_at || ''),
+    })
+  })
+  return out
 }
 
 function matchRecordsToCompany(items, displayName) {
   const rows = Array.isArray(items) ? items : []
   if (!rows.length) return []
-
   const target = sanitizeCompanyName(displayName)
   if (!target) return rows
 
@@ -307,85 +300,89 @@ function matchRecordsToCompany(items, displayName) {
   if (exact.length) return exact
 
   const targetTokens = target.split(' ').filter(Boolean)
-  const loose = rows.filter((r) => {
+  return rows.filter((r) => {
     const cTokens = sanitizeCompanyName(r?.company).split(' ').filter(Boolean)
     const overlap = cTokens.filter((t) => targetTokens.includes(t)).length
     return overlap >= Math.min(2, targetTokens.length)
   })
-  return loose.length ? loose : rows
 }
 
 function buildFilingSummary(items) {
   const rows = Array.isArray(items) ? items : []
   const sorted = [...rows].sort((a, b) => String(b?.created_at || '').localeCompare(String(a?.created_at || '')))
   const years = Array.from(new Set(sorted.map((r) => Number(r?.year)).filter(Number.isFinite))).sort((a, b) => b - a)
-
   const riskItems = sorted.map((r) => Number(r?.risk_items || 0)).filter(Number.isFinite)
   const categories = sorted.map((r) => Number(r?.risk_categories || 0)).filter(Number.isFinite)
 
   const avgRiskItems = riskItems.length ? riskItems.reduce((a, b) => a + b, 0) / riskItems.length : 0
   const avgCategories = categories.length ? categories.reduce((a, b) => a + b, 0) / categories.length : 0
-  const latest = sorted[0] || null
-
-  const byYear = years
-    .map((y) => {
-      const yr = sorted.filter((r) => Number(r?.year) === Number(y))
-      const vals = yr.map((r) => Number(r?.risk_items || 0)).filter(Number.isFinite)
-      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
-      return { year: y, avgRiskItems: avg }
-    })
-    .sort((a, b) => a.year - b.year)
 
   return {
     count: sorted.length,
     years,
-    latest,
+    latest: sorted[0] || null,
     avgRiskItems,
     avgCategories,
-    byYear,
-    recent: sorted.slice(0, 4),
+    recent: sorted.slice(0, 5),
   }
 }
 
-function MiniChart({ values, kind, color }) {
-  const width = 240
-  const height = 76
+function initialsFor(name, ticker) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (words.length >= 2) return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase()
+  if (words.length === 1 && words[0].length >= 2) return words[0].slice(0, 2).toUpperCase()
+  return String(ticker || '').slice(0, 2).toUpperCase() || 'ST'
+}
+
+function logoStyle(seed) {
+  const text = String(seed || 'stock')
+  let hash = 0
+  for (let i = 0; i < text.length; i += 1) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  const h1 = Math.abs(hash) % 360
+  const h2 = (h1 + 48) % 360
+  return {
+    background: `linear-gradient(135deg, hsl(${h1} 68% 52%), hsl(${h2} 76% 43%))`,
+  }
+}
+
+function toneClass(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 'flat'
+  if (n > 0) return 'up'
+  if (n < 0) return 'down'
+  return 'flat'
+}
+
+function MiniChart({ values, kind, color, compact = true }) {
+  const width = compact ? 220 : 320
+  const height = compact ? 74 : 126
 
   if (!Array.isArray(values) || values.length < 2) {
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} className="rl-stock-mini-svg" aria-hidden="true">
-        <text x="8" y="42" className="rl-stock-mini-empty">
-          No data
-        </text>
+      <svg viewBox={`0 0 ${width} ${height}`} className={`rl-stock-mini-svg ${compact ? '' : 'large'}`} aria-hidden="true">
+        <text x="8" y={compact ? '42' : '66'} className="rl-stock-mini-empty">No data</text>
       </svg>
     )
   }
 
   if (kind === 'bars') {
-    const bars = barsGeometry(values, width, height, 10)
+    const bars = barsGeometry(values, width, height, compact ? 10 : 14)
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} className="rl-stock-mini-svg" aria-hidden="true">
+      <svg viewBox={`0 0 ${width} ${height}`} className={`rl-stock-mini-svg ${compact ? '' : 'large'}`} aria-hidden="true">
         {bars.bars.map((bar, idx) => (
-          <rect
-            key={`${idx}-${bar.x}`}
-            x={bar.x}
-            y={bar.y}
-            width={bar.w}
-            height={bar.h}
-            rx="1.8"
-            fill={color}
-            opacity="0.86"
-          />
+          <rect key={`${idx}-${bar.x}`} x={bar.x} y={bar.y} width={bar.w} height={bar.h} rx="2" fill={color} opacity="0.86" />
         ))}
       </svg>
     )
   }
 
-  const line = lineGeometry(values, width, height, 10)
+  const line = lineGeometry(values, width, height, compact ? 10 : 14)
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="rl-stock-mini-svg" aria-hidden="true">
-      <path d={line.areaPath} fill={color} opacity="0.14" />
-      <path d={line.path} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg viewBox={`0 0 ${width} ${height}`} className={`rl-stock-mini-svg ${compact ? '' : 'large'}`} aria-hidden="true">
+      <path d={line.areaPath} fill={color} opacity="0.13" />
+      <path d={line.path} fill="none" stroke={color} strokeWidth={compact ? '2.2' : '2.6'} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -398,7 +395,7 @@ function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey 
     return (
       <div className="rl-stock-focus-chart-empty">
         <p>No chart data yet</p>
-        <span>Pick a ticker from quick switches above.</span>
+        <span>Select any company card to populate charts.</span>
       </div>
     )
   }
@@ -416,27 +413,10 @@ function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey 
         </div>
         <svg viewBox={`0 0 ${width} ${height}`} className="rl-stock-focus-svg" aria-hidden="true">
           {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
-            <line
-              key={ratio}
-              x1="28"
-              x2={width - 24}
-              y1={(height - 28) * ratio + 8}
-              y2={(height - 28) * ratio + 8}
-              stroke="rgba(148, 163, 184, 0.2)"
-              strokeWidth="1"
-            />
+            <line key={ratio} x1="28" x2={width - 24} y1={(height - 28) * ratio + 8} y2={(height - 28) * ratio + 8} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" />
           ))}
           {bars.bars.map((bar, idx) => (
-            <rect
-              key={`${idx}-${bar.x}`}
-              x={bar.x}
-              y={bar.y}
-              width={bar.w}
-              height={bar.h}
-              rx="2"
-              fill={color}
-              opacity="0.9"
-            />
+            <rect key={`${idx}-${bar.x}`} x={bar.x} y={bar.y} width={bar.w} height={bar.h} rx="2" fill={color} opacity="0.9" />
           ))}
         </svg>
         <div className="rl-stock-focus-foot">
@@ -459,50 +439,39 @@ function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey 
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="rl-stock-focus-svg" aria-hidden="true">
         {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
-          <line
-            key={ratio}
-            x1="28"
-            x2={width - 24}
-            y1={(height - 28) * ratio + 8}
-            y2={(height - 28) * ratio + 8}
-            stroke="rgba(148, 163, 184, 0.2)"
-            strokeWidth="1"
-          />
+          <line key={ratio} x1="28" x2={width - 24} y1={(height - 28) * ratio + 8} y2={(height - 28) * ratio + 8} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" />
         ))}
         <path d={line.areaPath} fill={color} opacity="0.12" />
         <path d={line.path} fill="none" stroke={color} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
         {lastPoint ? (
           <>
             <circle cx={lastPoint.x} cy={lastPoint.y} r="4.7" fill={color} stroke="#ffffff" strokeWidth="2" />
-            <line
-              x1={lastPoint.x}
-              x2={lastPoint.x}
-              y1={lastPoint.y + 10}
-              y2={height - 22}
-              stroke={color}
-              strokeOpacity="0.25"
-              strokeWidth="1.2"
-              strokeDasharray="4 3"
-            />
+            <line x1={lastPoint.x} x2={lastPoint.x} y1={lastPoint.y + 10} y2={height - 22} stroke={color} strokeOpacity="0.25" strokeWidth="1.2" strokeDasharray="4 3" />
           </>
         ) : null}
       </svg>
       <div className="rl-stock-focus-foot">
         <span>{dateRange?.start || '—'}</span>
-        <span>
-          Min {fmtSigned(minVal)} · Max {fmtSigned(maxVal)}
-        </span>
+        <span>Min {fmtSigned(minVal)} · Max {fmtSigned(maxVal)}</span>
         <span>{dateRange?.end || '—'}</span>
       </div>
     </div>
   )
 }
 
+function makeSpotlightSummary(row, sectorText) {
+  const name = row.company || row.name || row.ticker
+  const chg = Number(row.change_percent)
+  const direction = Number.isFinite(chg) ? (chg >= 0 ? 'rose' : 'fell') : 'moved'
+  const pct = Number.isFinite(chg) ? `${Math.abs(chg).toFixed(2)}%` : 'notably'
+  const risk = row.riskItems > 0 ? `Latest filing shows ${row.riskItems} risk items.` : 'No filing risk count available yet.'
+  return `${name} ${direction} ${pct} in the selected window. ${sectorText} ${risk}`
+}
+
 export default function StockPage() {
   const { config } = useGlobalConfig()
 
   const [selectedTicker, setSelectedTicker] = useState('AAPL')
-  const [tickerInput, setTickerInput] = useState('')
   const [watchlist, setWatchlist] = useState(DEFAULT_TICKERS)
   const [bundleMap, setBundleMap] = useState({})
   const [loadingTicker, setLoadingTicker] = useState('')
@@ -512,6 +481,13 @@ export default function StockPage() {
   const [activeChart, setActiveChart] = useState('price')
   const [filingSummaryMap, setFilingSummaryMap] = useState({})
   const [filingLoading, setFilingLoading] = useState(false)
+  const [uploadedCompanies, setUploadedCompanies] = useState([])
+  const [recordsLoading, setRecordsLoading] = useState(true)
+  const [boardTab, setBoardTab] = useState('gainers')
+  const [summaryOpenIdx, setSummaryOpenIdx] = useState(0)
+  const [showAddTicker, setShowAddTicker] = useState(false)
+  const [addTickerInput, setAddTickerInput] = useState('')
+
   const initializedRef = useRef(false)
 
   const upsertBundle = useCallback((ticker, data, savedAt = Date.now(), source = 'live') => {
@@ -528,7 +504,7 @@ export default function StockPage() {
       const sym = normalizeTicker(ticker)
       if (!sym) return
       writeLastTicker(sym)
-      const next = mergeTickers([sym], readRecentTickers(), watchlist, DEFAULT_TICKERS).slice(0, 10)
+      const next = mergeTickers([sym], readRecentTickers(), watchlist, DEFAULT_TICKERS).slice(0, 14)
       writeRecentTickers(next)
       setWatchlist(next)
     },
@@ -579,52 +555,97 @@ export default function StockPage() {
         }
         return null
       } finally {
-        if (!silent) {
-          setLoadingTicker((prev) => (prev === sym ? '' : prev))
-        }
+        if (!silent) setLoadingTicker((prev) => (prev === sym ? '' : prev))
       }
     },
     [rememberTicker, upsertBundle],
   )
 
   useEffect(() => {
-    const cfgTicker = normalizeTicker(config.ticker)
+    let alive = true
+    setRecordsLoading(true)
+    get('/api/records')
+      .then((res) => {
+        if (!alive) return
+        const items = Array.isArray(res?.items) ? res.items : []
+        const companies = buildUploadedCompanies(items)
+        setUploadedCompanies(companies)
+      })
+      .catch(() => {
+        if (!alive) return
+        setUploadedCompanies([])
+      })
+      .finally(() => {
+        if (!alive) return
+        setRecordsLoading(false)
+      })
 
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const cfgTicker = normalizeTicker(config.ticker)
     if (!initializedRef.current) {
       initializedRef.current = true
       const last = readLastTicker()
       const recent = readRecentTickers()
-      const merged = mergeTickers([last, cfgTicker], recent, DEFAULT_TICKERS).slice(0, 10)
+      const merged = mergeTickers([last, cfgTicker], recent, DEFAULT_TICKERS).slice(0, 14)
       const startTicker = normalizeTicker(last || cfgTicker || merged[0] || 'AAPL')
-
       setWatchlist(merged)
       setSelectedTicker(startTicker)
-      setTickerInput(startTicker)
-
       merged.forEach((tk) => {
         const cached = readBundleCache(tk)
-        if (cached?.data) {
-          upsertBundle(tk, cached.data, cached.savedAt, 'cache')
-        }
+        if (cached?.data) upsertBundle(tk, cached.data, cached.savedAt, 'cache')
       })
       return
     }
-
     if (cfgTicker) {
-      setWatchlist((prev) => mergeTickers([cfgTicker], prev, DEFAULT_TICKERS).slice(0, 10))
+      setWatchlist((prev) => mergeTickers([cfgTicker], prev, DEFAULT_TICKERS).slice(0, 14))
     }
   }, [config.ticker, upsertBundle])
 
   useEffect(() => {
+    if (!uploadedCompanies.length) return
+    const uploadedTickers = uploadedCompanies.map((c) => c.ticker)
+    setWatchlist((prev) => mergeTickers(uploadedTickers, prev, DEFAULT_TICKERS).slice(0, 14))
+    if (!normalizeTicker(selectedTicker)) {
+      setSelectedTicker(uploadedTickers[0])
+    }
+  }, [uploadedCompanies, selectedTicker])
+
+  useEffect(() => {
     if (!selectedTicker) return
-    fetchBundle(selectedTicker, { preferCache: true, silent: false, skipIfFresh: true })
+    fetchBundle(selectedTicker, { preferCache: true, skipIfFresh: true })
   }, [selectedTicker, fetchBundle])
+
+  useEffect(() => {
+    const candidates = mergeTickers(
+      [selectedTicker],
+      uploadedCompanies.map((c) => c.ticker),
+    ).slice(0, 6)
+
+    if (!candidates.length) return
+
+    const timers = []
+    candidates.forEach((tk, idx) => {
+      if (tk === selectedTicker) return
+      const timer = window.setTimeout(() => {
+        fetchBundle(tk, { preferCache: true, silent: true, skipIfFresh: true })
+      }, 700 + idx * 500)
+      timers.push(timer)
+    })
+
+    return () => {
+      timers.forEach((id) => window.clearTimeout(id))
+    }
+  }, [selectedTicker, uploadedCompanies, fetchBundle])
 
   const selectedEntry = bundleMap[selectedTicker] || null
   const data = selectedEntry?.data || null
 
   const chartRows = useMemo(() => clipHistory(data?.history || [], rangeKey), [data?.history, rangeKey])
-
   const closeValues = useMemo(() => numericSeries(chartRows, 'close'), [chartRows])
   const volumeValues = useMemo(() => numericSeries(chartRows, 'volume'), [chartRows])
   const returnValues = useMemo(() => returnSeries(closeValues), [closeValues])
@@ -632,59 +653,8 @@ export default function StockPage() {
 
   const dateRange = useMemo(() => {
     if (!chartRows.length) return { start: '', end: '' }
-    return {
-      start: chartRows[0].date || '',
-      end: chartRows[chartRows.length - 1].date || '',
-    }
+    return { start: chartRows[0].date, end: chartRows[chartRows.length - 1].date }
   }, [chartRows])
-
-  const chartDefs = useMemo(() => {
-    const lastClose = closeValues.length ? closeValues[closeValues.length - 1] : null
-    const lastVol = volumeValues.length ? volumeValues[volumeValues.length - 1] : null
-    const lastRet = returnValues.length ? returnValues[returnValues.length - 1] : null
-    const lastDd = drawdownValues.length ? drawdownValues[drawdownValues.length - 1] : null
-
-    return [
-      {
-        key: 'price',
-        title: 'Price Trend',
-        subtitle: 'Close (USD)',
-        value: fmtPrice(lastClose),
-        series: closeValues,
-        kind: 'line',
-        color: chartColorFor(closeValues, '#2563eb', '#ef4444'),
-      },
-      {
-        key: 'volume',
-        title: 'Trading Volume',
-        subtitle: 'Shares traded',
-        value: fmtCompact(lastVol),
-        series: volumeValues,
-        kind: 'bars',
-        color: '#0ea5e9',
-      },
-      {
-        key: 'return',
-        title: 'Cumulative Return',
-        subtitle: 'vs first point in range',
-        value: fmtPct(lastRet),
-        series: returnValues,
-        kind: 'line',
-        color: chartColorFor(returnValues, '#16a34a', '#ef4444'),
-      },
-      {
-        key: 'drawdown',
-        title: 'Drawdown',
-        subtitle: 'From rolling high',
-        value: fmtPct(lastDd),
-        series: drawdownValues,
-        kind: 'line',
-        color: '#f59e0b',
-      },
-    ]
-  }, [closeValues, volumeValues, returnValues, drawdownValues])
-
-  const activeDef = chartDefs.find((def) => def.key === activeChart) || chartDefs[0]
 
   const selectedCompanyQuery = useMemo(() => buildCompanyQuery(data?.name || ''), [data?.name])
   const selectedDisplayName = String(data?.name || selectedTicker || '').trim()
@@ -702,24 +672,13 @@ export default function StockPage() {
         const items = Array.isArray(res?.items) ? res.items : []
         const matched = matchRecordsToCompany(items, selectedDisplayName)
         const summary = buildFilingSummary(matched)
-        setFilingSummaryMap((prev) => ({
-          ...prev,
-          [selectedCompanyQuery]: summary,
-        }))
+        setFilingSummaryMap((prev) => ({ ...prev, [selectedCompanyQuery]: summary }))
       })
       .catch(() => {
         if (!alive) return
         setFilingSummaryMap((prev) => ({
           ...prev,
-          [selectedCompanyQuery]: {
-            count: 0,
-            years: [],
-            latest: null,
-            avgRiskItems: 0,
-            avgCategories: 0,
-            byYear: [],
-            recent: [],
-          },
+          [selectedCompanyQuery]: { count: 0, years: [], latest: null, avgRiskItems: 0, avgCategories: 0, recent: [] },
         }))
       })
       .finally(() => {
@@ -730,21 +689,185 @@ export default function StockPage() {
     return () => {
       alive = false
     }
-  }, [selectedCompanyQuery, filingSummaryMap, selectedDisplayName])
+  }, [selectedCompanyQuery, selectedDisplayName, filingSummaryMap])
 
   const filingSummary = selectedCompanyQuery ? filingSummaryMap[selectedCompanyQuery] : null
 
-  const submitTicker = () => {
-    const next = normalizeTicker(tickerInput)
+  const companyMapByTicker = useMemo(() => {
+    const map = {}
+    uploadedCompanies.forEach((c) => {
+      map[c.ticker] = c
+    })
+    return map
+  }, [uploadedCompanies])
+
+  const trackedRows = useMemo(() => {
+    const tickers = mergeTickers(uploadedCompanies.map((c) => c.ticker), watchlist).slice(0, 18)
+    return tickers.map((tk) => {
+      const meta = companyMapByTicker[tk] || {}
+      const payload = bundleMap[tk]?.data || null
+      return {
+        ticker: tk,
+        company: meta.company || payload?.name || tk,
+        industry: meta.industry || 'Other',
+        year: meta.year || null,
+        data: payload,
+        change_percent: Number(payload?.change_percent),
+        market_cap: Number(payload?.market_cap),
+        volume: Number((Array.isArray(payload?.history) ? payload.history[payload.history.length - 1]?.volume : 0) || 0),
+        riskItems: Number(filingSummary?.latest?.risk_items || 0),
+      }
+    })
+  }, [uploadedCompanies, watchlist, companyMapByTicker, bundleMap, filingSummary?.latest?.risk_items])
+
+  const loadedRows = useMemo(() => trackedRows.filter((r) => r.data), [trackedRows])
+
+  const boardRows = useMemo(() => {
+    const rows = [...loadedRows]
+    if (boardTab === 'losers') rows.sort((a, b) => Number(a.change_percent) - Number(b.change_percent))
+    else if (boardTab === 'active') rows.sort((a, b) => Number(b.volume || 0) - Number(a.volume || 0))
+    else rows.sort((a, b) => Number(b.change_percent) - Number(a.change_percent))
+    return rows.slice(0, 5)
+  }, [loadedRows, boardTab])
+
+  const popularRows = useMemo(() => {
+    const merged = [...trackedRows].sort((a, b) => {
+      const aData = a.data ? 1 : 0
+      const bData = b.data ? 1 : 0
+      if (aData !== bData) return bData - aData
+      return String(a.company).localeCompare(String(b.company))
+    })
+    return merged.slice(0, 5)
+  }, [trackedRows])
+
+  const sectorRows = useMemo(() => {
+    const buckets = {}
+    loadedRows.forEach((row) => {
+      const key = String(row.industry || 'Other').trim() || 'Other'
+      if (!buckets[key]) {
+        buckets[key] = { industry: key, count: 0, sumPct: 0, sumCap: 0 }
+      }
+      buckets[key].count += 1
+      if (Number.isFinite(row.change_percent)) buckets[key].sumPct += Number(row.change_percent)
+      if (Number.isFinite(row.market_cap)) buckets[key].sumCap += Number(row.market_cap)
+    })
+    return Object.values(buckets)
+      .map((b) => ({
+        industry: b.industry,
+        count: b.count,
+        avgPct: b.count ? b.sumPct / b.count : 0,
+        totalCap: b.sumCap,
+      }))
+      .sort((a, b) => Number(b.totalCap || 0) - Number(a.totalCap || 0))
+      .slice(0, 8)
+  }, [loadedRows])
+
+  const summaryItems = useMemo(() => {
+    const gainers = loadedRows.filter((r) => Number(r.change_percent) > 0).length
+    const losers = loadedRows.filter((r) => Number(r.change_percent) < 0).length
+    const topUp = [...loadedRows].sort((a, b) => Number(b.change_percent) - Number(a.change_percent))[0]
+    const topDown = [...loadedRows].sort((a, b) => Number(a.change_percent) - Number(b.change_percent))[0]
+    const leadSector = [...sectorRows].sort((a, b) => Number(b.avgPct) - Number(a.avgPct))[0]
+    const weakSector = [...sectorRows].sort((a, b) => Number(a.avgPct) - Number(b.avgPct))[0]
+
+    const items = []
+    items.push({
+      title: `Tracked breadth: ${gainers} gainers vs ${losers} losers`,
+      body: `This summary uses ${loadedRows.length} uploaded or pinned companies with available market data.`
+    })
+    if (topUp) {
+      items.push({
+        title: `${topUp.company} leads movers at ${fmtPct(topUp.change_percent)}`,
+        body: `${topUp.ticker} is currently the strongest move in your tracked set.`
+      })
+    }
+    if (topDown) {
+      items.push({
+        title: `${topDown.company} is the weakest at ${fmtPct(topDown.change_percent)}`,
+        body: `Consider checking the related filing year and risk deltas for this name.`
+      })
+    }
+    if (leadSector || weakSector) {
+      items.push({
+        title: `Sector snapshot: ${leadSector?.industry || 'N/A'} strongest, ${weakSector?.industry || 'N/A'} weakest`,
+        body: `Average sector moves are computed from uploaded-company tickers with live quotes.`
+      })
+    }
+    if (filingSummary) {
+      items.push({
+        title: `10-K context for ${selectedDisplayName || selectedTicker}`,
+        body: `Found ${filingSummary.count} filing records across ${filingSummary.years.length} years. Avg risk items: ${Math.round(filingSummary.avgRiskItems || 0)}.`
+      })
+    }
+    return items.slice(0, 6)
+  }, [loadedRows, sectorRows, filingSummary, selectedDisplayName, selectedTicker])
+
+  const heatmapRows = useMemo(() => {
+    const rows = [...loadedRows].sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0)).slice(0, 30)
+    if (!rows.length) return []
+    const caps = rows.map((r) => Number(r.market_cap || 0)).filter((n) => Number.isFinite(n) && n > 0)
+    const maxCap = caps.length ? Math.max(...caps) : 0
+    return rows.map((r) => {
+      const cap = Number(r.market_cap || 0)
+      const ratio = maxCap > 0 ? cap / maxCap : 0
+      const span = ratio >= 0.65 ? 4 : ratio >= 0.4 ? 3 : ratio >= 0.2 ? 2 : 1
+      return {
+        ...r,
+        span,
+      }
+    })
+  }, [loadedRows])
+
+  const spotlightRows = useMemo(() => {
+    const top = [...loadedRows]
+      .sort((a, b) => Math.abs(Number(b.change_percent || 0)) - Math.abs(Number(a.change_percent || 0)))
+      .slice(0, 3)
+
+    return top.map((row) => {
+      const hist = clipHistory(row.data?.history || [], '1M')
+      const closes = numericSeries(hist, 'close')
+      const vols = numericSeries(hist, 'volume')
+      const sector = sectorRows.find((s) => s.industry === row.industry)
+      const sectorText = sector ? `${sector.industry} is averaging ${fmtPct(sector.avgPct)}.` : 'Sector trend is mixed.'
+      return {
+        ...row,
+        closes,
+        vols,
+        narrative: makeSpotlightSummary(row, sectorText),
+      }
+    })
+  }, [loadedRows, sectorRows])
+
+  const chartDefs = useMemo(() => {
+    const lastClose = closeValues.length ? closeValues[closeValues.length - 1] : null
+    const lastVol = volumeValues.length ? volumeValues[volumeValues.length - 1] : null
+    const lastRet = returnValues.length ? returnValues[returnValues.length - 1] : null
+    const lastDd = drawdownValues.length ? drawdownValues[drawdownValues.length - 1] : null
+
+    return [
+      { key: 'price', title: 'Price Trend', subtitle: 'Close (USD)', value: fmtPrice(lastClose), series: closeValues, kind: 'line', color: chartColorFor(closeValues, '#16a34a', '#ef4444') },
+      { key: 'volume', title: 'Trading Volume', subtitle: 'Shares traded', value: fmtCompact(lastVol), series: volumeValues, kind: 'bars', color: '#0ea5e9' },
+      { key: 'return', title: 'Cumulative Return', subtitle: 'vs first point in range', value: fmtPct(lastRet), series: returnValues, kind: 'line', color: chartColorFor(returnValues, '#22c55e', '#ef4444') },
+      { key: 'drawdown', title: 'Drawdown', subtitle: 'From rolling high', value: fmtPct(lastDd), series: drawdownValues, kind: 'line', color: '#f59e0b' },
+    ]
+  }, [closeValues, volumeValues, returnValues, drawdownValues])
+
+  const activeDef = chartDefs.find((def) => def.key === activeChart) || chartDefs[0]
+
+  const selectedFromUpload = companyMapByTicker[selectedTicker] || null
+
+  const addTicker = () => {
+    const next = normalizeTicker(addTickerInput)
     if (!next) return
     setSelectedTicker(next)
-    setTickerInput(next)
-    setWatchlist((prev) => mergeTickers([next], prev, DEFAULT_TICKERS).slice(0, 10))
+    setWatchlist((prev) => mergeTickers([next], prev, uploadedCompanies.map((c) => c.ticker), DEFAULT_TICKERS).slice(0, 14))
+    setAddTickerInput('')
+    setShowAddTicker(false)
   }
 
   const refreshSelected = () => {
     if (!selectedTicker) return
-    fetchBundle(selectedTicker, { preferCache: true, silent: false, force: true })
+    fetchBundle(selectedTicker, { preferCache: true, force: true })
   }
 
   return (
@@ -755,7 +878,7 @@ export default function StockPage() {
             <span className="page-icon">💹</span>
             <div>
               <p className="page-title">Stock</p>
-              <p className="page-subtitle">Market view with 10-K filing risk context and fast ticker switching</p>
+              <p className="page-subtitle">Perplexity-style market board powered by uploaded 10-K companies</p>
             </div>
           </div>
           <button className="btn-secondary" onClick={refreshSelected} disabled={loadingTicker === selectedTicker}>
@@ -764,69 +887,64 @@ export default function StockPage() {
         </div>
       </section>
 
-      <section className="rl-stock-command">
-        <div className="rl-stock-command-row">
-          <label className="section-title">Ticker</label>
-          <div className="rl-stock-input-row">
-            <input
-              className="input"
-              value={tickerInput}
-              onChange={(e) => setTickerInput(normalizeTicker(e.target.value))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submitTicker()
-              }}
-              placeholder="e.g. AAPL"
-            />
-            <button className="btn-primary" onClick={submitTicker}>
-              Open
-            </button>
+      <section className="rl-stock-command rl-stock-command-v2">
+        <div className="rl-stock-command-head">
+          <div>
+            <p className="rl-stock-command-title">Tracked Companies</p>
+            <span>{recordsLoading ? 'Loading uploaded company universe…' : `${uploadedCompanies.length} companies from uploaded filings`}</span>
           </div>
+          <button className="btn-secondary" onClick={() => setShowAddTicker((v) => !v)}>
+            {showAddTicker ? 'Cancel' : '+ Add Ticker'}
+          </button>
         </div>
+
         <div className="rl-stock-chip-row">
-          {watchlist.map((tk) => {
-            const entry = bundleMap[tk]
-            const payload = entry?.data || null
+          {uploadedCompanies.slice(0, 14).map((c) => {
+            const payload = bundleMap[c.ticker]?.data
             const pct = Number(payload?.change_percent)
-            const tone = Number.isFinite(pct) ? (pct >= 0 ? 'up' : 'down') : 'flat'
             return (
               <button
-                key={tk}
-                className={`rl-stock-chip ${selectedTicker === tk ? 'active' : ''}`}
-                onClick={() => {
-                  setSelectedTicker(tk)
-                  setTickerInput(tk)
-                }}
+                key={`${c.ticker}-${c.company}`}
+                className={`rl-stock-chip ${selectedTicker === c.ticker ? 'active' : ''}`}
+                onClick={() => setSelectedTicker(c.ticker)}
+                title={`${c.company} · ${c.industry}`}
               >
-                <span>{tk}</span>
-                <em className={tone}>{Number.isFinite(pct) ? fmtPct(pct) : '—'}</em>
+                <span>{c.company}</span>
+                <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : c.ticker}</em>
               </button>
             )
           })}
         </div>
+
+        {showAddTicker ? (
+          <div className="rl-stock-input-row rl-stock-add-row">
+            <input className="input" value={addTickerInput} onChange={(e) => setAddTickerInput(normalizeTicker(e.target.value))} placeholder="e.g. TSLA" />
+            <button className="btn-primary" onClick={addTicker}>Add & View</button>
+          </div>
+        ) : null}
+
         <p className="rl-stock-cache-note">
-          {selectedEntry?.savedAt ? `Instant view from cache (${timeAgoFrom(selectedEntry.savedAt)}), then auto refresh.` : 'Loading data and caching for faster next visit.'}
+          {selectedEntry?.savedAt ? `Instant view from cache (${timeAgoFrom(selectedEntry.savedAt)}), then background refresh.` : 'Loading data and caching for faster next visit.'}
         </p>
         {statusHint ? <p className="rl-stock-cache-note rl-stock-status-note">{statusHint}</p> : null}
       </section>
 
       {error ? <div className="rl-up-inline-error">{error}</div> : null}
 
-      <section className="rl-stock-metrics-grid">
+      <section className="rl-stock-metrics-grid rl-stock-metrics-grid-v2">
         <div className="metric-card rl-stock-metric-card">
-          <p className="metric-label">Ticker</p>
+          <p className="metric-label">Selected</p>
           <p className="metric-value">{selectedTicker || '—'}</p>
-          <span className="rl-stock-metric-sub">{data?.exchange || 'US Equities'}</span>
+          <span className="rl-stock-metric-sub">{data?.name || selectedFromUpload?.company || '—'}</span>
         </div>
         <div className="metric-card rl-stock-metric-card">
           <p className="metric-label">Current Price</p>
           <p className="metric-value">{fmtPrice(data?.price)}</p>
-          <span className="rl-stock-metric-sub">{data?.name || '—'}</span>
+          <span className="rl-stock-metric-sub">{data?.exchange || 'US Equities'}</span>
         </div>
         <div className="metric-card rl-stock-metric-card">
           <p className="metric-label">Today</p>
-          <p className={`metric-value ${Number(data?.change_percent || 0) >= 0 ? 'rl-stock-up' : 'rl-stock-down'}`}>
-            {fmtPct(data?.change_percent)}
-          </p>
+          <p className={`metric-value ${Number(data?.change_percent || 0) >= 0 ? 'rl-stock-up' : 'rl-stock-down'}`}>{fmtPct(data?.change_percent)}</p>
           <span className="rl-stock-metric-sub">Change {fmtPrice(data?.change)}</span>
         </div>
         <div className="metric-card rl-stock-metric-card">
@@ -835,34 +953,26 @@ export default function StockPage() {
           <span className="rl-stock-metric-sub">PE {data?.pe_ratio ? Number(data.pe_ratio).toFixed(2) : '—'}</span>
         </div>
         <div className="metric-card rl-stock-metric-card">
-          <p className="metric-label">52W Range</p>
-          <p className="metric-value !text-[1rem]">
-            {fmtPrice(data?.low_52)} - {fmtPrice(data?.high_52)}
-          </p>
-          <span className="rl-stock-metric-sub">Range watch</span>
+          <p className="metric-label">Uploaded Scope</p>
+          <p className="metric-value !text-[1.05rem]">{uploadedCompanies.length}</p>
+          <span className="rl-stock-metric-sub">companies with filing context</span>
         </div>
       </section>
 
-      <section className="rl-stock-workbench">
+      <section className="rl-stock-workbench rl-stock-workbench-v2">
         <div className="rl-stock-left">
           <div className="rl-stock-range-row">
             <label className="section-title">Time Range</label>
             <div className="rl-segment">
               {RANGE_OPTIONS.map((key) => (
-                <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => setRangeKey(key)}>
-                  {key}
-                </button>
+                <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => setRangeKey(key)}>{key}</button>
               ))}
             </div>
           </div>
 
           <div className="rl-stock-chart-grid">
             {chartDefs.map((def) => (
-              <button
-                key={def.key}
-                className={`rl-stock-chart-tile ${activeChart === def.key ? 'active' : ''}`}
-                onClick={() => setActiveChart(def.key)}
-              >
+              <button key={def.key} className={`rl-stock-chart-tile ${activeChart === def.key ? 'active' : ''}`} onClick={() => setActiveChart(def.key)}>
                 <div className="rl-stock-chart-tile-top">
                   <p>{def.title}</p>
                   <span>{def.value}</span>
@@ -884,17 +994,176 @@ export default function StockPage() {
               rangeKey={rangeKey}
             />
           </div>
+
+          <section className="rl-stock-side-card rl-stock-summary-card">
+            <div className="rl-stock-side-head">
+              <p>Market Summary</p>
+              <span>{loadedRows.length ? `Updated from ${loadedRows.length} tracked stocks` : 'Waiting for quotes'}</span>
+            </div>
+            <div className="rl-stock-accordion-list">
+              {summaryItems.map((item, idx) => {
+                const open = idx === summaryOpenIdx
+                return (
+                  <div key={`${item.title}-${idx}`} className={`rl-stock-accordion-item ${open ? 'open' : ''}`}>
+                    <button className="rl-stock-accordion-head" onClick={() => setSummaryOpenIdx(open ? -1 : idx)}>
+                      <span>{item.title}</span>
+                      <strong>{open ? '−' : '+'}</strong>
+                    </button>
+                    {open ? <p className="rl-stock-accordion-body">{item.body}</p> : null}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card rl-stock-heatmap-card">
+            <div className="rl-stock-side-head">
+              <p>Tracked Heatmap</p>
+              <span>Color = daily move · size = market cap</span>
+            </div>
+            <div className="rl-stock-heatmap-grid">
+              {heatmapRows.map((row) => (
+                <button
+                  key={`heat-${row.ticker}`}
+                  className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)}`}
+                  style={{ gridColumn: `span ${row.span}` }}
+                  onClick={() => setSelectedTicker(row.ticker)}
+                  title={`${row.company} · ${fmtPct(row.change_percent)}`}
+                >
+                  <span>{row.ticker}</span>
+                  <em>{fmtPct(row.change_percent)}</em>
+                </button>
+              ))}
+              {!heatmapRows.length ? <p className="rl-stock-muted">Load a few tracked quotes to render heatmap.</p> : null}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card rl-stock-spotlight-card">
+            <div className="rl-stock-side-head">
+              <p>Spotlight Stocks</p>
+              <span>Perplexity-style highlights from your tracked universe</span>
+            </div>
+            <div className="rl-stock-spotlight-list">
+              {spotlightRows.map((row) => (
+                <article key={`spot-${row.ticker}`} className="rl-stock-spotlight-item">
+                  <div className="rl-stock-spotlight-head">
+                    <div className="rl-stock-company-mini" onClick={() => setSelectedTicker(row.ticker)}>
+                      <div className="rl-stock-logo" style={logoStyle(row.ticker)}>{initialsFor(row.company, row.ticker)}</div>
+                      <div>
+                        <p>{row.company}</p>
+                        <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
+                      </div>
+                    </div>
+                    <div className="rl-stock-company-price">
+                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
+                    </div>
+                  </div>
+
+                  <div className="rl-stock-spotlight-body">
+                    <MiniChart values={row.closes} kind="line" color={chartColorFor(row.closes, '#22c55e', '#ef4444')} compact={false} />
+                    <div className="rl-stock-spotlight-stats">
+                      <span><b>Volume</b>{fmtCompact(row.volume)}</span>
+                      <span><b>Market Cap</b>{fmtCompact(row.market_cap)}</span>
+                      <span><b>PE</b>{row.data?.pe_ratio ? Number(row.data.pe_ratio).toFixed(2) : '—'}</span>
+                      <span><b>52W</b>{fmtPrice(row.data?.low_52)} - {fmtPrice(row.data?.high_52)}</span>
+                    </div>
+                  </div>
+
+                  <p className="rl-stock-spotlight-note">{row.narrative}</p>
+                </article>
+              ))}
+              {!spotlightRows.length ? <p className="rl-stock-muted">No spotlight yet. Select/upload companies with tickers first.</p> : null}
+            </div>
+          </section>
         </div>
 
         <aside className="rl-stock-side">
           <section className="rl-stock-side-card">
             <div className="rl-stock-side-head">
+              <p>Popular Companies</p>
+              <span>{popularRows.length} names</span>
+            </div>
+            <div className="rl-stock-company-list">
+              {popularRows.map((row) => {
+                const pct = Number(row.data?.change_percent)
+                return (
+                  <button key={`popular-${row.ticker}`} className="rl-stock-company-item" onClick={() => setSelectedTicker(row.ticker)}>
+                    <div className="rl-stock-company-mini">
+                      <div className="rl-stock-logo" style={logoStyle(row.ticker)}>{initialsFor(row.company, row.ticker)}</div>
+                      <div>
+                        <p>{row.company}</p>
+                        <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
+                      </div>
+                    </div>
+                    <div className="rl-stock-company-price">
+                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : '—'}</em>
+                    </div>
+                  </button>
+                )
+              })}
+              {!popularRows.length ? <p className="rl-stock-muted">No uploaded companies yet.</p> : null}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card">
+            <div className="rl-stock-side-head">
+              <p>Leaders Board</p>
+              <span>Switch gainers / losers / active</span>
+            </div>
+            <div className="rl-stock-board-tabs">
+              {[
+                { key: 'gainers', label: 'Gainers' },
+                { key: 'losers', label: 'Losers' },
+                { key: 'active', label: 'Active' },
+              ].map((tab) => (
+                <button key={tab.key} className={boardTab === tab.key ? 'active' : ''} onClick={() => setBoardTab(tab.key)}>{tab.label}</button>
+              ))}
+            </div>
+            <div className="rl-stock-board-list">
+              {boardRows.map((row) => (
+                <div key={`board-${row.ticker}`} className="rl-stock-board-item">
+                  <div className="rl-stock-company-mini">
+                    <div className="rl-stock-logo" style={logoStyle(row.ticker)}>{initialsFor(row.company, row.ticker)}</div>
+                    <div>
+                      <p>{row.company}</p>
+                      <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
+                    </div>
+                  </div>
+                  <div className="rl-stock-company-price">
+                    <strong>{fmtPrice(row.data?.price)}</strong>
+                    <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
+                  </div>
+                </div>
+              ))}
+              {!boardRows.length ? <p className="rl-stock-muted">Load tracked quotes to populate board.</p> : null}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card">
+            <div className="rl-stock-side-head">
+              <p>Industry Buckets</p>
+              <span>Grouped by uploaded filing industry</span>
+            </div>
+            <div className="rl-stock-sector-list">
+              {sectorRows.map((row) => (
+                <div key={`sector-${row.industry}`} className="rl-stock-sector-item">
+                  <span>{row.industry}</span>
+                  <strong>{fmtCompact(row.totalCap)}</strong>
+                  <em className={toneClass(row.avgPct)}>{fmtPct(row.avgPct)}</em>
+                </div>
+              ))}
+              {!sectorRows.length ? <p className="rl-stock-muted">Industry buckets appear after stock quotes load.</p> : null}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card">
+            <div className="rl-stock-side-head">
               <p>10-K Filing Signals</p>
               <span>{selectedCompanyQuery ? `match: ${selectedCompanyQuery}` : 'no company match'}</span>
             </div>
-
             {filingLoading ? <p className="rl-stock-muted">Loading filing context…</p> : null}
-
             {!filingLoading && filingSummary ? (
               <>
                 <div className="rl-stock-side-metrics">
@@ -920,34 +1189,13 @@ export default function StockPage() {
                   {(filingSummary.recent || []).map((rec) => (
                     <div key={rec.record_id || `${rec.company}-${rec.year}`} className="rl-stock-side-item">
                       <p>{rec.company || 'Unknown company'}</p>
-                      <span>
-                        {rec.year || '—'} · {rec.filing_type || '10-K'} · risks {Number(rec.risk_items || 0)}
-                      </span>
+                      <span>{rec.year || '—'} · {rec.filing_type || '10-K'} · risks {Number(rec.risk_items || 0)}</span>
                     </div>
                   ))}
-
                   {!filingSummary.recent?.length ? <p className="rl-stock-muted">No linked filing records yet.</p> : null}
                 </div>
               </>
             ) : null}
-          </section>
-
-          <section className="rl-stock-side-card">
-            <div className="rl-stock-side-head">
-              <p>Quick Actions</p>
-              <span>Jump to deeper analysis</span>
-            </div>
-            <div className="rl-stock-action-grid">
-              <Link to={`/compare?company=${encodeURIComponent(filingSummary?.latest?.company || '')}&year=${encodeURIComponent(String(filingSummary?.latest?.year || ''))}`} className="btn-secondary w-full">
-                ⚖️ Open Compare
-              </Link>
-              <Link to="/upload" className="btn-secondary w-full">
-                🗂️ Open Filings
-              </Link>
-              <Link to={`/news?ticker=${encodeURIComponent(selectedTicker || '')}&company=${encodeURIComponent(selectedDisplayName || '')}`} className="btn-secondary w-full">
-                📰 Open News
-              </Link>
-            </div>
           </section>
         </aside>
       </section>
