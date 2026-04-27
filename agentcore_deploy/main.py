@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional, Set
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 import boto3
@@ -865,6 +865,101 @@ def _stock_quote(symbol: str) -> dict:
     }
 
 
+def _normalize_image_url(raw_url: str, base_url: str = "") -> str:
+    val = str(raw_url or "").strip()
+    if not val:
+        return ""
+    if val.startswith("data:"):
+        return ""
+    if val.startswith("//"):
+        return f"{(urlparse(base_url).scheme or 'https')}:{val}" if base_url else f"https:{val}"
+    if val.startswith("http://") or val.startswith("https://"):
+        return val
+    if base_url:
+        try:
+            return urljoin(base_url, val)
+        except Exception:
+            return ""
+    return ""
+
+
+def _extract_og_image(article_url: str) -> str:
+    url = str(article_url or "").strip()
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "RiskLens/1.0",
+            "Accept": "text/html,application/xhtml+xml",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=6) as resp:
+            raw_html = resp.read(280_000).decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+    tags = re.findall(r"<meta\\s+[^>]*>", raw_html, flags=re.IGNORECASE)
+    for tag in tags:
+        lower = tag.lower()
+        if "og:image" not in lower and "twitter:image" not in lower:
+            continue
+        m = re.search(r"content\\s*=\\s*(['\\\"])(.*?)\\1", tag, flags=re.IGNORECASE)
+        if not m:
+            continue
+        candidate = _normalize_image_url(m.group(2), url)
+        if candidate:
+            return candidate
+    return ""
+
+
+def _news_image_from_row(item: dict, article_url: str, og_cache: Dict[str, str], og_state: Dict[str, int]) -> str:
+    if not isinstance(item, dict):
+        return ""
+
+    candidates: List[str] = []
+    for key in ("image_url", "image", "imageUrl", "thumbnail", "photo_url"):
+        candidates.append(str(item.get(key) or "").strip())
+
+    source = item.get("source") if isinstance(item.get("source"), dict) else {}
+    if isinstance(source, dict):
+        for key in ("image_url", "logo_url", "icon_url"):
+            candidates.append(str(source.get(key) or "").strip())
+
+    entities = item.get("entities")
+    if isinstance(entities, list):
+        for entity in entities[:4]:
+            if not isinstance(entity, dict):
+                continue
+            for key in ("image_url", "image", "logo_url"):
+                candidates.append(str(entity.get(key) or "").strip())
+
+    for raw in candidates:
+        normalized = _normalize_image_url(raw, article_url)
+        if normalized:
+            return normalized
+
+    article = str(article_url or "").strip()
+    if not article:
+        return ""
+    if article in og_cache:
+        return og_cache[article]
+    if og_state.get("attempts", 0) >= 6:
+        og_cache[article] = ""
+        return ""
+
+    og_state["attempts"] = og_state.get("attempts", 0) + 1
+    found = _extract_og_image(article)
+    og_cache[article] = found
+    return found
+
+
 def _fetch_news(company: str, ticker: str, days: int, limit: int):
     from datetime import timedelta
 
@@ -908,18 +1003,23 @@ def _fetch_news(company: str, ticker: str, days: int, limit: int):
 
     rows = payload.get("data", []) if isinstance(payload, dict) else []
     out = []
+    og_cache: Dict[str, str] = {}
+    og_state = {"attempts": 0}
     for item in rows:
         if not isinstance(item, dict):
             continue
         source = item.get("source")
         source_name = source.get("name") if isinstance(source, dict) else source
+        article_url = item.get("url") or item.get("link") or ""
+        image_url = _news_image_from_row(item, str(article_url), og_cache, og_state)
         out.append(
             {
                 "title": item.get("title") or "",
                 "summary": item.get("description") or item.get("snippet") or "",
                 "published_at": item.get("published_at") or item.get("publishedAt") or "",
-                "url": item.get("url") or item.get("link") or "",
+                "url": article_url,
                 "source": source_name or "Unknown",
+                "image_url": image_url or "",
             }
         )
     return {"error": "", "items": out}
