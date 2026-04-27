@@ -1246,14 +1246,18 @@ body {
 
 .rl-tab-btn {
   @apply rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 transition;
+  border-bottom: 2px solid transparent;
 }
 
 .rl-tab-btn:hover {
-  @apply bg-indigo-50 text-indigo-700;
+  @apply bg-slate-100 text-slate-800;
 }
 
 .rl-tab-btn.active {
-  @apply bg-indigo-500 text-white;
+  @apply text-slate-900;
+  background: transparent;
+  border-bottom-color: #0f172a;
+  border-radius: 0;
 }
 
 .heatmap-cell {
@@ -1948,11 +1952,12 @@ body {
   padding: 5px 11px;
   font-size: 0.8rem;
   line-height: 1.1;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .rl-strip-tab {
   @apply inline-flex items-center rounded-full px-3.5 py-1.5 text-[0.86rem] font-semibold text-slate-600 transition;
+  border-bottom: 2px solid transparent;
 }
 
 .rl-strip-tab:hover {
@@ -1960,9 +1965,11 @@ body {
 }
 
 .rl-strip-tab.active {
-  background: linear-gradient(135deg, #4f46e5, #6366f1);
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.22);
+  background: transparent;
+  color: #0f172a;
+  border-bottom-color: #0f172a;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .rl-up-grid {
