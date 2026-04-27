@@ -4,6 +4,32 @@ import { useGlobalConfig } from '../lib/globalConfig'
 import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
 import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
 
+function normalizeCategory(value) {
+  const text = String(value || '').trim()
+  return text || 'Unknown'
+}
+
+function groupRisks(risks, categoryFilter, keywordFilter) {
+  const grouped = new Map()
+  const keyword = String(keywordFilter || '').trim().toLowerCase()
+  const category = String(categoryFilter || '').trim()
+
+  ;(Array.isArray(risks) ? risks : []).forEach((row) => {
+    const cat = normalizeCategory(row?.category)
+    const title = String(row?.title || '').trim()
+    if (!title) return
+    if (category && category !== 'ALL' && category !== cat) return
+    if (keyword && !`${cat} ${title}`.toLowerCase().includes(keyword)) return
+
+    if (!grouped.has(cat)) grouped.set(cat, [])
+    grouped.get(cat).push({ category: cat, title })
+  })
+
+  return Array.from(grouped.entries())
+    .map(([cat, items]) => ({ category: cat, items }))
+    .sort((a, b) => b.items.length - a.items.length || a.category.localeCompare(b.category))
+}
+
 export default function ComparePage() {
   const modeTabsRef = React.useRef(null)
   const { config } = useGlobalConfig()
@@ -15,6 +41,10 @@ export default function ComparePage() {
   const [loading, setLoading] = useState(false)
   const [loadingRecords, setLoadingRecords] = useState(true)
   const [error, setError] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('ALL')
+  const [keywordFilter, setKeywordFilter] = useState('')
+  const [newOpenMap, setNewOpenMap] = useState({})
+  const [removedOpenMap, setRemovedOpenMap] = useState({})
 
   useEffect(() => {
     let mounted = true
@@ -155,6 +185,37 @@ export default function ComparePage() {
   }
 
   useSlidingTabIndicator(modeTabsRef, [mode])
+
+  const groupedNew = useMemo(
+    () => groupRisks(data?.new_risks || [], categoryFilter, keywordFilter),
+    [data?.new_risks, categoryFilter, keywordFilter],
+  )
+  const groupedRemoved = useMemo(
+    () => groupRisks(data?.removed_risks || [], categoryFilter, keywordFilter),
+    [data?.removed_risks, categoryFilter, keywordFilter],
+  )
+
+  const allCategories = useMemo(() => {
+    const s = new Set()
+    ;(Array.isArray(data?.new_risks) ? data.new_risks : []).forEach((r) => s.add(normalizeCategory(r?.category)))
+    ;(Array.isArray(data?.removed_risks) ? data.removed_risks : []).forEach((r) => s.add(normalizeCategory(r?.category)))
+    return Array.from(s).sort((a, b) => a.localeCompare(b))
+  }, [data?.new_risks, data?.removed_risks])
+
+  useEffect(() => {
+    setNewOpenMap({})
+    setRemovedOpenMap({})
+    setCategoryFilter('ALL')
+    setKeywordFilter('')
+  }, [data?.latest_record_id, data?.prior_record_id])
+
+  const toggleNewGroup = (cat) => {
+    setNewOpenMap((prev) => ({ ...prev, [cat]: !prev[cat] }))
+  }
+
+  const toggleRemovedGroup = (cat) => {
+    setRemovedOpenMap((prev) => ({ ...prev, [cat]: !prev[cat] }))
+  }
 
   return (
     <div className="rl-page-shell rl-compare-page">
@@ -332,24 +393,83 @@ export default function ComparePage() {
             </div>
           </section>
 
+          <section className="card p-4">
+            <div className="rl-compare-filter-bar">
+              <div>
+                <label className="section-title">Category</label>
+                <select className="input mt-2" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                  <option value="ALL">All Categories</option>
+                  {allCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="section-title">Keyword</label>
+                <input
+                  className="input mt-2"
+                  placeholder="Search title keyword…"
+                  value={keywordFilter}
+                  onChange={(e) => setKeywordFilter(e.target.value)}
+                />
+              </div>
+            </div>
+          </section>
+
           <section className="grid gap-4 xl:grid-cols-2">
             <div className="card p-5">
               <p className="section-title">🟢 Risks Unique to Newer Filing</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                {(data.new_risks || []).slice(0, 60).map((r, i) => (
-                  <li key={i}>{r.title}</li>
-                ))}
-                {(data.new_risks || []).length === 0 ? <li className="list-none text-slate-500">No unique risks in newer filing.</li> : null}
-              </ul>
+              {!groupedNew.length ? <p className="mt-2 text-sm text-slate-500">No unique risks in newer filing.</p> : null}
+              <div className="rl-compare-group-list">
+                {groupedNew.map((group) => {
+                  const isOpen = Boolean(newOpenMap[group.category])
+                  return (
+                    <div key={`new-${group.category}`} className="rl-compare-group">
+                      <button className="rl-compare-group-head" onClick={() => toggleNewGroup(group.category)}>
+                        <span>
+                          {group.category} ({group.items.length})
+                        </span>
+                        <strong>{isOpen ? '−' : '+'}</strong>
+                      </button>
+                      {isOpen ? (
+                        <ul className="rl-compare-group-items">
+                          {group.items.map((item, idx) => (
+                            <li key={`new-${group.category}-${idx}`}>{item.title}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
             <div className="card p-5">
               <p className="section-title">🔴 Risks Unique to Older Filing</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                {(data.removed_risks || []).slice(0, 60).map((r, i) => (
-                  <li key={i}>{r.title}</li>
-                ))}
-                {(data.removed_risks || []).length === 0 ? <li className="list-none text-slate-500">No unique risks in older filing.</li> : null}
-              </ul>
+              {!groupedRemoved.length ? <p className="mt-2 text-sm text-slate-500">No unique risks in older filing.</p> : null}
+              <div className="rl-compare-group-list">
+                {groupedRemoved.map((group) => {
+                  const isOpen = Boolean(removedOpenMap[group.category])
+                  return (
+                    <div key={`old-${group.category}`} className="rl-compare-group">
+                      <button className="rl-compare-group-head" onClick={() => toggleRemovedGroup(group.category)}>
+                        <span>
+                          {group.category} ({group.items.length})
+                        </span>
+                        <strong>{isOpen ? '−' : '+'}</strong>
+                      </button>
+                      {isOpen ? (
+                        <ul className="rl-compare-group-items">
+                          {group.items.map((item, idx) => (
+                            <li key={`old-${group.category}-${idx}`}>{item.title}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </section>
           <section className="card p-5">
