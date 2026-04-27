@@ -8,11 +8,10 @@ import brandIcon from '../assets/logo-icon.svg'
 const WORKSPACE_TABS = [
   { to: '/upload', label: 'Upload' },
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/library', label: 'Library' },
+  { to: '/stock', label: 'Stock' },
+  { to: '/news', label: 'News' },
   { to: '/compare', label: 'Compare' },
   { to: '/tables', label: 'Tables' },
-  { to: '/news', label: 'News' },
-  { to: '/stock', label: 'Stock' },
 ]
 
 const LANDING_QUICK_PROMPTS = [
