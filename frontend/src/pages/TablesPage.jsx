@@ -161,7 +161,6 @@ export default function TablesPage() {
   }, [tableResult])
 
   const csvData = useMemo(() => buildCsvFromTableResult(tableResult), [tableResult])
-  const selectedIsNonPdf = Boolean(selected && String(selected?.file_ext || '').toLowerCase() !== 'pdf')
 
   useEffect(() => {
     if (config.company) setCompany(config.company)
@@ -507,88 +506,82 @@ export default function TablesPage() {
             </div>
           ) : null}
 
-          {selectedIsNonPdf ? (
-            <div className="rl-up-inline-error mt-3">Textract only supports PDF files. Please upload a PDF file first.</div>
-          ) : null}
-
-          {!selectedIsNonPdf ? (
-            <div className="rl-tables-accordion-list">
-              {TABLE_SECTIONS.map((section) => {
-                const block = tableResult?.[section.key]
-                const found = Boolean(block?.found)
-                const rows = Array.isArray(block?.rows) ? block.rows : []
-                const headers = Array.isArray(block?.headers) ? block.headers : []
-                const unit = String(block?.unit || '')
-                return (
-                  <details key={section.key} className={`rl-tables-accordion ${found ? 'found' : 'missing'}`}>
-                    <summary>
-                      <span>{section.label}</span>
-                      <strong>{found ? `${rows.length} rows extracted` : tableResult ? 'Not found in filing' : 'Pending extraction'}</strong>
-                    </summary>
-                    {found ? (
-                      <div className="rl-tables-accordion-body">
-                        {unit ? <p className="rl-tables-unit">Unit: {unit}</p> : null}
-                        <div className="rl-tables-table-scroll">
-                          <table className="rl-tables-table-grid">
-                            {headers.length ? (
-                              <thead>
-                                <tr>
-                                  {headers.map((h, idx) => (
-                                    <th key={`${section.key}-head-${idx}`}>{String(h || `Col ${idx + 1}`)}</th>
-                                  ))}
-                                </tr>
-                              </thead>
-                            ) : null}
-                            <tbody>
-                              {rows.map((row, rIdx) => (
-                                <tr key={`${section.key}-row-${rIdx}`}>
-                                  {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
-                                    <td key={`${section.key}-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+          <div className="rl-tables-accordion-list">
+            {TABLE_SECTIONS.map((section) => {
+              const block = tableResult?.[section.key]
+              const found = Boolean(block?.found)
+              const rows = Array.isArray(block?.rows) ? block.rows : []
+              const headers = Array.isArray(block?.headers) ? block.headers : []
+              const unit = String(block?.unit || '')
+              return (
+                <details key={section.key} className={`rl-tables-accordion ${found ? 'found' : 'missing'}`}>
+                  <summary>
+                    <span>{section.label}</span>
+                    <strong>{found ? `${rows.length} rows extracted` : tableResult ? 'Not found in filing' : 'Pending extraction'}</strong>
+                  </summary>
+                  {found ? (
+                    <div className="rl-tables-accordion-body">
+                      {unit ? <p className="rl-tables-unit">Unit: {unit}</p> : null}
+                      <div className="rl-tables-table-scroll">
+                        <table className="rl-tables-table-grid">
+                          {headers.length ? (
+                            <thead>
+                              <tr>
+                                {headers.map((h, idx) => (
+                                  <th key={`${section.key}-head-${idx}`}>{String(h || `Col ${idx + 1}`)}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                          ) : null}
+                          <tbody>
+                            {rows.map((row, rIdx) => (
+                              <tr key={`${section.key}-row-${rIdx}`}>
+                                {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
+                                  <td key={`${section.key}-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    ) : (
-                      <div className="rl-tables-accordion-body rl-tables-empty-body">No table found for this section.</div>
-                    )}
-                  </details>
-                )
-              })}
+                    </div>
+                  ) : (
+                    <div className="rl-tables-accordion-body rl-tables-empty-body">No table found for this section.</div>
+                  )}
+                </details>
+              )
+            })}
+          </div>
+
+          {tableResult ? (
+            <div className="rl-tables-download-row">
+              <button
+                className="btn-secondary"
+                onClick={() =>
+                  triggerDownload(
+                    `${String(company || 'filing').replace(/\s+/g, '_')}_${String(year || 'year')}_tables.json`,
+                    JSON.stringify(tableResult || {}, null, 2),
+                    'application/json',
+                  )
+                }
+              >
+                📥 Download JSON
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() =>
+                  triggerDownload(
+                    `${String(company || 'filing').replace(/\s+/g, '_')}_${String(year || 'year')}_tables.csv`,
+                    csvData,
+                    'text/csv;charset=utf-8',
+                  )
+                }
+              >
+                📥 Download CSV
+              </button>
+              <span className="rl-tables-download-meta">{`Tables found: ${tablesFound}/5`}</span>
             </div>
           ) : null}
-
-          <div className="rl-tables-download-row">
-            <button
-              className="btn-secondary"
-              disabled={!tableResult}
-              onClick={() =>
-                triggerDownload(
-                  `${String(company || 'filing').replace(/\s+/g, '_')}_${String(year || 'year')}_tables.json`,
-                  JSON.stringify(tableResult || {}, null, 2),
-                  'application/json',
-                )
-              }
-            >
-              📥 Download JSON
-            </button>
-            <button
-              className="btn-secondary"
-              disabled={!tableResult}
-              onClick={() =>
-                triggerDownload(
-                  `${String(company || 'filing').replace(/\s+/g, '_')}_${String(year || 'year')}_tables.csv`,
-                  csvData,
-                  'text/csv;charset=utf-8',
-                )
-              }
-            >
-              📥 Download CSV
-            </button>
-            <span className="rl-tables-download-meta">{tableResult ? `Tables found: ${tablesFound}/5` : 'Run extraction to enable downloads'}</span>
-          </div>
         </div>
       </section>
     </div>

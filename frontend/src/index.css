@@ -881,17 +881,17 @@ select.input {
 }
 
 .rl-global-dock.focus .rl-global-dock-composer {
-  padding: 9px 11px;
+  padding: 10px 12px;
 }
 
 .rl-global-dock.focus.compact .rl-global-dock-composer textarea {
-  min-height: 34px;
-  max-height: 78px;
+  min-height: 38px;
+  max-height: 88px;
 }
 
 .rl-global-dock.focus.expanded .rl-global-dock-composer textarea {
-  min-height: 46px;
-  max-height: 130px;
+  min-height: 52px;
+  max-height: 142px;
 }
 
 .rl-global-dock.news {
@@ -2443,7 +2443,7 @@ select.input {
 }
 
 .rl-tables-grid {
-  grid-template-columns: minmax(0, 0.97fr) minmax(0, 1.03fr);
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
 }
 
 .rl-tables-result-headline {
