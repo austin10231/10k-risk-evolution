@@ -550,11 +550,6 @@ export default function NewsPage() {
                   <span className="rl-news-v2-source">{featured.source || 'Unknown'}</span>
                   <div className="rl-news-v2-meta-stack">
                     <span className="rl-news-v2-time">{formatAgo(featured.published_at)}</span>
-                    {featured.url ? (
-                      <a className="rl-news-v2-meta-link" href={featured.url} target="_blank" rel="noreferrer">
-                        Open source ↗
-                      </a>
-                    ) : null}
                   </div>
                 </div>
                 <h3>{featured.title || 'Untitled'}</h3>
@@ -563,7 +558,7 @@ export default function NewsPage() {
                   <div className="rl-news-v2-date-stack">
                     <span>{formatDate(featured.published_at)}</span>
                     {featured.url ? (
-                      <a href={featured.url} target="_blank" rel="noreferrer">
+                      <a className="rl-news-open-link" href={featured.url} target="_blank" rel="noreferrer">
                         Open source ↗
                       </a>
                     ) : null}
@@ -592,7 +587,7 @@ export default function NewsPage() {
                     <h4>{item.title || 'Untitled'}</h4>
                     <p>{item.summary || 'No summary available.'}</p>
                     {item.url ? (
-                      <a href={item.url} target="_blank" rel="noreferrer">
+                      <a className="rl-news-open-link" href={item.url} target="_blank" rel="noreferrer">
                         Open source ↗
                       </a>
                     ) : null}
@@ -622,7 +617,7 @@ export default function NewsPage() {
                       <h4>{item.title || 'Untitled'}</h4>
                       <p>{item.summary || 'No summary available.'}</p>
                       {item.url ? (
-                        <a href={item.url} target="_blank" rel="noreferrer">
+                        <a className="rl-news-open-link" href={item.url} target="_blank" rel="noreferrer">
                           Open source ↗
                         </a>
                       ) : null}
