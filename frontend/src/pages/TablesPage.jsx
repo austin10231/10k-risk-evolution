@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
@@ -33,7 +34,17 @@ function formatBytes(bytes) {
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[idx]}`
 }
 
+function toBase64DataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
+}
+
 export default function TablesPage() {
+  const location = useLocation()
   const { config } = useGlobalConfig()
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
@@ -49,13 +60,21 @@ export default function TablesPage() {
   const [uploadFile, setUploadFile] = useState(null)
   const [autoStartYear, setAutoStartYear] = useState(config.year || '2024')
   const [autoEndYear, setAutoEndYear] = useState(config.year || '2024')
+  const [tableBusy, setTableBusy] = useState(false)
   const [autoBusy, setAutoBusy] = useState(false)
   const [autoSummary, setAutoSummary] = useState(null)
+  const [tableResult, setTableResult] = useState(null)
 
   const fileInputRef = useRef(null)
   const modeTabsRef = useRef(null)
+  const initialRecordIdRef = useRef('')
 
   useSlidingTabIndicator(modeTabsRef, [ingestMode])
+
+  useEffect(() => {
+    const rid = new URLSearchParams(location.search || '').get('record_id')
+    initialRecordIdRef.current = rid ? String(rid) : ''
+  }, [location.search])
 
   const refreshRecords = async (preferId = '') => {
     setLoading(true)
@@ -64,8 +83,11 @@ export default function TablesPage() {
       const res = await get('/api/records?include_result=1')
       const next = Array.isArray(res?.items) ? res.items : []
       setRecords(next)
-      const fallbackId = preferId || selectedId || next[0]?.record_id || ''
-      if (fallbackId) setSelectedId(String(fallbackId))
+      const requestedId = String(preferId || initialRecordIdRef.current || '').trim()
+      if (requestedId && next.some((r) => String(r.record_id) === requestedId)) {
+        setSelectedId(requestedId)
+      }
+      if (preferId || initialRecordIdRef.current) initialRecordIdRef.current = ''
       return next
     } catch (e) {
       setError(e.message || 'Failed to load records')
@@ -105,6 +127,70 @@ export default function TablesPage() {
     setFilingType(selected.filing_type || '10-K')
   }, [selected])
 
+  useEffect(() => {
+    let mounted = true
+    if (!selected) return () => {}
+    const companyName = String(selected.company || '').trim()
+    const selectedYear = Number(selected.year || 0)
+    const selectedFilingType = String(selected.filing_type || '10-K').trim() || '10-K'
+    if (!companyName || !selectedYear) return () => {}
+
+    get(
+      `/api/tables/result?company=${encodeURIComponent(companyName)}&year=${encodeURIComponent(
+        String(selectedYear),
+      )}&filing_type=${encodeURIComponent(selectedFilingType)}`,
+    )
+      .then((res) => {
+        if (!mounted) return
+        if (res?.result && typeof res.result === 'object') {
+          setTableResult(res.result)
+        }
+      })
+      .catch(() => {
+        if (!mounted) return
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [selected])
+
+  const runManualExtract = async () => {
+    const companyName = String(company || '').trim()
+    if (!companyName) {
+      setError('Please enter company name.')
+      return
+    }
+    if (!uploadFile) {
+      setError('Please choose a PDF filing first.')
+      return
+    }
+
+    setError('')
+    setAutoSummary(null)
+    setTableBusy(true)
+    try {
+      const dataUrl = await toBase64DataUrl(uploadFile)
+      const fileB64 = dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : dataUrl
+      const res = await post('/api/tables/extract/manual', {
+        company: companyName,
+        ticker: ticker,
+        industry: industry,
+        year: Number(year),
+        filing_type: filingType,
+        file_name: uploadFile.name,
+        file_b64: fileB64,
+      })
+      if (res?.result && typeof res.result === 'object') {
+        setTableResult(res.result)
+      }
+    } catch (e) {
+      setError(e.message || 'Table extraction failed')
+    } finally {
+      setTableBusy(false)
+    }
+  }
+
   const runAutoFetch = async () => {
     const companyName = String(company || '').trim()
     if (!companyName) {
@@ -119,21 +205,22 @@ export default function TablesPage() {
     }
 
     setError('')
+    setTableBusy(false)
     setAutoBusy(true)
     try {
-      const res = await post('/api/upload/auto-fetch', {
+      const res = await post('/api/tables/extract/auto-fetch', {
         company: companyName,
         ticker: ticker,
         industry: industry,
         start_year: start,
         end_year: end,
+        filing_type: filingType,
       })
       setAutoSummary(res)
-      const successes = Array.isArray(res?.successes) ? res.successes : []
-      const latest = successes.length ? successes[successes.length - 1] : null
-      const latestRid = String(latest?.record?.record_id || '')
-      await refreshRecords(latestRid)
-      if (latestRid) setSelectedId(latestRid)
+      const latest = res?.latest_result && typeof res.latest_result === 'object' ? res.latest_result : null
+      if (latest) {
+        setTableResult(latest)
+      }
     } catch (e) {
       setError(e.message || 'Auto fetch failed')
     } finally {
@@ -255,8 +342,8 @@ export default function TablesPage() {
                 </div>
               </div>
 
-              <button className="btn-primary w-full rl-up-primary-btn" disabled>
-                🚀 Run Textract Extraction
+              <button className="btn-primary w-full rl-up-primary-btn" onClick={runManualExtract} disabled={tableBusy || autoBusy}>
+                {tableBusy ? 'Extracting…' : '🚀 Run Textract Extraction'}
               </button>
             </div>
           ) : (
@@ -303,7 +390,7 @@ export default function TablesPage() {
                   </select>
                 </div>
               </div>
-              <button className="btn-primary w-full rl-up-primary-btn" onClick={runAutoFetch} disabled={autoBusy}>
+              <button className="btn-primary w-full rl-up-primary-btn" onClick={runAutoFetch} disabled={autoBusy || tableBusy}>
                 {autoBusy ? 'Fetching…' : '🚀 Auto Fetch & Save'}
               </button>
             </div>
@@ -360,19 +447,43 @@ export default function TablesPage() {
           <div className="rl-tables-statement-grid">
             <div className="rl-tables-statement-card">
               <p>Balance Sheet</p>
-              <span>Pending extraction</span>
+              <span>
+                {tableResult
+                  ? tableResult?.balance_sheet?.found
+                    ? `${Array.isArray(tableResult?.balance_sheet?.rows) ? tableResult.balance_sheet.rows.length : 0} rows extracted`
+                    : 'Not found in filing'
+                  : 'Pending extraction'}
+              </span>
             </div>
             <div className="rl-tables-statement-card">
               <p>Income Statement</p>
-              <span>Pending extraction</span>
+              <span>
+                {tableResult
+                  ? tableResult?.income_statement?.found
+                    ? `${Array.isArray(tableResult?.income_statement?.rows) ? tableResult.income_statement.rows.length : 0} rows extracted`
+                    : 'Not found in filing'
+                  : 'Pending extraction'}
+              </span>
             </div>
             <div className="rl-tables-statement-card">
               <p>Cash Flow</p>
-              <span>Pending extraction</span>
+              <span>
+                {tableResult
+                  ? tableResult?.cash_flow?.found
+                    ? `${Array.isArray(tableResult?.cash_flow?.rows) ? tableResult.cash_flow.rows.length : 0} rows extracted`
+                    : 'Not found in filing'
+                  : 'Pending extraction'}
+              </span>
             </div>
             <div className="rl-tables-statement-card">
               <p>Footnotes</p>
-              <span>Pending extraction</span>
+              <span>
+                {tableResult
+                  ? tableResult?.comprehensive_income?.found || tableResult?.shareholders_equity?.found
+                    ? 'Supplementary tables extracted'
+                    : 'No supplementary table found'
+                  : 'Pending extraction'}
+              </span>
             </div>
           </div>
         </div>

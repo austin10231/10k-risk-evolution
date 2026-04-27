@@ -47,7 +47,18 @@ try:
     from core.sec_edgar import download_10k_html_for_company_year, build_filing_html_url
 except Exception:
     download_10k_html_for_company_year = None
+    download_10k_pdf_for_company_year = None
     build_filing_html_url = None
+
+try:
+    from core.sec_edgar import download_10k_pdf_for_company_year
+except Exception:
+    download_10k_pdf_for_company_year = None
+
+try:
+    from core.table_extractor import extract_tables_from_pdf
+except Exception:
+    extract_tables_from_pdf = None
 
 _RUN_AGENT = None
 
@@ -57,6 +68,7 @@ AGENT_PREFIX = "agent_reports"
 TICKER_MAP_KEY = "company_ticker_map.json"
 HTML_PREFIX = "10k_html_datasets"
 PDF_PREFIX = "10k_pdf_datasets"
+TABLES_PREFIX = "tables_extraction"
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE_TTL_SECONDS = 120
 
@@ -207,6 +219,140 @@ def _sanitize_company(company: str) -> str:
 
 def _sanitize_filing_type(filing_type: str) -> str:
     return re.sub(r"[^\w\-]", "", str(filing_type or "10-K"))
+
+
+def _delete_s3_prefix(prefix: str) -> None:
+    bucket = _bucket()
+    if not bucket:
+        return
+    s3 = _s3_client()
+    paginator = s3.get_paginator("list_objects_v2")
+    try:
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []) or []:
+                key = str(obj.get("Key", "") or "")
+                if key:
+                    s3.delete_object(Bucket=bucket, Key=key)
+    except Exception:
+        return
+
+
+def _table_record_token(company: str, year: int, filing_type: str = "10-K") -> str:
+    return f"{_sanitize_company(company)}_{int(year)}_{_sanitize_filing_type(filing_type)}"
+
+
+_TABLE_DISPLAY_ORDER = [
+    "income_statement",
+    "comprehensive_income",
+    "balance_sheet",
+    "shareholders_equity",
+    "cash_flow",
+]
+
+
+def _count_found_tables(data: dict) -> int:
+    if not isinstance(data, dict):
+        return 0
+    return sum(1 for key in _TABLE_DISPLAY_ORDER if isinstance(data.get(key), dict) and data.get(key, {}).get("found"))
+
+
+def _classified_to_csv(data: dict) -> str:
+    if not isinstance(data, dict):
+        return ""
+    rows: List[str] = []
+    for cat_key in _TABLE_DISPLAY_ORDER:
+        cat_data = data.get(cat_key, {})
+        if not isinstance(cat_data, dict) or not cat_data.get("found"):
+            continue
+        display_name = str(cat_data.get("display_name", cat_key) or cat_key)
+        unit = str(cat_data.get("unit", "") or "")
+        headers = cat_data.get("headers", []) if isinstance(cat_data.get("headers"), list) else []
+        table_rows = cat_data.get("rows", []) if isinstance(cat_data.get("rows"), list) else []
+
+        rows.append(f"=== {display_name} ===")
+        if unit:
+            rows.append(f"({unit})")
+        rows.append("")
+        if headers:
+            rows.append(",".join([str(v or "").replace(",", " ") for v in headers]))
+        for row in table_rows:
+            if isinstance(row, list):
+                rows.append(",".join([str(v or "").replace(",", " ") for v in row]))
+        rows.append("")
+        rows.append("")
+
+    return "\n".join(rows)
+
+
+def _save_table_result(company: str, year: int, filing_type: str, table_json: dict, csv_string: str = "") -> str:
+    token = _table_record_token(company, year, filing_type)
+    _delete_s3_prefix(f"{TABLES_PREFIX}/{token}_")
+
+    sid = uuid.uuid4().hex[:4]
+    base = f"{TABLES_PREFIX}/{token}_{sid}"
+    _write_s3_bytes(
+        f"{base}_tables.json",
+        json.dumps(table_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
+    )
+    if csv_string:
+        _write_s3_bytes(f"{base}_tables.csv", csv_string.encode("utf-8"))
+    return base
+
+
+def _load_table_result(company: str, year: int, filing_type: str = "10-K") -> Optional[dict]:
+    token = _table_record_token(company, year, filing_type)
+    prefix = f"{TABLES_PREFIX}/{token}_"
+    keys = [k for k in _list_s3_keys(prefix) if k.endswith("_tables.json")]
+    if not keys:
+        return None
+    keys.sort(reverse=True)
+    data = _read_s3_bytes(keys[0])
+    if not data:
+        return None
+    try:
+        payload = json.loads(data.decode("utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _extract_tables_for_pdf(
+    *,
+    pdf_bytes: bytes,
+    company: str,
+    industry: str,
+    year: int,
+    filing_type: str,
+    source: str,
+) -> tuple[Optional[dict], str, str]:
+    if extract_tables_from_pdf is None:
+        return None, "", "Tables extraction pipeline is unavailable in runtime."
+    try:
+        classified = extract_tables_from_pdf(pdf_bytes)
+    except Exception as exc:
+        return None, "", f"Textract extraction failed: {type(exc).__name__}: {exc}"
+
+    found_count = _count_found_tables(classified)
+    if found_count <= 0:
+        return None, "", "No core financial tables could be identified in this filing PDF."
+
+    result = {
+        "company": str(company or "").strip(),
+        "industry": str(industry or "Other").strip() or "Other",
+        "year": int(year),
+        "filing_type": str(filing_type or "10-K").strip() or "10-K",
+        "tables_found": found_count,
+        "source": source or "tables_manual_pdf",
+        **(classified if isinstance(classified, dict) else {}),
+    }
+    key = _save_table_result(
+        company=result["company"],
+        year=result["year"],
+        filing_type=result["filing_type"],
+        table_json=result,
+        csv_string=_classified_to_csv(classified),
+    )
+    return result, key, ""
 
 
 def _add_record(
@@ -1621,6 +1767,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "/api/news?company=Apple&ticker=AAPL",
                             "/api/upload/manual (POST)",
                             "/api/upload/auto-fetch (POST)",
+                            "/api/tables/result?company=Apple&year=2024&filing_type=10-K",
+                            "/api/tables/extract/manual (POST)",
+                            "/api/tables/extract/auto-fetch (POST)",
                             "/api/agent/query (POST)",
                             "/api/compare (POST)",
                             "/invocations (POST)",
@@ -1700,6 +1849,17 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"ok": False, **payload})
                     return
                 self._send_json(200, {"ok": True, **payload})
+                return
+
+            if path == "/api/tables/result":
+                company = str((query.get("company", [""]) or [""])[0]).strip()
+                year = _to_int((query.get("year", ["0"]) or ["0"])[0], 0)
+                filing_type = str((query.get("filing_type", ["10-K"]) or ["10-K"])[0]).strip() or "10-K"
+                if not company or year <= 0:
+                    self._send_json(400, {"ok": False, "error": "company and year are required."})
+                    return
+                payload = _load_table_result(company, year, filing_type)
+                self._send_json(200, {"ok": True, "result": payload})
                 return
 
             self._send_json(404, {"ok": False, "error": "Not Found"})
@@ -1805,6 +1965,140 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     self._send_json(400, payload)
                     return
                 self._send_json(200, payload)
+                return
+
+            if path == "/api/tables/extract/manual":
+                body = self._read_json_body()
+                company = str(body.get("company", "") or "").strip()
+                ticker = str(body.get("ticker", "") or "").strip().upper()
+                industry = str(body.get("industry", "Other") or "Other").strip() or "Other"
+                filing_type = str(body.get("filing_type", "10-K") or "10-K").strip() or "10-K"
+                year = _to_int(body.get("year", 0), 0)
+                file_name = str(body.get("file_name", "") or "").strip() or "filing.pdf"
+                file_b64 = str(body.get("file_b64", "") or body.get("file_content_base64", "") or "").strip()
+
+                if not company:
+                    self._send_json(400, {"ok": False, "error": "company is required."})
+                    return
+                if year <= 0:
+                    self._send_json(400, {"ok": False, "error": "year is required."})
+                    return
+                if not file_b64:
+                    self._send_json(400, {"ok": False, "error": "file payload is required."})
+                    return
+                if not file_name.lower().endswith(".pdf"):
+                    self._send_json(400, {"ok": False, "error": "Tables extraction only supports PDF files."})
+                    return
+
+                if "," in file_b64 and "base64" in file_b64[:80]:
+                    file_b64 = file_b64.split(",", 1)[-1]
+                try:
+                    file_bytes = base64.b64decode(file_b64)
+                except Exception:
+                    self._send_json(400, {"ok": False, "error": "Invalid base64 file payload."})
+                    return
+
+                result, table_key, err = _extract_tables_for_pdf(
+                    pdf_bytes=file_bytes,
+                    company=company,
+                    industry=industry,
+                    year=year,
+                    filing_type=filing_type,
+                    source="tables_manual_pdf",
+                )
+                if not result:
+                    self._send_json(400, {"ok": False, "error": err or "Tables extraction failed."})
+                    return
+
+                if ticker:
+                    _upsert_company_ticker(company, ticker)
+
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "result": result,
+                        "table_key": table_key,
+                    },
+                )
+                return
+
+            if path == "/api/tables/extract/auto-fetch":
+                body = self._read_json_body()
+                company = str(body.get("company", "") or "").strip()
+                ticker = str(body.get("ticker", "") or "").strip().upper()
+                industry = str(body.get("industry", "Other") or "Other").strip() or "Other"
+                filing_type = str(body.get("filing_type", "10-K") or "10-K").strip() or "10-K"
+                start_year = _to_int(body.get("start_year", 0), 0)
+                end_year = _to_int(body.get("end_year", 0), 0)
+                if not company:
+                    self._send_json(400, {"ok": False, "error": "company is required."})
+                    return
+                if start_year <= 0 or end_year <= 0 or start_year > end_year:
+                    self._send_json(400, {"ok": False, "error": "Invalid year range."})
+                    return
+                if download_10k_pdf_for_company_year is None:
+                    self._send_json(400, {"ok": False, "error": "SEC PDF auto-fetch is unavailable in runtime."})
+                    return
+
+                successes: List[dict] = []
+                skipped: List[dict] = []
+
+                for yy in range(start_year, end_year + 1):
+                    try:
+                        pdf_bytes, meta, sec_err = download_10k_pdf_for_company_year(
+                            company_name=company,
+                            year=int(yy),
+                            ticker=ticker,
+                        )
+                    except Exception as exc:
+                        skipped.append({"year": yy, "reason": f"SEC request failed: {type(exc).__name__}: {exc}"})
+                        continue
+
+                    if not pdf_bytes:
+                        filing_url = build_filing_html_url(meta) if build_filing_html_url and isinstance(meta, dict) else ""
+                        skipped.append(
+                            {
+                                "year": yy,
+                                "reason": sec_err or "Could not auto-download 10-K PDF from SEC EDGAR.",
+                                "filing_url": filing_url,
+                            }
+                        )
+                        continue
+
+                    result, table_key, err = _extract_tables_for_pdf(
+                        pdf_bytes=pdf_bytes,
+                        company=company,
+                        industry=industry,
+                        year=int(yy),
+                        filing_type=filing_type,
+                        source="tables_auto_sec_pdf",
+                    )
+                    if not result:
+                        skipped.append({"year": yy, "reason": err or "Tables extraction failed."})
+                        continue
+
+                    if ticker:
+                        _upsert_company_ticker(company, ticker)
+                    successes.append(
+                        {
+                            "year": yy,
+                            "result": result,
+                            "table_key": table_key,
+                        }
+                    )
+
+                latest_result = successes[-1].get("result") if successes else None
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "count": len(successes),
+                        "successes": successes,
+                        "skipped": skipped,
+                        "latest_result": latest_result,
+                    },
+                )
                 return
 
             if path == "/api/agent/query":
