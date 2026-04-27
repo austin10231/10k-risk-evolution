@@ -540,17 +540,19 @@ export default function NewsPage() {
               <div className="rl-news-v2-feature-copy">
                 <div className="rl-news-v2-meta-row">
                   <span className="rl-news-v2-source">{featured.source || 'Unknown'}</span>
-                  <span className="rl-news-v2-time">{formatAgo(featured.published_at)}</span>
+                  <div className="rl-news-v2-meta-stack">
+                    <span className="rl-news-v2-time">{formatAgo(featured.published_at)}</span>
+                    {featured.url ? (
+                      <a className="rl-news-v2-meta-link" href={featured.url} target="_blank" rel="noreferrer">
+                        Open source ↗
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
                 <h3>{featured.title || 'Untitled'}</h3>
                 <p>{featured.summary || 'No summary available.'}</p>
                 <div className="rl-news-v2-link-row">
                   <span>{formatDate(featured.published_at)}</span>
-                  {featured.url ? (
-                    <a href={featured.url} target="_blank" rel="noreferrer">
-                      Open source ↗
-                    </a>
-                  ) : null}
                 </div>
               </div>
               <NewsImage

@@ -3012,6 +3012,13 @@ body {
   gap: 8px;
 }
 
+.rl-news-v2-meta-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
 .rl-news-v2-source {
   border: 1px solid rgba(147, 197, 253, 0.72);
   background: rgba(239, 246, 255, 0.72);
@@ -3026,6 +3033,18 @@ body {
   font-size: 0.72rem;
   color: #64748b;
   font-weight: 600;
+}
+
+.rl-news-v2-meta-link {
+  color: #2563eb;
+  text-decoration: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.rl-news-v2-meta-link:hover {
+  color: #1d4ed8;
 }
 
 .rl-news-v2-link-row {
