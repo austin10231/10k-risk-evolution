@@ -1688,6 +1688,12 @@ body {
   @apply flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/90 bg-white/85 px-1.5 py-1.5;
 }
 
+.rl-up-sub-strip {
+  margin-top: -10px;
+  margin-left: 10px;
+  width: fit-content;
+}
+
 .rl-strip-tab {
   @apply inline-flex items-center rounded-xl px-3.5 py-1.5 text-[0.86rem] font-semibold text-slate-500 transition;
 }
@@ -1712,8 +1718,16 @@ body {
   @apply mt-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-500;
 }
 
+.rl-upload-btn-row .btn-secondary {
+  flex-shrink: 0;
+}
+
 .rl-upload-btn-row span {
   @apply text-[0.9rem];
+}
+
+.rl-hidden-file-input {
+  display: none;
 }
 
 .rl-up-result-placeholder {
@@ -1858,6 +1872,68 @@ body {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.rl-up-manual-status-tile {
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.rl-up-manual-status-tile p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.rl-up-manual-status-tile strong {
+  display: block;
+  margin-top: 6px;
+  color: #0f172a;
+  font-size: 0.86rem;
+  line-height: 1.2;
+  word-break: break-all;
+}
+
+.rl-up-result-summary {
+  margin-top: 8px;
+  display: grid;
+  gap: 12px;
+}
+
+.rl-up-result-head {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.rl-up-result-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #e2e8f0;
+  border-radius: 11px;
+  background: #f8fafc;
+  padding: 8px 10px;
+}
+
+.rl-up-result-meta span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.rl-up-result-meta strong {
+  color: #0f172a;
+  font-size: 0.88rem;
+  font-weight: 800;
 }
 
 .rl-up-grid-manual .rl-up-form {
@@ -2685,6 +2761,12 @@ body {
 
   .rl-up-config-row {
     min-width: 100%;
+  }
+
+  .rl-up-sub-strip {
+    margin-top: 0;
+    margin-left: 0;
+    width: 100%;
   }
 
   .rl-up-grid {

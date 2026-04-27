@@ -18,6 +18,7 @@ Public API:
 """
 
 import json
+import os
 import re
 import time
 import copy
@@ -41,6 +42,16 @@ _ITEM1A_END = [
 
 _AI_OVERVIEW_CACHE: dict[str, dict] = {}
 _AI_RISKS_CACHE: dict[str, list[dict]] = {}
+
+
+def _secret(name: str, default: str = "") -> str:
+    try:
+        value = st.secrets.get(name)  # type: ignore[attr-defined]
+        if value not in (None, ""):
+            return str(value)
+    except Exception:
+        pass
+    return str(os.getenv(name, default) or default)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -219,18 +230,18 @@ def _extract_risks_from_text_fallback(text: str) -> list[dict]:
 def _get_textract():
     return boto3.client(
         "textract",
-        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
-        region_name=st.secrets["AWS_REGION"],
+        aws_access_key_id=_secret("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=_secret("AWS_SECRET_ACCESS_KEY"),
+        region_name=_secret("AWS_REGION", "us-west-1"),
     )
 
 
 def _get_s3():
     return boto3.client(
         "s3",
-        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
-        region_name=st.secrets["AWS_REGION"],
+        aws_access_key_id=_secret("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=_secret("AWS_SECRET_ACCESS_KEY"),
+        region_name=_secret("AWS_REGION", "us-west-1"),
     )
 
 
@@ -246,7 +257,9 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     """
     import uuid
 
-    bucket = st.secrets["S3_BUCKET"]
+    bucket = _secret("S3_BUCKET")
+    if not bucket:
+        raise RuntimeError("S3_BUCKET is required for PDF Textract extraction.")
     temp_key = f"_textract_temp/{uuid.uuid4().hex}.pdf"
 
     s3 = _get_s3()

@@ -1,6 +1,7 @@
 """AWS Bedrock — risk classification, summarization, change analysis."""
 
 import json
+import os
 import streamlit as st
 import boto3
 
@@ -13,12 +14,23 @@ RISK_CATEGORIES = [
 ]
 
 
+def _secret(name: str, default: str = "") -> str:
+    try:
+        value = st.secrets.get(name)  # type: ignore[attr-defined]
+        if value not in (None, ""):
+            return str(value)
+    except Exception:
+        pass
+    return str(os.getenv(name, default) or default)
+
+
 def _get_bedrock():
+    region = _secret("BEDROCK_REGION") or _secret("AWS_REGION", "us-west-2")
     return boto3.client(
         "bedrock-runtime",
-        aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
-        region_name=st.secrets["BEDROCK_REGION"],
+        aws_access_key_id=_secret("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=_secret("AWS_SECRET_ACCESS_KEY"),
+        region_name=region,
     )
 
 

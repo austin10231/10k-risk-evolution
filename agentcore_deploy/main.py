@@ -5,9 +5,11 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 import time
 import traceback
+import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional, Set
@@ -26,12 +28,35 @@ try:
 except Exception:
     compare_risks = None
 
+try:
+    from core.extractor import (
+        extract_item1_overview_bedrock,
+        extract_item1a_risks_bedrock,
+        extract_item1_overview_from_text,
+        extract_item1a_risks_from_text,
+        extract_text_from_pdf,
+    )
+except Exception:
+    extract_item1_overview_bedrock = None
+    extract_item1a_risks_bedrock = None
+    extract_item1_overview_from_text = None
+    extract_item1a_risks_from_text = None
+    extract_text_from_pdf = None
+
+try:
+    from core.sec_edgar import download_10k_html_for_company_year, build_filing_html_url
+except Exception:
+    download_10k_html_for_company_year = None
+    build_filing_html_url = None
+
 _RUN_AGENT = None
 
 INDEX_KEY = "filing_records_index.json"
 RESULTS_PREFIX = "risk_analysis_results"
 AGENT_PREFIX = "agent_reports"
 TICKER_MAP_KEY = "company_ticker_map.json"
+HTML_PREFIX = "10k_html_datasets"
+PDF_PREFIX = "10k_pdf_datasets"
 
 
 def _env(name: str, default: str = "") -> str:
@@ -77,6 +102,23 @@ def _read_s3_bytes(key: str) -> Optional[bytes]:
         ):
             return None
         raise
+
+
+def _write_s3_bytes(key: str, data: bytes) -> None:
+    bucket = _bucket()
+    if not bucket:
+        raise RuntimeError("S3_BUCKET is not configured.")
+    _s3_client().put_object(Bucket=bucket, Key=key, Body=data)
+
+
+def _delete_s3_key(key: str) -> None:
+    bucket = _bucket()
+    if not bucket:
+        return
+    try:
+        _s3_client().delete_object(Bucket=bucket, Key=key)
+    except Exception:
+        return
 
 
 def _list_s3_keys(prefix: str) -> List[str]:
@@ -137,6 +179,102 @@ def _load_company_ticker_map() -> Dict[str, str]:
     return out
 
 
+def _save_index(index: List[dict]) -> None:
+    payload = json.dumps(index, indent=2, default=str, ensure_ascii=False).encode("utf-8")
+    _write_s3_bytes(INDEX_KEY, payload)
+
+
+def _save_company_ticker_map(mapping: Dict[str, str]) -> None:
+    payload = json.dumps(mapping, indent=2, ensure_ascii=False).encode("utf-8")
+    _write_s3_bytes(TICKER_MAP_KEY, payload)
+
+
+def _upsert_company_ticker(company: str, ticker: str) -> None:
+    c = str(company or "").strip()
+    t = str(ticker or "").strip().upper()
+    if not c or not t:
+        return
+    mapping = _load_company_ticker_map()
+    mapping[c] = t
+    _save_company_ticker_map(mapping)
+
+
+def _sanitize_company(company: str) -> str:
+    return re.sub(r"[^\w]", "", str(company or "").replace(" ", "_"))
+
+
+def _sanitize_filing_type(filing_type: str) -> str:
+    return re.sub(r"[^\w\-]", "", str(filing_type or "10-K"))
+
+
+def _add_record(
+    *,
+    company: str,
+    industry: str,
+    year: int,
+    filing_type: str,
+    file_bytes: bytes,
+    file_ext: str,
+    result_json: dict,
+) -> dict:
+    company = str(company or "").strip()
+    industry = str(industry or "Other").strip() or "Other"
+    filing_type = str(filing_type or "10-K").strip() or "10-K"
+    year = int(year or 0)
+    ext = "pdf" if str(file_ext or "").strip().lower() == "pdf" else "html"
+
+    index = _load_index()
+    dupes = [
+        r
+        for r in index
+        if str(r.get("company", "")) == company
+        and int(r.get("year", 0) or 0) == year
+        and str(r.get("filing_type", "")) == filing_type
+    ]
+    for d in dupes:
+        old_id = str(d.get("record_id", "") or "")
+        if not old_id:
+            continue
+        old_ext = "pdf" if str(d.get("file_ext", "html")).lower() == "pdf" else "html"
+        old_prefix = PDF_PREFIX if old_ext == "pdf" else HTML_PREFIX
+        _delete_s3_key(f"{old_prefix}/{old_id}.{old_ext}")
+        _delete_s3_key(f"{RESULTS_PREFIX}/{old_id}.json")
+
+    index = [
+        r
+        for r in index
+        if not (
+            str(r.get("company", "")) == company
+            and int(r.get("year", 0) or 0) == year
+            and str(r.get("filing_type", "")) == filing_type
+        )
+    ]
+
+    safe = _sanitize_company(company)
+    sid = uuid.uuid4().hex[:4]
+    rid = f"{safe}_{year}_{_sanitize_filing_type(filing_type)}_{sid}"
+    data_prefix = PDF_PREFIX if ext == "pdf" else HTML_PREFIX
+
+    _write_s3_bytes(f"{data_prefix}/{rid}.{ext}", file_bytes)
+    _write_s3_bytes(
+        f"{RESULTS_PREFIX}/{rid}.json",
+        json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
+    )
+
+    record = {
+        "record_id": rid,
+        "company": company,
+        "industry": industry,
+        "year": year,
+        "filing_type": filing_type,
+        "file_ext": ext,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    index.append(record)
+    _save_index(index)
+    return record
+
+
 def _load_agent_reports() -> List[dict]:
     reports: List[dict] = []
     try:
@@ -171,6 +309,138 @@ def _extract_sub_risks(result: dict) -> List[dict]:
                 continue
             out.append({"category": category, "title": title, "labels": labels})
     return out
+
+
+def _manual_extract_result(
+    *,
+    file_bytes: bytes,
+    file_name: str,
+    company: str,
+    industry: str,
+    year: int,
+    filing_type: str,
+) -> tuple[Optional[dict], str]:
+    if (
+        extract_item1_overview_bedrock is None
+        or extract_item1a_risks_bedrock is None
+        or extract_item1_overview_from_text is None
+        or extract_item1a_risks_from_text is None
+        or extract_text_from_pdf is None
+    ):
+        return None, "Extraction pipeline is unavailable in runtime."
+
+    company_name = str(company or "").strip()
+    if not company_name:
+        return None, "Company name is required."
+
+    is_pdf = str(file_name or "").strip().lower().endswith(".pdf")
+    industry_name = str(industry or "Other").strip() or "Other"
+    ft = str(filing_type or "10-K").strip() or "10-K"
+    yy = int(year or 0)
+
+    try:
+        if is_pdf:
+            pdf_text = extract_text_from_pdf(file_bytes)
+            if not pdf_text:
+                return None, "Textract could not extract text from this PDF."
+            overview = extract_item1_overview_from_text(pdf_text, company_name, industry_name)
+            risks = extract_item1a_risks_from_text(pdf_text)
+        else:
+            # Keep both pipelines while removing user-facing mode choice:
+            # HTML defaults to AI-enhanced with internal fallback to standard.
+            overview = extract_item1_overview_bedrock(file_bytes, company_name, industry_name)
+            risks = extract_item1a_risks_bedrock(file_bytes, company_name)
+    except Exception as exc:
+        return None, f"Extraction failed: {type(exc).__name__}: {exc}"
+
+    if not risks:
+        return None, "Could not extract risks from Item 1A."
+
+    overview = dict(overview or {})
+    overview["year"] = yy
+    overview["filing_type"] = ft
+    overview["company"] = overview.get("company") or company_name
+    overview["industry"] = overview.get("industry") or industry_name
+
+    return {"company_overview": overview, "risks": risks}, ""
+
+
+def _auto_fetch_and_extract(
+    *,
+    company: str,
+    ticker: str,
+    industry: str,
+    start_year: int,
+    end_year: int,
+) -> dict:
+    if download_10k_html_for_company_year is None:
+        return {"ok": False, "error": "SEC auto-fetch is unavailable in runtime."}
+
+    comp = str(company or "").strip()
+    tk = str(ticker or "").strip().upper()
+    ind = str(industry or "Other").strip() or "Other"
+    sy = int(start_year or 0)
+    ey = int(end_year or 0)
+    if not comp:
+        return {"ok": False, "error": "Company name is required."}
+    if sy <= 0 or ey <= 0 or sy > ey:
+        return {"ok": False, "error": "Invalid year range."}
+
+    successes: List[dict] = []
+    skipped: List[dict] = []
+    for yy in range(sy, ey + 1):
+        try:
+            html_bytes, sec_meta, sec_err = download_10k_html_for_company_year(comp, yy, tk)
+        except Exception as exc:
+            skipped.append({"year": yy, "reason": f"SEC request failed: {type(exc).__name__}: {exc}"})
+            continue
+
+        if not html_bytes:
+            skipped.append({"year": yy, "reason": sec_err or "Could not fetch 10-K HTML from SEC EDGAR."})
+            continue
+
+        result, extract_err = _manual_extract_result(
+            file_bytes=html_bytes,
+            file_name=f"{comp}_{yy}.html",
+            company=comp,
+            industry=ind,
+            year=yy,
+            filing_type="10-K",
+        )
+        if not result:
+            skipped.append({"year": yy, "reason": extract_err or "Extraction failed."})
+            continue
+
+        result["source"] = "sec_edgar_auto_fetch"
+        result["sec_meta"] = {
+            **(sec_meta if isinstance(sec_meta, dict) else {}),
+            "auto_fetch": True,
+            "ticker": tk,
+            "filing_url": build_filing_html_url(sec_meta) if build_filing_html_url and isinstance(sec_meta, dict) else "",
+        }
+
+        try:
+            rec = _add_record(
+                company=comp,
+                industry=ind,
+                year=yy,
+                filing_type="10-K",
+                file_bytes=html_bytes,
+                file_ext="html",
+                result_json=result,
+            )
+            if tk:
+                _upsert_company_ticker(comp, tk)
+            successes.append({"year": yy, "record": _record_summary(rec, include_result=True), "result": result})
+        except Exception as exc:
+            skipped.append({"year": yy, "reason": f"Save failed: {type(exc).__name__}: {exc}"})
+
+    return {
+        "ok": True,
+        "count": len(successes),
+        "successes": successes,
+        "skipped": skipped,
+    }
 
 
 def _find_record(company: str, year: int) -> Optional[dict]:
@@ -977,6 +1247,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "/api/dashboard/summary",
                             "/api/stock/quote?ticker=AAPL",
                             "/api/news?company=Apple&ticker=AAPL",
+                            "/api/upload/manual (POST)",
+                            "/api/upload/auto-fetch (POST)",
                             "/api/agent/query (POST)",
                             "/api/compare (POST)",
                             "/invocations (POST)",
@@ -1079,6 +1351,88 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 body = self._read_json_body()
                 result = _invoke_logic(body)
                 self._send_json(200, result if isinstance(result, dict) else {"result": result})
+                return
+
+            if path == "/api/upload/manual":
+                body = self._read_json_body()
+                company = str(body.get("company", "") or "").strip()
+                ticker = str(body.get("ticker", "") or "").strip().upper()
+                industry = str(body.get("industry", "Other") or "Other").strip() or "Other"
+                filing_type = str(body.get("filing_type", "10-K") or "10-K").strip() or "10-K"
+                year = _to_int(body.get("year", 0), 0)
+                file_name = str(body.get("file_name", "") or "").strip() or "filing.html"
+                file_b64 = str(body.get("file_b64", "") or body.get("file_content_base64", "") or "").strip()
+
+                if not company:
+                    self._send_json(400, {"ok": False, "error": "company is required."})
+                    return
+                if year <= 0:
+                    self._send_json(400, {"ok": False, "error": "year is required."})
+                    return
+                if not file_b64:
+                    self._send_json(400, {"ok": False, "error": "file payload is required."})
+                    return
+
+                if "," in file_b64 and "base64" in file_b64[:80]:
+                    file_b64 = file_b64.split(",", 1)[-1]
+                try:
+                    file_bytes = base64.b64decode(file_b64)
+                except Exception:
+                    self._send_json(400, {"ok": False, "error": "Invalid base64 file payload."})
+                    return
+
+                result, err = _manual_extract_result(
+                    file_bytes=file_bytes,
+                    file_name=file_name,
+                    company=company,
+                    industry=industry,
+                    year=year,
+                    filing_type=filing_type,
+                )
+                if not result:
+                    self._send_json(400, {"ok": False, "error": err or "Extraction failed."})
+                    return
+
+                ext = "pdf" if file_name.lower().endswith(".pdf") else "html"
+                record = _add_record(
+                    company=company,
+                    industry=industry,
+                    year=year,
+                    filing_type=filing_type,
+                    file_bytes=file_bytes,
+                    file_ext=ext,
+                    result_json=result,
+                )
+                if ticker:
+                    _upsert_company_ticker(company, ticker)
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "record": _record_summary(record, include_result=True),
+                        "result": result,
+                    },
+                )
+                return
+
+            if path == "/api/upload/auto-fetch":
+                body = self._read_json_body()
+                company = str(body.get("company", "") or "").strip()
+                ticker = str(body.get("ticker", "") or "").strip().upper()
+                industry = str(body.get("industry", "Other") or "Other").strip() or "Other"
+                start_year = _to_int(body.get("start_year", 0), 0)
+                end_year = _to_int(body.get("end_year", 0), 0)
+                payload = _auto_fetch_and_extract(
+                    company=company,
+                    ticker=ticker,
+                    industry=industry,
+                    start_year=start_year,
+                    end_year=end_year,
+                )
+                if not payload.get("ok"):
+                    self._send_json(400, payload)
+                    return
+                self._send_json(200, payload)
                 return
 
             if path == "/api/agent/query":

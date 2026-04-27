@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { get } from '../lib/api'
+import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 import { companyOverview, groupedRiskTitles, riskCategoryCount, riskItemCount } from '../lib/records'
 
@@ -37,6 +37,28 @@ function formatDate(v) {
   } catch {
     return '—'
   }
+}
+
+function formatBytes(bytes) {
+  const n = Number(bytes || 0)
+  if (!Number.isFinite(n) || n <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let idx = 0
+  let value = n
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024
+    idx += 1
+  }
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[idx]}`
+}
+
+function toBase64DataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
 }
 
 function RecordDetailPanel({ rec, result }) {
@@ -136,7 +158,16 @@ export default function UploadPage() {
   const [industry, setIndustry] = useState('Technology')
   const [year, setYear] = useState('2024')
   const [filingType, setFilingType] = useState('10-K')
-  const [extractionMode, setExtractionMode] = useState('Standard')
+
+  const [autoStartYear, setAutoStartYear] = useState('2024')
+  const [autoEndYear, setAutoEndYear] = useState('2024')
+
+  const [uploadFile, setUploadFile] = useState(null)
+  const [manualBusy, setManualBusy] = useState(false)
+  const [autoBusy, setAutoBusy] = useState(false)
+  const [manualResult, setManualResult] = useState(null)
+  const [manualRecord, setManualRecord] = useState(null)
+  const [autoSummary, setAutoSummary] = useState(null)
 
   const [editingConfig, setEditingConfig] = useState(false)
   const [cfgDraft, setCfgDraft] = useState(config)
@@ -145,33 +176,29 @@ export default function UploadPage() {
   const [selectedResult, setSelectedResult] = useState(null)
   const [loadingSelected, setLoadingSelected] = useState(false)
 
-  const loadRecords = () => {
-    let mounted = true
+  const fileInputRef = useRef(null)
+
+  const refreshRecords = async (preferId = '') => {
     setLoading(true)
     setError('')
-    get('/api/records?include_result=1')
-      .then((res) => {
-        if (!mounted) return
-        const next = Array.isArray(res?.items) ? res.items : []
-        setRecords(next)
-        if (!selectedId && next[0]?.record_id) setSelectedId(String(next[0].record_id))
-      })
-      .catch((e) => {
-        if (!mounted) return
-        setError(e.message || 'Failed to load records')
-      })
-      .finally(() => {
-        if (!mounted) return
-        setLoading(false)
-      })
-    return () => {
-      mounted = false
+    try {
+      const res = await get('/api/records?include_result=1')
+      const next = Array.isArray(res?.items) ? res.items : []
+      setRecords(next)
+      const fallbackId = preferId || selectedId || next[0]?.record_id || ''
+      if (fallbackId) setSelectedId(String(fallbackId))
+      return next
+    } catch (e) {
+      setError(e.message || 'Failed to load records')
+      return []
+    } finally {
+      setLoading(false)
     }
   }
 
   useEffect(() => {
-    const off = loadRecords()
-    return off
+    refreshRecords()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -182,7 +209,11 @@ export default function UploadPage() {
     if (config.company) setCompany(config.company)
     if (config.ticker) setTicker(config.ticker)
     if (config.industry) setIndustry(config.industry)
-    if (config.year) setYear(config.year)
+    if (config.year) {
+      setYear(config.year)
+      setAutoStartYear(config.year)
+      setAutoEndYear(config.year)
+    }
   }, [config])
 
   useEffect(() => {
@@ -226,6 +257,82 @@ export default function UploadPage() {
   const saveConfig = () => {
     setConfig(cfgDraft)
     setEditingConfig(false)
+  }
+
+  const runManualExtract = async () => {
+    const companyName = String(company || '').trim()
+    if (!companyName) {
+      setError('Please enter company name.')
+      return
+    }
+    if (!uploadFile) {
+      setError('Please choose a filing file.')
+      return
+    }
+    setError('')
+    setAutoSummary(null)
+    setManualBusy(true)
+    try {
+      const dataUrl = await toBase64DataUrl(uploadFile)
+      const fileB64 = dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : dataUrl
+      const res = await post('/api/upload/manual', {
+        company: companyName,
+        ticker: ticker,
+        industry: industry,
+        year: Number(year),
+        filing_type: filingType,
+        file_name: uploadFile.name,
+        file_b64: fileB64,
+      })
+      setManualResult(res?.result || null)
+      setManualRecord(res?.record || null)
+
+      const rid = String(res?.record?.record_id || '')
+      await refreshRecords(rid)
+      if (rid) setSelectedId(rid)
+    } catch (e) {
+      setError(e.message || 'Extraction failed')
+    } finally {
+      setManualBusy(false)
+    }
+  }
+
+  const runAutoFetch = async () => {
+    const companyName = String(company || '').trim()
+    if (!companyName) {
+      setError('Please enter company name.')
+      return
+    }
+    const start = Number(autoStartYear)
+    const end = Number(autoEndYear)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+      setError('Start year must be less than or equal to end year.')
+      return
+    }
+
+    setError('')
+    setManualResult(null)
+    setManualRecord(null)
+    setAutoBusy(true)
+    try {
+      const res = await post('/api/upload/auto-fetch', {
+        company: companyName,
+        ticker: ticker,
+        industry: industry,
+        start_year: start,
+        end_year: end,
+      })
+      setAutoSummary(res)
+      const successes = Array.isArray(res?.successes) ? res.successes : []
+      const latest = successes.length ? successes[successes.length - 1] : null
+      const latestRid = String(latest?.record?.record_id || '')
+      await refreshRecords(latestRid)
+      if (latestRid) setSelectedId(latestRid)
+    } catch (e) {
+      setError(e.message || 'Auto fetch failed')
+    } finally {
+      setAutoBusy(false)
+    }
   }
 
   return (
@@ -321,7 +428,7 @@ export default function UploadPage() {
 
       <section className="rl-up-strip">
         <button className={`rl-strip-tab ${tab === 'ingest' ? 'active' : ''}`} onClick={() => setTab('ingest')}>
-          🆕 New Ingestion
+          🆕 Upload
         </button>
         <button className={`rl-strip-tab ${tab === 'records' ? 'active' : ''}`} onClick={() => setTab('records')}>
           📚 Records
@@ -330,7 +437,7 @@ export default function UploadPage() {
 
       {tab === 'ingest' ? (
         <>
-          <section className="rl-up-strip">
+          <section className="rl-up-strip rl-up-sub-strip">
             <button
               className={`rl-strip-tab ${ingestMode === 'manual' ? 'active' : ''}`}
               onClick={() => setIngestMode('manual')}
@@ -353,10 +460,20 @@ export default function UploadPage() {
                   <div>
                     <label className="rl-field-label">Filing file (HTML or PDF)</label>
                     <div className="rl-upload-btn-row">
-                      <button className="btn-secondary" disabled>
+                      <button className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
                         ⤴ Upload
                       </button>
-                      <span>200MB per file • HTML, HTM, PDF</span>
+                      <span>{uploadFile ? `${uploadFile.name} • ${formatBytes(uploadFile.size)}` : '200MB per file • HTML, HTM, PDF'}</span>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".html,.htm,.pdf"
+                        className="rl-hidden-file-input"
+                        onChange={(e) => {
+                          const f = e.target.files && e.target.files[0] ? e.target.files[0] : null
+                          setUploadFile(f)
+                        }}
+                      />
                     </div>
                   </div>
 
@@ -412,32 +529,58 @@ export default function UploadPage() {
                         <option value="10-Q">10-Q</option>
                       </select>
                     </div>
-                    <div>
-                      <label className="rl-field-label">Extraction Mode</label>
-                      <select
-                        className="input mt-2"
-                        value={extractionMode}
-                        onChange={(e) => setExtractionMode(e.target.value)}
-                      >
-                        <option value="Standard">Standard</option>
-                        <option value="AI-Enhanced">AI-Enhanced</option>
-                      </select>
+                    <div className="rl-up-manual-status-tile">
+                      <p>Selected File</p>
+                      <strong>{uploadFile ? uploadFile.name : 'None'}</strong>
                     </div>
                   </div>
 
-                  <button className="btn-primary w-full rl-up-primary-btn" disabled>
-                    🚀 Extract & Save
+                  <button className="btn-primary w-full rl-up-primary-btn" onClick={runManualExtract} disabled={manualBusy}>
+                    {manualBusy ? 'Extracting…' : '🚀 Extract & Save'}
                   </button>
                 </div>
               </div>
 
               <div className="rl-up-results">
                 <p className="section-title">Results</p>
-                <div className="rl-up-result-placeholder">
-                  <p>📋</p>
-                  <h4>Extraction results will appear here</h4>
-                  <span>Configure the inputs on the left, then hit Extract & Save</span>
-                </div>
+                {manualBusy ? (
+                  <div className="rl-up-result-placeholder">
+                    <h4>Running extraction pipeline…</h4>
+                    <span>Processing filing and saving to records.</span>
+                  </div>
+                ) : manualResult ? (
+                  <div className="rl-up-result-summary">
+                    <p className="rl-up-result-head">Extraction completed</p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="metric-card">
+                        <p className="metric-label">Risk Categories</p>
+                        <p className="metric-value">{riskCategoryCount(manualResult)}</p>
+                      </div>
+                      <div className="metric-card">
+                        <p className="metric-label">Risk Items</p>
+                        <p className="metric-value">{riskItemCount(manualResult)}</p>
+                      </div>
+                    </div>
+                    <div className="rl-up-result-meta">
+                      <span>Record ID</span>
+                      <strong>{manualRecord?.record_id || '—'}</strong>
+                    </div>
+                    <button
+                      className="btn-secondary w-full"
+                      onClick={() => {
+                        if (manualRecord?.record_id) setSelectedId(String(manualRecord.record_id))
+                        setTab('records')
+                      }}
+                    >
+                      Open in Records
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rl-up-result-placeholder">
+                    <p>📋</p>
+                    <h4>Extraction results will appear here</h4>
+                  </div>
+                )}
               </div>
             </section>
           ) : (
@@ -462,7 +605,7 @@ export default function UploadPage() {
                   <div className="rl-up-three-col">
                     <div>
                       <label className="rl-field-label">Start Year</label>
-                      <select className="input mt-2" value={year} onChange={(e) => setYear(e.target.value)}>
+                      <select className="input mt-2" value={autoStartYear} onChange={(e) => setAutoStartYear(e.target.value)}>
                         {YEARS.map((y) => (
                           <option key={y} value={y}>
                             {y}
@@ -482,23 +625,47 @@ export default function UploadPage() {
                     </div>
                     <div>
                       <label className="rl-field-label">End Year</label>
-                      <select className="input mt-2" value="2024" disabled>
-                        <option value="2024">2024</option>
+                      <select className="input mt-2" value={autoEndYear} onChange={(e) => setAutoEndYear(e.target.value)}>
+                        {YEARS.map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
-                  <button className="btn-primary w-full rl-up-primary-btn" disabled>
-                    🚀 Auto Fetch & Analyze
+                  <button className="btn-primary w-full rl-up-primary-btn" onClick={runAutoFetch} disabled={autoBusy}>
+                    {autoBusy ? 'Fetching…' : '🚀 Auto Fetch & Save'}
                   </button>
                 </div>
               </div>
 
               <div className="rl-up-results">
                 <p className="section-title">Status</p>
-                <div className="rl-up-result-placeholder">
-                  <h4>Auto-fetch pipeline ready</h4>
-                  <span>SEC runtime migration is the next backend step.</span>
-                </div>
+                {autoBusy ? (
+                  <div className="rl-up-result-placeholder">
+                    <h4>Auto fetch pipeline running…</h4>
+                  </div>
+                ) : autoSummary ? (
+                  <div className="rl-up-result-summary">
+                    <p className="rl-up-result-head">Run completed</p>
+                    <div className="rl-up-result-meta">
+                      <span>Saved</span>
+                      <strong>{autoSummary?.count ?? 0}</strong>
+                    </div>
+                    <div className="rl-up-result-meta">
+                      <span>Skipped</span>
+                      <strong>{Array.isArray(autoSummary?.skipped) ? autoSummary.skipped.length : 0}</strong>
+                    </div>
+                    <button className="btn-secondary w-full" onClick={() => setTab('records')}>
+                      Open Records
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rl-up-result-placeholder">
+                    <h4>Ready to fetch SEC filings</h4>
+                  </div>
+                )}
               </div>
             </section>
           )}
