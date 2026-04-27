@@ -1069,15 +1069,98 @@ def _stooq_history(symbol: str) -> List[dict]:
     return []
 
 
-def _stock_quote(symbol: str) -> dict:
+def _stock_quote(symbol: str, lite: bool = False) -> dict:
     sym = str(symbol or "").strip().upper()
     if not sym:
         return {"error": "Ticker is required."}
 
-    cached = _stock_cache_get(sym)
+    cache_symbol = f"{sym}__LITE" if lite else sym
+    cached = _stock_cache_get(cache_symbol)
     if cached:
         cached["providers"] = _provider_snapshot(["twelvedata", "fmp", "yahoo"])
         return cached
+
+    if lite:
+        history: List[dict] = []
+        errors: List[str] = []
+        history_source = ""
+
+        stooq_history = _stooq_history(sym)
+        if stooq_history:
+            history = stooq_history
+            history_source = "stooq"
+
+        if not history and _provider_available("yahoo"):
+            chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1y&interval=1d"
+            try:
+                chart_payload = _yahoo_json(chart_url)
+                chart = chart_payload.get("chart", {}) if isinstance(chart_payload, dict) else {}
+                results = chart.get("result", []) if isinstance(chart, dict) else []
+                parsed_history: List[dict] = []
+                if results:
+                    first = results[0] if isinstance(results[0], dict) else {}
+                    ts = first.get("timestamp", []) or []
+                    q = first.get("indicators", {}).get("quote", []) or []
+                    closes = q[0].get("close", []) if q and isinstance(q[0], dict) else []
+                    vols = q[0].get("volume", []) if q and isinstance(q[0], dict) else []
+                    for i, t in enumerate(ts):
+                        try:
+                            c = closes[i]
+                        except Exception:
+                            c = None
+                        if c is None:
+                            continue
+                        try:
+                            dt = datetime.fromtimestamp(int(t), tz=timezone.utc).strftime("%Y-%m-%d")
+                        except Exception:
+                            continue
+                        vol = _to_float(vols[i], 0.0) if i < len(vols) else 0.0
+                        parsed_history.append({"date": dt, "close": float(c), "volume": vol})
+                if parsed_history:
+                    history = parsed_history
+                    history_source = "yahoo"
+                _provider_mark_success("yahoo")
+            except Exception as e:
+                _provider_mark_failure("yahoo", e)
+                errors.append(f"yahoo chart: {type(e).__name__}: {e}")
+
+        if not history:
+            detail = "; ".join(errors) if errors else "no data returned by public fallback providers"
+            return {"error": f"Failed to fetch stock data: {detail}"}
+
+        history = [h for h in history if isinstance(h, dict) and _to_float(h.get("close")) is not None]
+        history.sort(key=lambda x: str(x.get("date", "")))
+        if len(history) < 2:
+            return {"error": "Not enough history points for this ticker."}
+
+        last_close = float(history[-1]["close"])
+        prev_close = float(history[-2]["close"])
+        delta = last_close - prev_close
+        pct = (delta / prev_close * 100.0) if prev_close != 0 else None
+        out = {
+            "symbol": sym,
+            "name": sym,
+            "price": last_close,
+            "change": delta,
+            "change_percent": pct,
+            "market_cap": None,
+            "pe_ratio": None,
+            "high_52": max(float(h["close"]) for h in history),
+            "low_52": min(float(h["close"]) for h in history),
+            "exchange": "US",
+            "history": history,
+            "quote_source": history_source or "derived",
+            "history_source": history_source or "",
+            "providers": _provider_snapshot(["twelvedata", "fmp", "yahoo"]),
+            "cache_hit": False,
+            "cache_age_s": 0,
+            "error": "",
+            "lite": True,
+        }
+        if errors:
+            out["warning"] = "Sector-lite fetch used fallback history sources."
+        _stock_cache_set(cache_symbol, out)
+        return out
 
     name = sym
     price = None
@@ -1280,7 +1363,7 @@ def _stock_quote(symbol: str) -> dict:
     }
     if errors and (price is not None or bool(history)):
         out["warning"] = "Live refresh partially degraded; showing best available merged data."
-    _stock_cache_set(sym, out)
+    _stock_cache_set(cache_symbol, out)
     return out
 
 
@@ -2100,10 +2183,11 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
             if path == "/api/stock/quote":
                 ticker = str((query.get("ticker", [""]) or [""])[0]).strip().upper()
+                lite = _to_int((query.get("lite", ["0"]) or ["0"])[0], 0)
                 if not ticker:
                     self._send_json(400, {"ok": False, "error": "ticker is required."})
                     return
-                payload = _stock_quote(ticker)
+                payload = _stock_quote(ticker, lite=bool(lite))
                 if payload.get("error"):
                     self._send_json(400, {"ok": False, **payload})
                     return

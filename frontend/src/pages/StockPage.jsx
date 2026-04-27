@@ -114,6 +114,20 @@ const SECTOR_BY_TICKER = {
   ABBV: 'Healthcare',
 }
 
+const EQUITY_SECTOR_BENCHMARKS = [
+  { industry: 'Technology', ticker: 'XLK' },
+  { industry: 'Energy', ticker: 'XLE' },
+  { industry: 'Consumer Cyclical', ticker: 'XLY' },
+  { industry: 'Consumer Defensive', ticker: 'XLP' },
+  { industry: 'Communication Services', ticker: 'XLC' },
+  { industry: 'Industrials', ticker: 'XLI' },
+  { industry: 'Financial Services', ticker: 'XLF' },
+  { industry: 'Utilities', ticker: 'XLU' },
+  { industry: 'Basic Materials', ticker: 'XLB' },
+  { industry: 'Real Estate', ticker: 'XLRE' },
+  { industry: 'Healthcare', ticker: 'XLV' },
+]
+
 function normalizeTicker(raw) {
   return String(raw || '')
     .trim()
@@ -720,7 +734,16 @@ export default function StockPage() {
     async (rawTicker, options = {}) => {
       const sym = normalizeTicker(rawTicker)
       if (!sym) return null
-      const { preferCache = false, silent = false, skipIfFresh = false, force = false } = options
+      const {
+        preferCache = false,
+        silent = false,
+        skipIfFresh = false,
+        force = false,
+        remember = true,
+        muteError = false,
+        muteStatus = false,
+        lite = false,
+      } = options
 
       let hasCached = false
       let cachedPayload = null
@@ -730,9 +753,9 @@ export default function StockPage() {
           hasCached = true
           cachedPayload = cached
           upsertBundle(sym, cached.data, cached.savedAt, 'cache')
-          setStatusHint(buildBundleHint(cached.data, 'cache'))
+          if (!muteStatus) setStatusHint(buildBundleHint(cached.data, 'cache'))
           if (!force && skipIfFresh && !isBundleStale(cached.savedAt)) {
-            setError('')
+            if (!muteError) setError('')
             return cached.data
           }
         }
@@ -741,22 +764,24 @@ export default function StockPage() {
       if (!silent) setLoadingTicker(sym)
 
       try {
-        const res = await get(`/api/stock/quote?ticker=${encodeURIComponent(sym)}`)
+        const q = new URLSearchParams({ ticker: sym })
+        if (lite) q.set('lite', '1')
+        const res = await get(`/api/stock/quote?${q.toString()}`)
         const payload = res?.data || null
         if (!payload || typeof payload !== 'object') throw new Error('No stock payload returned')
 
         writeBundleCache(sym, payload)
         upsertBundle(sym, payload, Date.now(), 'live')
-        rememberTicker(sym)
-        setError('')
-        setStatusHint(buildBundleHint(payload, 'live'))
+        if (remember) rememberTicker(sym)
+        if (!muteError) setError('')
+        if (!muteStatus) setStatusHint(buildBundleHint(payload, 'live'))
         return payload
       } catch (e) {
         if (!hasCached) {
-          setError(e.message || `Failed to load ${sym}`)
-          setStatusHint('')
+          if (!muteError) setError(e.message || `Failed to load ${sym}`)
+          if (!muteStatus) setStatusHint('')
         } else if (cachedPayload?.data) {
-          setStatusHint(buildBundleHint({ ...cachedPayload.data, warning: e.message || 'refresh failed' }, 'cache'))
+          if (!muteStatus) setStatusHint(buildBundleHint({ ...cachedPayload.data, warning: e.message || 'refresh failed' }, 'cache'))
         }
         return null
       } finally {
@@ -846,6 +871,25 @@ export default function StockPage() {
       timers.forEach((id) => window.clearTimeout(id))
     }
   }, [selectedTicker, uploadedCompanies, fetchBundle])
+
+  useEffect(() => {
+    const timers = []
+    EQUITY_SECTOR_BENCHMARKS.forEach((item, idx) => {
+      const timer = window.setTimeout(() => {
+        fetchBundle(item.ticker, {
+          preferCache: true,
+          silent: true,
+          skipIfFresh: true,
+          remember: false,
+          muteError: true,
+          muteStatus: true,
+          lite: true,
+        })
+      }, 900 + idx * 4200)
+      timers.push(timer)
+    })
+    return () => timers.forEach((id) => window.clearTimeout(id))
+  }, [fetchBundle])
 
   const selectedEntry = bundleMap[selectedTicker] || null
   const data = selectedEntry?.data || null
@@ -951,35 +995,45 @@ export default function StockPage() {
     return merged.slice(0, 5)
   }, [trackedRows])
 
-  const sectorRows = useMemo(() => {
+  const uploadedSectorAgg = useMemo(() => {
     const buckets = {}
     loadedRows.forEach((row) => {
       const key = String(row.industry || 'Other').trim() || 'Other'
       if (!buckets[key]) {
-        buckets[key] = { industry: key, count: 0, sumPct: 0, sumCap: 0 }
+        buckets[key] = { count: 0, sumPct: 0 }
       }
       buckets[key].count += 1
       if (Number.isFinite(row.change_percent)) buckets[key].sumPct += Number(row.change_percent)
-      if (Number.isFinite(row.market_cap)) buckets[key].sumCap += Number(row.market_cap)
     })
-    return Object.values(buckets)
-      .map((b) => ({
-        industry: b.industry,
-        count: b.count,
-        avgPct: b.count ? b.sumPct / b.count : 0,
-        totalCap: b.sumCap,
-      }))
-      .sort((a, b) => Number(b.totalCap || 0) - Number(a.totalCap || 0))
-      .slice(0, 8)
+    return buckets
   }, [loadedRows])
+
+  const sectorRows = useMemo(
+    () =>
+      EQUITY_SECTOR_BENCHMARKS.map((item) => {
+        const payload = bundleMap[item.ticker]?.data || null
+        const pct = Number(payload?.change_percent)
+        const price = Number(payload?.price)
+        const uploaded = uploadedSectorAgg[item.industry]
+        const uploadedPct = uploaded?.count ? uploaded.sumPct / uploaded.count : null
+        return {
+          industry: item.industry,
+          ticker: item.ticker,
+          price: Number.isFinite(price) ? price : undefined,
+          avgPct: Number.isFinite(pct) ? pct : (Number.isFinite(uploadedPct) ? uploadedPct : undefined),
+        }
+      }),
+    [bundleMap, uploadedSectorAgg],
+  )
 
   const summaryItems = useMemo(() => {
     const gainers = loadedRows.filter((r) => Number(r.change_percent) > 0).length
     const losers = loadedRows.filter((r) => Number(r.change_percent) < 0).length
     const topUp = [...loadedRows].sort((a, b) => Number(b.change_percent) - Number(a.change_percent))[0]
     const topDown = [...loadedRows].sort((a, b) => Number(a.change_percent) - Number(b.change_percent))[0]
-    const leadSector = [...sectorRows].sort((a, b) => Number(b.avgPct) - Number(a.avgPct))[0]
-    const weakSector = [...sectorRows].sort((a, b) => Number(a.avgPct) - Number(b.avgPct))[0]
+    const sectorWithPct = sectorRows.filter((s) => Number.isFinite(Number(s.avgPct)))
+    const leadSector = [...sectorWithPct].sort((a, b) => Number(b.avgPct) - Number(a.avgPct))[0]
+    const weakSector = [...sectorWithPct].sort((a, b) => Number(a.avgPct) - Number(b.avgPct))[0]
 
     const items = []
     items.push({
@@ -1001,7 +1055,7 @@ export default function StockPage() {
     if (leadSector || weakSector) {
       items.push({
         title: `Sector snapshot: ${leadSector?.industry || 'N/A'} strongest, ${weakSector?.industry || 'N/A'} weakest`,
-        body: `Average sector moves are computed from uploaded-company tickers with live quotes.`
+        body: `Sector moves use benchmark ETFs, with uploaded-company averages as fallback when live sector quotes are unavailable.`
       })
     }
     if (filingSummary) {
@@ -1359,7 +1413,7 @@ export default function StockPage() {
               {sectorRows.map((row) => (
                 <div key={`sector-${row.industry}`} className="rl-stock-sector-item">
                   <span>{row.industry}</span>
-                  <strong>{fmtCompact(row.totalCap)}</strong>
+                  <strong>{fmtPrice(row.price)}</strong>
                   <em className={toneClass(row.avgPct)}>{fmtPct(row.avgPct)}</em>
                 </div>
               ))}
