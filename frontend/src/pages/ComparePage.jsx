@@ -382,93 +382,107 @@ export default function ComparePage() {
 
       {data && (
         <>
-          <section className="grid gap-4 xl:grid-cols-2">
-            <div className="metric-card border border-emerald-200">
-              <p className="metric-label">Only in Newer Filing</p>
-              <p className="metric-value !text-emerald-600">{data?.summary?.new_count ?? 0} new</p>
-            </div>
-            <div className="metric-card border border-red-200">
-              <p className="metric-label">Only in Older Filing</p>
-              <p className="metric-value !text-red-600">{data?.summary?.removed_count ?? 0} removed</p>
-            </div>
-          </section>
+          <section className="rl-compare-result-shell">
+            <div className="rl-compare-result-top">
+              <div className="rl-compare-result-pills">
+                <div className="rl-compare-result-pill new">
+                  <span>Only in newer filing</span>
+                  <strong>{data?.summary?.new_count ?? 0} new</strong>
+                </div>
+                <div className="rl-compare-result-pill removed">
+                  <span>Only in older filing</span>
+                  <strong>{data?.summary?.removed_count ?? 0} removed</strong>
+                </div>
+              </div>
 
-          <section className="card p-4">
-            <div className="rl-compare-filter-bar">
-              <div>
-                <label className="section-title">Category</label>
-                <select className="input mt-2" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                  <option value="ALL">All Categories</option>
-                  {allCategories.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="section-title">Keyword</label>
-                <input
-                  className="input mt-2"
-                  placeholder="Search title keyword…"
-                  value={keywordFilter}
-                  onChange={(e) => setKeywordFilter(e.target.value)}
-                />
+              <div className="rl-compare-filter-bar compact">
+                <div className="rl-compare-filter-select">
+                  <select className="input" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                    <option value="ALL">All Categories</option>
+                    {allCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="rl-compare-filter-keyword">
+                  <input
+                    className="input"
+                    placeholder="Search keyword…"
+                    value={keywordFilter}
+                    onChange={(e) => setKeywordFilter(e.target.value)}
+                  />
+                </div>
+                <button
+                  className="btn-secondary rl-compare-filter-clear"
+                  onClick={() => {
+                    setCategoryFilter('ALL')
+                    setKeywordFilter('')
+                  }}
+                >
+                  Clear
+                </button>
               </div>
             </div>
-          </section>
 
-          <section className="grid gap-4 xl:grid-cols-2">
-            <div className="card p-5">
-              <p className="section-title">🟢 Risks Unique to Newer Filing</p>
-              {!groupedNew.length ? <p className="mt-2 text-sm text-slate-500">No unique risks in newer filing.</p> : null}
-              <div className="rl-compare-group-list">
-                {groupedNew.map((group) => {
-                  const isOpen = Boolean(newOpenMap[group.category])
-                  return (
-                    <div key={`new-${group.category}`} className="rl-compare-group">
-                      <button className="rl-compare-group-head" onClick={() => toggleNewGroup(group.category)}>
-                        <span>
-                          {group.category} ({group.items.length})
-                        </span>
-                        <strong>{isOpen ? '−' : '+'}</strong>
-                      </button>
-                      {isOpen ? (
-                        <ul className="rl-compare-group-items">
-                          {group.items.map((item, idx) => (
-                            <li key={`new-${group.category}-${idx}`}>{item.title}</li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </div>
-                  )
-                })}
+            <div className="rl-compare-result-grid">
+              <div className="rl-compare-column">
+                <p className="section-title">🟢 Risks Unique to Newer Filing</p>
+                {!groupedNew.length ? <p className="mt-2 text-sm text-slate-500">No unique risks in newer filing.</p> : null}
+                <div className="rl-compare-group-list">
+                  {groupedNew.map((group) => {
+                    const isOpen = Boolean(newOpenMap[group.category])
+                    return (
+                      <div key={`new-${group.category}`} className="rl-compare-group">
+                        <button className="rl-compare-group-head" onClick={() => toggleNewGroup(group.category)}>
+                          <span>
+                            {group.category} ({group.items.length})
+                          </span>
+                          <strong>{isOpen ? '−' : '+'}</strong>
+                        </button>
+                        {isOpen ? (
+                          <ul className="rl-compare-group-items">
+                            {group.items.map((item, idx) => (
+                              <li key={`new-${group.category}-${idx}`}>
+                                <span>{item.title}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-            <div className="card p-5">
-              <p className="section-title">🔴 Risks Unique to Older Filing</p>
-              {!groupedRemoved.length ? <p className="mt-2 text-sm text-slate-500">No unique risks in older filing.</p> : null}
-              <div className="rl-compare-group-list">
-                {groupedRemoved.map((group) => {
-                  const isOpen = Boolean(removedOpenMap[group.category])
-                  return (
-                    <div key={`old-${group.category}`} className="rl-compare-group">
-                      <button className="rl-compare-group-head" onClick={() => toggleRemovedGroup(group.category)}>
-                        <span>
-                          {group.category} ({group.items.length})
-                        </span>
-                        <strong>{isOpen ? '−' : '+'}</strong>
-                      </button>
-                      {isOpen ? (
-                        <ul className="rl-compare-group-items">
-                          {group.items.map((item, idx) => (
-                            <li key={`old-${group.category}-${idx}`}>{item.title}</li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </div>
-                  )
-                })}
+
+              <div className="rl-compare-column">
+                <p className="section-title">🔴 Risks Unique to Older Filing</p>
+                {!groupedRemoved.length ? <p className="mt-2 text-sm text-slate-500">No unique risks in older filing.</p> : null}
+                <div className="rl-compare-group-list">
+                  {groupedRemoved.map((group) => {
+                    const isOpen = Boolean(removedOpenMap[group.category])
+                    return (
+                      <div key={`old-${group.category}`} className="rl-compare-group">
+                        <button className="rl-compare-group-head" onClick={() => toggleRemovedGroup(group.category)}>
+                          <span>
+                            {group.category} ({group.items.length})
+                          </span>
+                          <strong>{isOpen ? '−' : '+'}</strong>
+                        </button>
+                        {isOpen ? (
+                          <ul className="rl-compare-group-items">
+                            {group.items.map((item, idx) => (
+                              <li key={`old-${group.category}-${idx}`}>
+                                <span>{item.title}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           </section>
