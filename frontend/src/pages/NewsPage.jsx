@@ -222,10 +222,6 @@ export default function NewsPage() {
             <p className="page-subtitle">Discover recent market headlines and scan risk-relevant signals quickly.</p>
           </div>
         </div>
-        <div className="rl-news-v2-hero-chips">
-          <span className="rl-news-v2-chip">Window: 7D</span>
-          <span className="rl-news-v2-chip">Feed: Live Headlines</span>
-        </div>
       </section>
 
       {error ? <div className="rl-news-v2-error">{error}</div> : null}
