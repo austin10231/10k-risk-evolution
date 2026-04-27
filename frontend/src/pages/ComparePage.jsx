@@ -153,10 +153,10 @@ export default function ComparePage() {
   }
 
   return (
-    <div className="rl-page-shell">
-      <section className="card p-5">
-        <div className="page-header !mb-0 !pb-0">
-          <div className="page-header-left">
+    <div className="rl-page-shell rl-compare-page">
+      <section className="rl-up-header">
+        <div className="page-header !mb-0">
+          <div className="page-header-left rl-up-title-block">
             <span className="page-icon">⚖️</span>
             <div>
               <p className="page-title">Compare</p>
@@ -167,123 +167,152 @@ export default function ComparePage() {
         </div>
       </section>
 
-      {error && <div className="card border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
+      {error ? <div className="rl-up-inline-error">{error}</div> : null}
 
-      <section className="card p-5">
-        <p className="section-title">Comparison Mode</p>
-        <div className="rl-tabs mt-2">
-          <button className={`rl-tab-btn ${mode === 'yoy' ? 'active' : ''}`} onClick={() => setMode('yoy')}>
-            📅 Year-over-Year
-          </button>
-          <button className={`rl-tab-btn ${mode === 'cross' ? 'active' : ''}`} onClick={() => setMode('cross')}>
-            🏢 Cross-Company
-          </button>
-        </div>
-
-        {loadingRecords ? <p className="mt-4 text-sm text-slate-500">Loading records…</p> : null}
-
-        {!loadingRecords && mode === 'yoy' ? (
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div>
-              <label className="section-title">Company</label>
-              <select className="input mt-2" value={companyYoy} onChange={(e) => setCompanyYoy(e.target.value)}>
-                {companies.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="section-title">Filing Type</label>
-              <select className="input mt-2" value={ftYoy} onChange={(e) => setFtYoy(e.target.value)}>
-                <option value="10-K">10-K</option>
-                <option value="10-Q">10-Q</option>
-              </select>
-            </div>
-            <div>
-              <label className="section-title">Latest Year</label>
-              <select className="input mt-2" value={latestYear} onChange={(e) => setLatestYear(e.target.value)}>
-                {yoyYears.map((y) => (
-                  <option key={y} value={String(y)}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="section-title">Prior Year</label>
-              <select className="input mt-2" value={priorYear} onChange={(e) => setPriorYear(e.target.value)}>
-                {priorYearOptions.map((y) => (
-                  <option key={y} value={String(y)}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
+      <section className="rl-compare-workbench">
+        <div className="rl-up-form rl-compare-control">
+          <p className="section-title">Configure</p>
+          <div className="rl-tabs mt-2">
+            <button className={`rl-tab-btn ${mode === 'yoy' ? 'active' : ''}`} onClick={() => setMode('yoy')}>
+              📅 Year-over-Year
+            </button>
+            <button className={`rl-tab-btn ${mode === 'cross' ? 'active' : ''}`} onClick={() => setMode('cross')}>
+              🏢 Cross-Company
+            </button>
           </div>
-        ) : null}
 
-        {!loadingRecords && mode === 'cross' ? (
-          <div className="mt-4 grid gap-4 xl:grid-cols-2">
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-              <p className="text-sm font-bold text-blue-700">Company A</p>
-              <div className="mt-2 grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="section-title">Company</label>
-                  <select className="input mt-2" value={companyA} onChange={(e) => setCompanyA(e.target.value)}>
-                    {companies.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+          {loadingRecords ? <p className="mt-2 text-sm text-slate-500">Loading records…</p> : null}
+
+          {!loadingRecords && mode === 'yoy' ? (
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <label className="section-title">Company</label>
+                <select className="input mt-2" value={companyYoy} onChange={(e) => setCompanyYoy(e.target.value)}>
+                  {companies.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="section-title">Filing Type</label>
+                <select className="input mt-2" value={ftYoy} onChange={(e) => setFtYoy(e.target.value)}>
+                  <option value="10-K">10-K</option>
+                  <option value="10-Q">10-Q</option>
+                </select>
+              </div>
+              <div>
+                <label className="section-title">Latest Year</label>
+                <select className="input mt-2" value={latestYear} onChange={(e) => setLatestYear(e.target.value)}>
+                  {yoyYears.map((y) => (
+                    <option key={y} value={String(y)}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="section-title">Prior Year</label>
+                <select className="input mt-2" value={priorYear} onChange={(e) => setPriorYear(e.target.value)}>
+                  {priorYearOptions.map((y) => (
+                    <option key={y} value={String(y)}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : null}
+
+          {!loadingRecords && mode === 'cross' ? (
+            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+                <p className="text-sm font-bold text-blue-700">Company A</p>
+                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="section-title">Company</label>
+                    <select className="input mt-2" value={companyA} onChange={(e) => setCompanyA(e.target.value)}>
+                      {companies.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="section-title">Year</label>
+                    <select className="input mt-2" value={yearA} onChange={(e) => setYearA(e.target.value)}>
+                      {yearsForCompany(companyA).map((y) => (
+                        <option key={y} value={String(y)}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="section-title">Year</label>
-                  <select className="input mt-2" value={yearA} onChange={(e) => setYearA(e.target.value)}>
-                    {yearsForCompany(companyA).map((y) => (
-                      <option key={y} value={String(y)}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
+              </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <p className="text-sm font-bold text-emerald-700">Company B</p>
+                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="section-title">Company</label>
+                    <select className="input mt-2" value={companyB} onChange={(e) => setCompanyB(e.target.value)}>
+                      {companies.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="section-title">Year</label>
+                    <select className="input mt-2" value={yearB} onChange={(e) => setYearB(e.target.value)}>
+                      {yearsForCompany(companyB).map((y) => (
+                        <option key={y} value={String(y)}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-              <p className="text-sm font-bold text-emerald-700">Company B</p>
-              <div className="mt-2 grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="section-title">Company</label>
-                  <select className="input mt-2" value={companyB} onChange={(e) => setCompanyB(e.target.value)}>
-                    {companies.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="section-title">Year</label>
-                  <select className="input mt-2" value={yearB} onChange={(e) => setYearB(e.target.value)}>
-                    {yearsForCompany(companyB).map((y) => (
-                      <option key={y} value={String(y)}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+          ) : null}
+
+          <div className="mt-4">
+            <button className="btn-primary" onClick={runCompare} disabled={loading || !latestId || !priorId}>
+              {loading ? 'Comparing…' : '🚀 Run Compare'}
+            </button>
+          </div>
+        </div>
+
+        <aside className="rl-up-results rl-compare-side">
+          <p className="section-title">Comparison Lens</p>
+          <div className="rl-compare-side-kpis">
+            <div className="metric-card">
+              <p className="metric-label">Mode</p>
+              <p className="metric-value">{mode === 'yoy' ? 'YOY' : 'Cross'}</p>
+            </div>
+            <div className="metric-card">
+              <p className="metric-label">Records Ready</p>
+              <p className="metric-value">{records.length}</p>
             </div>
           </div>
-        ) : null}
 
-        <div className="mt-4">
-          <button className="btn-primary" onClick={runCompare} disabled={loading || !latestId || !priorId}>
-            {loading ? 'Comparing…' : '🚀 Run Compare'}
-          </button>
-        </div>
+          <div className="rl-up-result-meta">
+            <span>Latest Record</span>
+            <strong title={labelMap.get(latestId) || latestId || '—'}>{labelMap.get(latestId) || latestId || '—'}</strong>
+          </div>
+          <div className="rl-up-result-meta">
+            <span>Prior Record</span>
+            <strong title={labelMap.get(priorId) || priorId || '—'}>{labelMap.get(priorId) || priorId || '—'}</strong>
+          </div>
+
+          <div className="rl-compare-side-note">
+            Tip: use Year-over-Year for trajectory shifts, and Cross-Company for relative exposure benchmarking.
+          </div>
+        </aside>
       </section>
 
       {data && (

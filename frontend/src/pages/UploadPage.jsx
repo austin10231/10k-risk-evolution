@@ -329,6 +329,7 @@ export default function UploadPage() {
               <p className="page-subtitle">Ingest new filings and manage existing records in one place</p>
             </div>
           </div>
+          <GlobalConfigInlineEditor />
         </div>
       </section>
 
@@ -342,8 +343,6 @@ export default function UploadPage() {
               📚 Records
             </button>
           </div>
-
-          <GlobalConfigInlineEditor />
         </div>
 
         {tab === 'ingest' ? (

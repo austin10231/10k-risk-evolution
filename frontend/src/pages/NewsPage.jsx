@@ -6,6 +6,7 @@ const DEFAULT_LIMIT = 8
 const LOAD_STEP = 4
 const HOT_COMPANY_TICKERS = ['NVDA', 'MSFT', 'AMZN', 'AAPL', 'AVGO']
 const TRENDING_NEWS_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'TSLA']
+const NEWS_FEED_CACHE_KEY = 'risklens_news_feed_v3'
 const WEATHER_COORD_FALLBACK = {
   latitude: 37.3382,
   longitude: -121.8863,
@@ -279,6 +280,26 @@ function imageUrlFor(item, idx) {
   return makeThumbSvg(key, `${key}-${idx}`)
 }
 
+function readNewsCache() {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.sessionStorage.getItem(NEWS_FEED_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || !Array.isArray(parsed.items)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeNewsCache(payload) {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(NEWS_FEED_CACHE_KEY, JSON.stringify(payload))
+  } catch {}
+}
+
 function NewsImage({ item, idx, alt, className }) {
   const fallback = makeThumbSvg(visualKeyword(item), `fallback-${idx}`)
   return (
@@ -303,10 +324,11 @@ function timelineVariant(idx) {
 }
 
 export default function NewsPage() {
+  const cacheBoot = React.useMemo(() => readNewsCache(), [])
   const [company, setCompany] = useState('')
   const [ticker, setTicker] = useState('')
-  const [limit, setLimit] = useState(DEFAULT_LIMIT)
-  const [items, setItems] = useState([])
+  const [limit, setLimit] = useState(Math.max(DEFAULT_LIMIT, Number(cacheBoot?.limit || DEFAULT_LIMIT)))
+  const [items, setItems] = useState(Array.isArray(cacheBoot?.items) ? cacheBoot.items : [])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [keyword, setKeyword] = useState('')
@@ -388,7 +410,8 @@ export default function NewsPage() {
     }
   }, [])
 
-  const run = async (nextLimit = limit) => {
+  const run = async (nextLimit = limit, options = {}) => {
+    const useCacheOnFail = Boolean(options?.useCacheOnFail)
     setLoading(true)
     setError('')
     try {
@@ -414,7 +437,16 @@ export default function NewsPage() {
         const mergedRaw = settled.flatMap((res) =>
           res.status === 'fulfilled' && Array.isArray(res.value?.items) ? res.value.items : [],
         )
-        setItems(mergeNews(mergedRaw, [], nextLimit))
+        const merged = mergeNews(mergedRaw, [], nextLimit)
+        setItems(merged)
+        writeNewsCache({
+          ts: Date.now(),
+          limit: nextLimit,
+          mode: 'hot',
+          company: '',
+          ticker: '',
+          items: merged,
+        })
       } else {
         const qPrimary = new URLSearchParams({
           company: companyNorm,
@@ -441,11 +473,29 @@ export default function NewsPage() {
         const fallbackItems =
           settled[1]?.status === 'fulfilled' && Array.isArray(settled[1].value?.items) ? settled[1].value.items : []
 
-        setItems(mergeNews(primaryItems, fallbackItems, nextLimit))
+        const merged = mergeNews(primaryItems, fallbackItems, nextLimit)
+        setItems(merged)
+        writeNewsCache({
+          ts: Date.now(),
+          limit: nextLimit,
+          mode: 'targeted',
+          company: companyNorm,
+          ticker: tickerNorm,
+          items: merged,
+        })
       }
 
       setLimit(nextLimit)
     } catch (e) {
+      if (useCacheOnFail) {
+        const cached = readNewsCache()
+        if (cached?.items?.length) {
+          setItems(cached.items)
+          setLimit(Math.max(DEFAULT_LIMIT, Number(cached.limit || DEFAULT_LIMIT)))
+          setError('')
+          return
+        }
+      }
       setError(e.message || 'Failed to load news')
       setItems([])
     } finally {
@@ -454,7 +504,15 @@ export default function NewsPage() {
   }
 
   React.useEffect(() => {
-    run(DEFAULT_LIMIT)
+    const cached = readNewsCache()
+    if (cached?.items?.length) {
+      setItems(cached.items)
+      const cachedLimit = Math.max(DEFAULT_LIMIT, Number(cached.limit || DEFAULT_LIMIT))
+      setLimit(cachedLimit)
+      run(cachedLimit, { useCacheOnFail: true })
+      return
+    }
+    run(DEFAULT_LIMIT, { useCacheOnFail: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
