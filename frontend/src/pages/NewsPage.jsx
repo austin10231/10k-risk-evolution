@@ -68,6 +68,28 @@ function formatAgo(value) {
   return `${day}d ago`
 }
 
+function publishedTime(v) {
+  const ts = new Date(v || '').getTime()
+  return Number.isNaN(ts) ? 0 : ts
+}
+
+function mergeNews(primary, secondary, maxCount) {
+  const seen = new Set()
+  const merged = []
+
+  const append = (row) => {
+    if (!row || typeof row !== 'object') return
+    const key = String(row.url || '').trim() || `${row.title || ''}|${row.source || ''}|${row.published_at || ''}`
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    merged.push(row)
+  }
+
+  ;[...(primary || []), ...(secondary || [])].forEach(append)
+  merged.sort((a, b) => publishedTime(b?.published_at) - publishedTime(a?.published_at))
+  return merged.slice(0, Math.max(1, Number(maxCount || 1)))
+}
+
 function formatPrice(v) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return '—'
   return `$${Number(v).toFixed(2)}`
@@ -283,14 +305,32 @@ export default function NewsPage() {
     setLoading(true)
     setError('')
     try {
-      const q = new URLSearchParams({
+      const qPrimary = new URLSearchParams({
         company,
         ticker,
         days: String(FIXED_WINDOW_DAYS),
         limit: String(nextLimit),
       })
-      const res = await get(`/api/news?${q.toString()}`)
-      setItems(Array.isArray(res?.items) ? res.items : [])
+      const shouldRunFallback = Boolean(String(company || '').trim() && String(ticker || '').trim())
+      const tasks = [get(`/api/news?${qPrimary.toString()}`)]
+
+      if (shouldRunFallback) {
+        const qFallback = new URLSearchParams({
+          company,
+          ticker: '',
+          days: String(FIXED_WINDOW_DAYS),
+          limit: String(Math.max(nextLimit * 2, 12)),
+        })
+        tasks.push(get(`/api/news?${qFallback.toString()}`))
+      }
+
+      const settled = await Promise.allSettled(tasks)
+      const primaryItems =
+        settled[0]?.status === 'fulfilled' && Array.isArray(settled[0].value?.items) ? settled[0].value.items : []
+      const fallbackItems =
+        settled[1]?.status === 'fulfilled' && Array.isArray(settled[1].value?.items) ? settled[1].value.items : []
+
+      setItems(mergeNews(primaryItems, fallbackItems, nextLimit))
       setLimit(nextLimit)
     } catch (e) {
       setError(e.message || 'Failed to load news')
