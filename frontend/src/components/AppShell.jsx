@@ -607,7 +607,11 @@ export default function AppShell({ children }) {
       </main>
 
       {!showLandingComposer ? (
-        <div ref={dockRef} className={`rl-global-dock ${dockExpanded ? 'expanded' : 'compact'}`} aria-live="polite">
+        <div
+          ref={dockRef}
+          className={`rl-global-dock ${dockExpanded ? 'expanded' : 'compact'} ${isAgentRoute ? 'agent' : ''}`}
+          aria-live="polite"
+        >
           <div className="rl-global-dock-inner">
             {error ? <p className="rl-global-dock-error">{error}</p> : null}
 

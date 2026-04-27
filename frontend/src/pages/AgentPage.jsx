@@ -28,20 +28,14 @@ export default function AgentPage() {
 
   return (
     <div className="rl-ask-shell">
-      <header className="rl-ask-head">
-        <div>
-          <p className="rl-ask-thread-title">{currentThread?.title || 'New conversation'}</p>
-          <p className="rl-ask-thread-sub">Agent chooses the best tool path automatically from your prompt.</p>
-        </div>
-        <div className="rl-ask-status">
+      {error ? <div className="rl-agent-error">{error}</div> : null}
+
+      <section className="rl-ask-thread" ref={threadRef}>
+        <div className="rl-ask-status rl-ask-status-inline">
           <span className={`dot ${loading ? 'busy' : 'idle'}`} />
           <span>{loading ? 'Agent Thinking' : 'Ready'}</span>
         </div>
-      </header>
 
-      {error ? <div className="rl-agent-error">{error}</div> : null}
-
-      <section className="rl-ask-thread card" ref={threadRef}>
         {messages.map((m, idx) => (
           <article key={`${m.role}-${idx}`} className={`rl-agent-msg ${m.role}`}>
             <div className="rl-agent-msg-avatar">{m.role === 'user' ? 'U' : 'AI'}</div>
@@ -84,30 +78,40 @@ export default function AgentPage() {
       </section>
 
       {lastReport ? (
-        <section className="rl-agent-summary-grid">
-          <article className="card p-5">
-            <p className="section-title">Priority Snapshot</p>
-            <div className="rl-agent-priority-grid">
-              <div>
-                <span>High</span>
-                <strong>{lastReport?.priority_matrix?.high?.count ?? 0}</strong>
-              </div>
-              <div>
-                <span>Medium</span>
-                <strong>{lastReport?.priority_matrix?.medium?.count ?? 0}</strong>
-              </div>
-              <div>
-                <span>Low</span>
-                <strong>{lastReport?.priority_matrix?.low?.count ?? 0}</strong>
-              </div>
+        <section className="rl-agent-report-wrap">
+          <details className="rl-agent-report-details">
+            <summary>
+              <span>Analysis Details</span>
+              <span className="rl-agent-report-hint">Priority + Executive Summary</span>
+            </summary>
+
+            <div className="rl-agent-summary-grid">
+              <article className="card p-5">
+                <p className="section-title">Priority Snapshot</p>
+                <div className="rl-agent-priority-grid">
+                  <div>
+                    <span>High</span>
+                    <strong>{lastReport?.priority_matrix?.high?.count ?? 0}</strong>
+                  </div>
+                  <div>
+                    <span>Medium</span>
+                    <strong>{lastReport?.priority_matrix?.medium?.count ?? 0}</strong>
+                  </div>
+                  <div>
+                    <span>Low</span>
+                    <strong>{lastReport?.priority_matrix?.low?.count ?? 0}</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article className="card p-5">
+                <p className="section-title">Executive Summary</p>
+                <p className="rl-agent-exec-summary">
+                  {lastReport?.executive_summary || 'No summary available from the last run.'}
+                </p>
+              </article>
             </div>
-          </article>
-          <article className="card p-5">
-            <p className="section-title">Executive Summary</p>
-            <p className="rl-agent-exec-summary">
-              {lastReport?.executive_summary || 'No summary available from the last run.'}
-            </p>
-          </article>
+          </details>
         </section>
       ) : null}
     </div>
