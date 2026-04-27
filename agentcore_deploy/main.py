@@ -71,6 +71,10 @@ PDF_PREFIX = "10k_pdf_datasets"
 TABLES_PREFIX = "tables_extraction"
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE_TTL_SECONDS = 120
+_STOCK_PROVIDER_STATE: Dict[str, Dict[str, Any]] = {}
+_STOCK_PROVIDER_DEFAULT_COOLDOWN_SECONDS = 70
+_STOCK_QUOTE_CACHE: Dict[str, Dict[str, Any]] = {}
+_STOCK_QUOTE_CACHE_TTL_SECONDS = 45
 
 
 def _env(name: str, default: str = "") -> str:
@@ -735,11 +739,127 @@ def _to_float(value, default=None):
         return default
 
 
+def _stock_provider_state(name: str) -> Dict[str, Any]:
+    key = str(name or "").strip().lower() or "unknown"
+    state = _STOCK_PROVIDER_STATE.get(key)
+    if not isinstance(state, dict):
+        state = {
+            "disabled_until": 0.0,
+            "failures": 0,
+            "last_error": "",
+            "last_error_at": 0.0,
+        }
+        _STOCK_PROVIDER_STATE[key] = state
+    return state
+
+
+def _provider_cooldown_left(name: str) -> int:
+    state = _stock_provider_state(name)
+    now = time.time()
+    left = float(state.get("disabled_until", 0.0) or 0.0) - now
+    return int(left) if left > 0 else 0
+
+
+def _provider_available(name: str) -> bool:
+    return _provider_cooldown_left(name) <= 0
+
+
+def _provider_mark_success(name: str) -> None:
+    state = _stock_provider_state(name)
+    state["failures"] = 0
+    state["disabled_until"] = 0.0
+
+
+def _is_rate_limited_error(exc: Exception) -> bool:
+    if isinstance(exc, HTTPError):
+        try:
+            if int(exc.code) == 429:
+                return True
+        except Exception:
+            pass
+    text = str(exc or "").lower()
+    return (
+        "429" in text
+        or "too many requests" in text
+        or "run out of api credits" in text
+        or "credits limit has been reached" in text
+    )
+
+
+def _provider_mark_failure(name: str, exc: Exception) -> None:
+    state = _stock_provider_state(name)
+    now = time.time()
+    state["failures"] = int(state.get("failures", 0) or 0) + 1
+    state["last_error"] = str(exc or "")[:320]
+    state["last_error_at"] = now
+
+    if _is_rate_limited_error(exc):
+        state["disabled_until"] = now + _STOCK_PROVIDER_DEFAULT_COOLDOWN_SECONDS
+        return
+
+    fails = int(state.get("failures", 0) or 0)
+    if fails >= 3:
+        state["disabled_until"] = now + min(45, 8 + fails * 4)
+
+
+def _provider_snapshot(names: List[str]) -> Dict[str, Dict[str, Any]]:
+    snap: Dict[str, Dict[str, Any]] = {}
+    for raw in names:
+        name = str(raw or "").strip().lower()
+        if not name:
+            continue
+        state = _stock_provider_state(name)
+        snap[name] = {
+            "available": _provider_available(name),
+            "cooldown_s": _provider_cooldown_left(name),
+            "failures": int(state.get("failures", 0) or 0),
+        }
+    return snap
+
+
+def _stock_cache_get(symbol: str) -> Optional[Dict[str, Any]]:
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        return None
+    cached = _STOCK_QUOTE_CACHE.get(sym)
+    if not isinstance(cached, dict):
+        return None
+    ts = float(cached.get("saved_at", 0.0) or 0.0)
+    payload = cached.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    age = time.time() - ts
+    if age < 0 or age > _STOCK_QUOTE_CACHE_TTL_SECONDS:
+        return None
+    out = dict(payload)
+    out["cache_hit"] = True
+    out["cache_age_s"] = int(age)
+    return out
+
+
+def _stock_cache_set(symbol: str, payload: dict) -> None:
+    sym = str(symbol or "").strip().upper()
+    if not sym or not isinstance(payload, dict):
+        return
+    _STOCK_QUOTE_CACHE[sym] = {
+        "saved_at": time.time(),
+        "payload": dict(payload),
+    }
+
+
 def _twelvedata_api_key() -> str:
     return (
         _env("TWELVEDATA_API_KEY", "").strip()
         or _env("TWELVE_DATA_API_KEY", "").strip()
         or _env("TWELVE_DATA_KEY", "").strip()
+    )
+
+
+def _fmp_api_key() -> str:
+    return (
+        _env("FMP_API_KEY", "").strip()
+        or _env("FINANCIAL_MODELING_PREP_API_KEY", "").strip()
+        or _env("FINANCIALMODELINGPREP_API_KEY", "").strip()
     )
 
 
@@ -822,6 +942,81 @@ def _twelvedata_history(symbol: str, api_key: str) -> List[dict]:
     return out
 
 
+def _fmp_json(url: str):
+    req = Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json,text/plain,*/*",
+        },
+        method="GET",
+    )
+    with urlopen(req, timeout=20) as resp:
+        raw = resp.read()
+    payload = json.loads(raw.decode("utf-8", errors="ignore"))
+    if isinstance(payload, dict):
+        msg = str(payload.get("Error Message") or payload.get("error") or payload.get("message") or "").strip()
+        if msg and msg.lower() not in {"ok", "success"}:
+            raise RuntimeError(msg)
+    return payload
+
+
+def _fmp_quote(symbol: str, api_key: str) -> dict:
+    sym = str(symbol or "").strip().upper()
+    url = f"https://financialmodelingprep.com/api/v3/quote/{quote(sym)}?apikey={quote(api_key)}"
+    payload = _fmp_json(url)
+    rows = payload if isinstance(payload, list) else []
+    if not rows:
+        raise RuntimeError("empty quote response")
+    row = rows[0] if isinstance(rows[0], dict) else {}
+
+    return {
+        "symbol": row.get("symbol") or sym,
+        "name": row.get("name") or sym,
+        "price": _to_float(row.get("price")),
+        "change": _to_float(row.get("change")),
+        "change_percent": _to_float(row.get("changesPercentage")),
+        "market_cap": _to_float(row.get("marketCap")),
+        "pe_ratio": _to_float(row.get("pe")),
+        "high_52": _to_float(row.get("yearHigh")),
+        "low_52": _to_float(row.get("yearLow")),
+        "exchange": row.get("exchange") or row.get("exchangeShortName") or "",
+    }
+
+
+def _fmp_history(symbol: str, api_key: str) -> List[dict]:
+    sym = str(symbol or "").strip().upper()
+    url = (
+        "https://financialmodelingprep.com/api/v3/historical-price-full/"
+        f"{quote(sym)}?timeseries=260&apikey={quote(api_key)}"
+    )
+    payload = _fmp_json(url)
+    rows = payload.get("historical", []) if isinstance(payload, dict) else []
+    out: List[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        dt = str(row.get("date") or row.get("datetime") or "").strip()[:10]
+        close_val = _to_float(row.get("close"))
+        if not dt or close_val is None:
+            continue
+        out.append(
+            {
+                "date": dt,
+                "close": close_val,
+                "volume": _to_float(row.get("volume"), 0.0),
+            }
+        )
+    out.sort(key=lambda x: x.get("date", ""))
+    if not out:
+        raise RuntimeError("empty historical response")
+    return out
+
+
 def _stooq_history(symbol: str) -> List[dict]:
     sym = str(symbol or "").strip().lower()
     if not sym:
@@ -879,6 +1074,11 @@ def _stock_quote(symbol: str) -> dict:
     if not sym:
         return {"error": "Ticker is required."}
 
+    cached = _stock_cache_get(sym)
+    if cached:
+        cached["providers"] = _provider_snapshot(["twelvedata", "fmp", "yahoo"])
+        return cached
+
     name = sym
     price = None
     change = None
@@ -890,38 +1090,88 @@ def _stock_quote(symbol: str) -> dict:
     exchange = ""
     history: List[dict] = []
     errors: List[str] = []
+    quote_source = ""
+    history_source = ""
+
+    def _apply_quote_fields(provider: str, data: dict) -> None:
+        nonlocal name, price, change, change_percent, market_cap, pe_ratio, high_52, low_52, exchange, quote_source
+        if not isinstance(data, dict):
+            return
+
+        if not quote_source and any(
+            data.get(k) is not None for k in ("price", "change", "change_percent", "market_cap", "pe_ratio")
+        ):
+            quote_source = provider
+
+        incoming_name = str(data.get("name", "") or "").strip()
+        if incoming_name and (not name or name == sym):
+            name = incoming_name
+        if price is None:
+            price = _to_float(data.get("price"))
+        if change is None:
+            change = _to_float(data.get("change"))
+        if change_percent is None:
+            change_percent = _to_float(data.get("change_percent"))
+        if market_cap is None:
+            market_cap = _to_float(data.get("market_cap"))
+        if pe_ratio is None:
+            pe_ratio = _to_float(data.get("pe_ratio"))
+        if high_52 is None:
+            high_52 = _to_float(data.get("high_52"))
+        if low_52 is None:
+            low_52 = _to_float(data.get("low_52"))
+        if not exchange:
+            exchange = str(data.get("exchange", "") or "").strip()
+
+    def _need_quote_fields() -> bool:
+        return any(v is None for v in [price, change, change_percent, market_cap, pe_ratio, high_52, low_52]) or not exchange
 
     twelvedata_key = _twelvedata_api_key()
-    if twelvedata_key:
+
+    if twelvedata_key and _provider_available("twelvedata") and _need_quote_fields():
         try:
-            td_quote = _twelvedata_quote(sym, twelvedata_key)
-            name = td_quote.get("name") or name
-            price = td_quote.get("price")
-            change = td_quote.get("change")
-            change_percent = td_quote.get("change_percent")
-            market_cap = td_quote.get("market_cap")
-            pe_ratio = td_quote.get("pe_ratio")
-            high_52 = td_quote.get("high_52")
-            low_52 = td_quote.get("low_52")
-            exchange = td_quote.get("exchange") or exchange
+            _apply_quote_fields("twelvedata", _twelvedata_quote(sym, twelvedata_key))
+            _provider_mark_success("twelvedata")
         except Exception as e:
+            _provider_mark_failure("twelvedata", e)
             errors.append(f"twelvedata quote: {type(e).__name__}: {e}")
+
+    if twelvedata_key and _provider_available("twelvedata") and not history:
         try:
-            history = _twelvedata_history(sym, twelvedata_key)
+            td_history = _twelvedata_history(sym, twelvedata_key)
+            if td_history:
+                history = td_history
+                history_source = "twelvedata"
+            _provider_mark_success("twelvedata")
         except Exception as e:
+            _provider_mark_failure("twelvedata", e)
             errors.append(f"twelvedata history: {type(e).__name__}: {e}")
 
-    # Fallback to Yahoo only if Twelve Data is unavailable or incomplete.
-    need_yahoo_quote = any(
-        v is None for v in [price, change, change_percent, market_cap, pe_ratio, high_52, low_52]
-    ) or not exchange
-    need_yahoo_chart = not history
+    fmp_key = _fmp_api_key()
+    if fmp_key and _provider_available("fmp") and _need_quote_fields():
+        try:
+            _apply_quote_fields("fmp", _fmp_quote(sym, fmp_key))
+            _provider_mark_success("fmp")
+        except Exception as e:
+            _provider_mark_failure("fmp", e)
+            errors.append(f"fmp quote: {type(e).__name__}: {e}")
 
-    if need_yahoo_quote or need_yahoo_chart:
+    if fmp_key and _provider_available("fmp") and not history:
+        try:
+            fmp_hist = _fmp_history(sym, fmp_key)
+            if fmp_hist:
+                history = fmp_hist
+                history_source = "fmp"
+            _provider_mark_success("fmp")
+        except Exception as e:
+            _provider_mark_failure("fmp", e)
+            errors.append(f"fmp history: {type(e).__name__}: {e}")
+
+    need_yahoo_quote = _need_quote_fields()
+    need_yahoo_chart = not history
+    if (need_yahoo_quote or need_yahoo_chart) and _provider_available("yahoo"):
         quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={sym}"
         chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1y&interval=1d"
-        quote_payload: dict = {}
-        chart_payload: dict = {}
         row: dict = {}
 
         if need_yahoo_quote:
@@ -932,54 +1182,64 @@ def _stock_quote(symbol: str) -> dict:
                     if isinstance(quote_payload, dict) else []
                 )
                 row = quote_result[0] if quote_result else {}
+                _provider_mark_success("yahoo")
             except Exception as e:
+                _provider_mark_failure("yahoo", e)
                 errors.append(f"yahoo quote: {type(e).__name__}: {e}")
 
-            name = row.get("longName") or row.get("shortName") or name
-            if price is None:
-                price = _to_float(row.get("regularMarketPrice"))
-            if change is None:
-                change = _to_float(row.get("regularMarketChange"))
-            if change_percent is None:
-                change_percent = _to_float(row.get("regularMarketChangePercent"))
-            if market_cap is None:
-                market_cap = _to_float(row.get("marketCap"))
-            if pe_ratio is None:
-                pe_ratio = _to_float(row.get("trailingPE"))
-            if high_52 is None:
-                high_52 = _to_float(row.get("fiftyTwoWeekHigh"))
-            if low_52 is None:
-                low_52 = _to_float(row.get("fiftyTwoWeekLow"))
-            exchange = exchange or row.get("fullExchangeName") or row.get("exchange") or ""
+            _apply_quote_fields(
+                "yahoo",
+                {
+                    "name": row.get("longName") or row.get("shortName") or sym,
+                    "price": _to_float(row.get("regularMarketPrice")),
+                    "change": _to_float(row.get("regularMarketChange")),
+                    "change_percent": _to_float(row.get("regularMarketChangePercent")),
+                    "market_cap": _to_float(row.get("marketCap")),
+                    "pe_ratio": _to_float(row.get("trailingPE")),
+                    "high_52": _to_float(row.get("fiftyTwoWeekHigh")),
+                    "low_52": _to_float(row.get("fiftyTwoWeekLow")),
+                    "exchange": row.get("fullExchangeName") or row.get("exchange") or "",
+                },
+            )
 
-        if need_yahoo_chart:
+        if need_yahoo_chart and _provider_available("yahoo"):
             try:
                 chart_payload = _yahoo_json(chart_url)
+                chart = chart_payload.get("chart", {}) if isinstance(chart_payload, dict) else {}
+                results = chart.get("result", []) if isinstance(chart, dict) else []
+                parsed_history: List[dict] = []
+                if results:
+                    first = results[0] if isinstance(results[0], dict) else {}
+                    ts = first.get("timestamp", []) or []
+                    q = first.get("indicators", {}).get("quote", []) or []
+                    closes = q[0].get("close", []) if q and isinstance(q[0], dict) else []
+                    vols = q[0].get("volume", []) if q and isinstance(q[0], dict) else []
+                    for i, t in enumerate(ts):
+                        try:
+                            c = closes[i]
+                        except Exception:
+                            c = None
+                        if c is None:
+                            continue
+                        try:
+                            dt = datetime.fromtimestamp(int(t), tz=timezone.utc).strftime("%Y-%m-%d")
+                        except Exception:
+                            continue
+                        vol = _to_float(vols[i], 0.0) if i < len(vols) else 0.0
+                        parsed_history.append({"date": dt, "close": float(c), "volume": vol})
+                if parsed_history:
+                    history = parsed_history
+                    history_source = "yahoo"
+                _provider_mark_success("yahoo")
             except Exception as e:
+                _provider_mark_failure("yahoo", e)
                 errors.append(f"yahoo chart: {type(e).__name__}: {e}")
 
-            chart = chart_payload.get("chart", {}) if isinstance(chart_payload, dict) else {}
-            results = chart.get("result", []) if isinstance(chart, dict) else []
-            if results:
-                first = results[0] if isinstance(results[0], dict) else {}
-                ts = first.get("timestamp", []) or []
-                q = first.get("indicators", {}).get("quote", []) or []
-                closes = q[0].get("close", []) if q and isinstance(q[0], dict) else []
-                for i, t in enumerate(ts):
-                    try:
-                        c = closes[i]
-                    except Exception:
-                        c = None
-                    if c is None:
-                        continue
-                    try:
-                        dt = datetime.fromtimestamp(int(t), tz=timezone.utc).strftime("%Y-%m-%d")
-                    except Exception:
-                        continue
-                    history.append({"date": dt, "close": float(c)})
-
     if not history:
-        history = _stooq_history(sym)
+        stooq_history = _stooq_history(sym)
+        if stooq_history:
+            history = stooq_history
+            history_source = "stooq"
 
     if (price is None or change is None or change_percent is None) and len(history) >= 2:
         last_close = history[-1]["close"]
@@ -992,12 +1252,14 @@ def _stock_quote(symbol: str) -> dict:
             change = delta
         if change_percent is None:
             change_percent = pct
+        if not quote_source:
+            quote_source = history_source or "derived"
 
     if price is None and not history:
         detail = "; ".join(errors) if errors else "no data returned by upstream providers"
         return {"error": f"Failed to fetch stock data: {detail}"}
 
-    return {
+    out = {
         "symbol": sym,
         "name": name,
         "price": price,
@@ -1009,8 +1271,17 @@ def _stock_quote(symbol: str) -> dict:
         "low_52": low_52,
         "exchange": exchange,
         "history": history,
+        "quote_source": quote_source or "",
+        "history_source": history_source or "",
+        "providers": _provider_snapshot(["twelvedata", "fmp", "yahoo"]),
+        "cache_hit": False,
+        "cache_age_s": 0,
         "error": "",
     }
+    if errors and (price is not None or bool(history)):
+        out["warning"] = "Live refresh partially degraded; showing best available merged data."
+    _stock_cache_set(sym, out)
+    return out
 
 
 def _normalize_image_url(raw_url: str, base_url: str = "") -> str:

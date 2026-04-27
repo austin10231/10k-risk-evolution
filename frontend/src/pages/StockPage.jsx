@@ -148,6 +148,36 @@ function timeAgoFrom(ts) {
   return `${days}d ago`
 }
 
+function providerLabel(raw) {
+  const key = String(raw || '').trim().toLowerCase()
+  if (!key) return 'N/A'
+  if (key === 'twelvedata') return 'TwelveData'
+  if (key === 'fmp') return 'FMP'
+  if (key === 'yahoo') return 'Yahoo'
+  if (key === 'stooq') return 'Stooq'
+  if (key === 'derived') return 'Derived'
+  return key
+}
+
+function buildBundleHint(payload, mode = '') {
+  const p = payload && typeof payload === 'object' ? payload : {}
+  const quoteSource = providerLabel(p.quote_source)
+  const historySource = providerLabel(p.history_source)
+  const warning = String(p.warning || '').trim()
+  const fromCache = mode === 'cache' || Boolean(p.cache_hit)
+
+  if (warning && fromCache) {
+    return `Live refresh rate-limited; using cached view. Quote: ${quoteSource} · History: ${historySource}`
+  }
+  if (warning) {
+    return `${warning} Quote: ${quoteSource} · History: ${historySource}`
+  }
+  if (fromCache) {
+    return `Cached data active. Quote: ${quoteSource} · History: ${historySource}`
+  }
+  return `Live data. Quote: ${quoteSource} · History: ${historySource}`
+}
+
 function sanitizeCompanyName(raw) {
   let s = String(raw || '').trim().toLowerCase()
   if (!s) return ''
@@ -477,6 +507,7 @@ export default function StockPage() {
   const [bundleMap, setBundleMap] = useState({})
   const [loadingTicker, setLoadingTicker] = useState('')
   const [error, setError] = useState('')
+  const [statusHint, setStatusHint] = useState('')
   const [rangeKey, setRangeKey] = useState('3M')
   const [activeChart, setActiveChart] = useState('price')
   const [filingSummaryMap, setFilingSummaryMap] = useState({})
@@ -508,14 +539,21 @@ export default function StockPage() {
     async (rawTicker, options = {}) => {
       const sym = normalizeTicker(rawTicker)
       if (!sym) return null
-      const { preferCache = false, silent = false } = options
+      const { preferCache = false, silent = false, skipIfFresh = false, force = false } = options
 
       let hasCached = false
+      let cachedPayload = null
       if (preferCache) {
         const cached = readBundleCache(sym)
         if (cached?.data) {
           hasCached = true
+          cachedPayload = cached
           upsertBundle(sym, cached.data, cached.savedAt, 'cache')
+          setStatusHint(buildBundleHint(cached.data, 'cache'))
+          if (!force && skipIfFresh && !isBundleStale(cached.savedAt)) {
+            setError('')
+            return cached.data
+          }
         }
       }
 
@@ -530,9 +568,15 @@ export default function StockPage() {
         upsertBundle(sym, payload, Date.now(), 'live')
         rememberTicker(sym)
         setError('')
+        setStatusHint(buildBundleHint(payload, 'live'))
         return payload
       } catch (e) {
-        if (!hasCached) setError(e.message || `Failed to load ${sym}`)
+        if (!hasCached) {
+          setError(e.message || `Failed to load ${sym}`)
+          setStatusHint('')
+        } else if (cachedPayload?.data) {
+          setStatusHint(buildBundleHint({ ...cachedPayload.data, warning: e.message || 'refresh failed' }, 'cache'))
+        }
         return null
       } finally {
         if (!silent) {
@@ -573,26 +617,8 @@ export default function StockPage() {
 
   useEffect(() => {
     if (!selectedTicker) return
-    fetchBundle(selectedTicker, { preferCache: true, silent: false })
+    fetchBundle(selectedTicker, { preferCache: true, silent: false, skipIfFresh: true })
   }, [selectedTicker, fetchBundle])
-
-  useEffect(() => {
-    if (!watchlist.length) return
-    const queue = watchlist.slice(0, 5)
-    const timers = []
-    queue.forEach((tk, idx) => {
-      const entry = bundleMap[tk]
-      const shouldRefresh = !entry || isBundleStale(Number(entry.savedAt || 0))
-      if (!shouldRefresh) return
-      const timer = window.setTimeout(() => {
-        fetchBundle(tk, { preferCache: true, silent: true })
-      }, 120 * (idx + 1))
-      timers.push(timer)
-    })
-    return () => {
-      timers.forEach((id) => window.clearTimeout(id))
-    }
-  }, [watchlist, fetchBundle])
 
   const selectedEntry = bundleMap[selectedTicker] || null
   const data = selectedEntry?.data || null
@@ -718,11 +744,11 @@ export default function StockPage() {
 
   const refreshSelected = () => {
     if (!selectedTicker) return
-    fetchBundle(selectedTicker, { preferCache: true, silent: false })
+    fetchBundle(selectedTicker, { preferCache: true, silent: false, force: true })
   }
 
   return (
-    <div className="rl-page-shell rl-stock-page">
+    <div className="rl-page-shell rl-up-page rl-stock-page">
       <section className="rl-up-header">
         <div className="page-header !mb-0">
           <div className="page-header-left rl-up-title-block">
@@ -780,6 +806,7 @@ export default function StockPage() {
         <p className="rl-stock-cache-note">
           {selectedEntry?.savedAt ? `Instant view from cache (${timeAgoFrom(selectedEntry.savedAt)}), then auto refresh.` : 'Loading data and caching for faster next visit.'}
         </p>
+        {statusHint ? <p className="rl-stock-cache-note rl-stock-status-note">{statusHint}</p> : null}
       </section>
 
       {error ? <div className="rl-up-inline-error">{error}</div> : null}

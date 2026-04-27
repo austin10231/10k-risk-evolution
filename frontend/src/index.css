@@ -1875,6 +1875,10 @@ select.input {
   font-weight: 600;
 }
 
+.rl-stock-status-note {
+  color: #475569;
+}
+
 .rl-stock-metrics-grid {
   display: grid;
   gap: 10px;
@@ -4712,7 +4716,8 @@ select.input {
   }
 
   .rl-compare-page,
-  .rl-tables-page {
+  .rl-tables-page,
+  .rl-stock-page {
     max-width: 100%;
   }
 
