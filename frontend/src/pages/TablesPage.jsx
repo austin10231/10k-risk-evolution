@@ -21,6 +21,14 @@ const INDUSTRIES = [
   'Other',
 ]
 
+const TABLE_SECTIONS = [
+  { key: 'income_statement', label: 'Income Statement' },
+  { key: 'comprehensive_income', label: 'Comprehensive Income' },
+  { key: 'balance_sheet', label: 'Balance Sheet' },
+  { key: 'shareholders_equity', label: "Shareholders' Equity" },
+  { key: 'cash_flow', label: 'Cash Flow' },
+]
+
 function formatBytes(bytes) {
   const n = Number(bytes || 0)
   if (!Number.isFinite(n) || n <= 0) return '0 B'
@@ -32,6 +40,46 @@ function formatBytes(bytes) {
     idx += 1
   }
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[idx]}`
+}
+
+function csvEscape(value) {
+  const s = String(value ?? '')
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+  return s
+}
+
+function buildCsvFromTableResult(result) {
+  if (!result || typeof result !== 'object') return ''
+  const lines = []
+  TABLE_SECTIONS.forEach(({ key, label }) => {
+    const block = result?.[key]
+    if (!block?.found) return
+    const displayName = String(block?.display_name || label)
+    const unit = String(block?.unit || '')
+    const headers = Array.isArray(block?.headers) ? block.headers : []
+    const rows = Array.isArray(block?.rows) ? block.rows : []
+
+    lines.push(csvEscape(`=== ${displayName} ===`))
+    if (unit) lines.push(csvEscape(`(${unit})`))
+    lines.push('')
+    if (headers.length) lines.push(headers.map(csvEscape).join(','))
+    rows.forEach((row) => {
+      if (Array.isArray(row)) lines.push(row.map(csvEscape).join(','))
+    })
+    lines.push('')
+    lines.push('')
+  })
+  return lines.join('\n')
+}
+
+function triggerDownload(filename, text, mimeType) {
+  const blob = new Blob([String(text ?? '')], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 function toBase64DataUrl(file) {
@@ -107,6 +155,14 @@ export default function TablesPage() {
     [records, selectedId],
   )
 
+  const tablesFound = useMemo(() => {
+    if (!tableResult || typeof tableResult !== 'object') return 0
+    return TABLE_SECTIONS.reduce((count, section) => (tableResult?.[section.key]?.found ? count + 1 : count), 0)
+  }, [tableResult])
+
+  const csvData = useMemo(() => buildCsvFromTableResult(tableResult), [tableResult])
+  const selectedIsNonPdf = Boolean(selected && String(selected?.file_ext || '').toLowerCase() !== 'pdf')
+
   useEffect(() => {
     if (config.company) setCompany(config.company)
     if (config.ticker) setTicker(config.ticker)
@@ -130,6 +186,10 @@ export default function TablesPage() {
   useEffect(() => {
     let mounted = true
     if (!selected) return () => {}
+    if (String(selected?.file_ext || '').toLowerCase() !== 'pdf') {
+      setTableResult(null)
+      return () => {}
+    }
     const companyName = String(selected.company || '').trim()
     const selectedYear = Number(selected.year || 0)
     const selectedFilingType = String(selected.filing_type || '10-K').trim() || '10-K'
@@ -142,12 +202,11 @@ export default function TablesPage() {
     )
       .then((res) => {
         if (!mounted) return
-        if (res?.result && typeof res.result === 'object') {
-          setTableResult(res.result)
-        }
+        setTableResult(res?.result && typeof res.result === 'object' ? res.result : null)
       })
       .catch(() => {
         if (!mounted) return
+        setTableResult(null)
       })
 
     return () => {
@@ -183,6 +242,7 @@ export default function TablesPage() {
       })
       if (res?.result && typeof res.result === 'object') {
         setTableResult(res.result)
+        setSelectedId('')
       }
     } catch (e) {
       setError(e.message || 'Table extraction failed')
@@ -220,6 +280,7 @@ export default function TablesPage() {
       const latest = res?.latest_result && typeof res.latest_result === 'object' ? res.latest_result : null
       if (latest) {
         setTableResult(latest)
+        setSelectedId('')
       }
     } catch (e) {
       setError(e.message || 'Auto fetch failed')
@@ -444,47 +505,87 @@ export default function TablesPage() {
             </div>
           ) : null}
 
-          <div className="rl-tables-statement-grid">
-            <div className="rl-tables-statement-card">
-              <p>Balance Sheet</p>
-              <span>
-                {tableResult
-                  ? tableResult?.balance_sheet?.found
-                    ? `${Array.isArray(tableResult?.balance_sheet?.rows) ? tableResult.balance_sheet.rows.length : 0} rows extracted`
-                    : 'Not found in filing'
-                  : 'Pending extraction'}
-              </span>
+          {selectedIsNonPdf ? (
+            <div className="rl-up-inline-error mt-3">Textract only supports PDF files. Please upload a PDF file first.</div>
+          ) : null}
+
+          {!selectedIsNonPdf ? (
+            <div className="rl-tables-accordion-list">
+              {TABLE_SECTIONS.map((section) => {
+                const block = tableResult?.[section.key]
+                const found = Boolean(block?.found)
+                const rows = Array.isArray(block?.rows) ? block.rows : []
+                const headers = Array.isArray(block?.headers) ? block.headers : []
+                const unit = String(block?.unit || '')
+                return (
+                  <details key={section.key} className={`rl-tables-accordion ${found ? 'found' : 'missing'}`}>
+                    <summary>
+                      <span>{section.label}</span>
+                      <strong>{found ? `${rows.length} rows extracted` : tableResult ? 'Not found in filing' : 'Pending extraction'}</strong>
+                    </summary>
+                    {found ? (
+                      <div className="rl-tables-accordion-body">
+                        {unit ? <p className="rl-tables-unit">Unit: {unit}</p> : null}
+                        <div className="rl-tables-table-scroll">
+                          <table className="rl-tables-table-grid">
+                            {headers.length ? (
+                              <thead>
+                                <tr>
+                                  {headers.map((h, idx) => (
+                                    <th key={`${section.key}-head-${idx}`}>{String(h || `Col ${idx + 1}`)}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                            ) : null}
+                            <tbody>
+                              {rows.map((row, rIdx) => (
+                                <tr key={`${section.key}-row-${rIdx}`}>
+                                  {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
+                                    <td key={`${section.key}-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rl-tables-accordion-body rl-tables-empty-body">No table found for this section.</div>
+                    )}
+                  </details>
+                )
+              })}
             </div>
-            <div className="rl-tables-statement-card">
-              <p>Income Statement</p>
-              <span>
-                {tableResult
-                  ? tableResult?.income_statement?.found
-                    ? `${Array.isArray(tableResult?.income_statement?.rows) ? tableResult.income_statement.rows.length : 0} rows extracted`
-                    : 'Not found in filing'
-                  : 'Pending extraction'}
-              </span>
-            </div>
-            <div className="rl-tables-statement-card">
-              <p>Cash Flow</p>
-              <span>
-                {tableResult
-                  ? tableResult?.cash_flow?.found
-                    ? `${Array.isArray(tableResult?.cash_flow?.rows) ? tableResult.cash_flow.rows.length : 0} rows extracted`
-                    : 'Not found in filing'
-                  : 'Pending extraction'}
-              </span>
-            </div>
-            <div className="rl-tables-statement-card">
-              <p>Footnotes</p>
-              <span>
-                {tableResult
-                  ? tableResult?.comprehensive_income?.found || tableResult?.shareholders_equity?.found
-                    ? 'Supplementary tables extracted'
-                    : 'No supplementary table found'
-                  : 'Pending extraction'}
-              </span>
-            </div>
+          ) : null}
+
+          <div className="rl-tables-download-row">
+            <button
+              className="btn-secondary"
+              disabled={!tableResult}
+              onClick={() =>
+                triggerDownload(
+                  `${String(company || 'filing').replace(/\s+/g, '_')}_${String(year || 'year')}_tables.json`,
+                  JSON.stringify(tableResult || {}, null, 2),
+                  'application/json',
+                )
+              }
+            >
+              📥 Download JSON
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={!tableResult}
+              onClick={() =>
+                triggerDownload(
+                  `${String(company || 'filing').replace(/\s+/g, '_')}_${String(year || 'year')}_tables.csv`,
+                  csvData,
+                  'text/csv;charset=utf-8',
+                )
+              }
+            >
+              📥 Download CSV
+            </button>
+            <span className="rl-tables-download-meta">{tableResult ? `Tables found: ${tablesFound}/5` : 'Run extraction to enable downloads'}</span>
           </div>
         </div>
       </section>
