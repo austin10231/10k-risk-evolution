@@ -10,7 +10,7 @@ import sys
 import time
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional, Set
 from urllib.error import HTTPError, URLError
@@ -57,6 +57,8 @@ AGENT_PREFIX = "agent_reports"
 TICKER_MAP_KEY = "company_ticker_map.json"
 HTML_PREFIX = "10k_html_datasets"
 PDF_PREFIX = "10k_pdf_datasets"
+_NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
+_NEWS_CACHE_TTL_SECONDS = 120
 
 
 def _env(name: str, default: str = "") -> str:
@@ -960,69 +962,339 @@ def _news_image_from_row(item: dict, article_url: str, og_cache: Dict[str, str],
     return found
 
 
-def _fetch_news(company: str, ticker: str, days: int, limit: int):
-    from datetime import timedelta
+def _compact_error_text(value: Any, max_len: int = 240) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
 
-    token = _env("MARKETAUX_API_TOKEN", "").strip()
-    if not token:
-        return {"error": "MARKETAUX_API_TOKEN is not configured.", "items": []}
 
-    params = {
-        "api_token": token,
-        "language": "en",
-        "sort": "published_desc",
-        "limit": max(1, min(int(limit or 20), 50)),
-        "published_after": datetime.utcnow().strftime("%Y-%m-%d"),
+def _env_token_pool(*names: str) -> List[str]:
+    seen: Set[str] = set()
+    out: List[str] = []
+    for name in names:
+        raw = _env(name, "")
+        if not raw:
+            continue
+        for part in re.split(r"[,\n; ]+", str(raw)):
+            token = part.strip()
+            if not token or token in seen:
+                continue
+            seen.add(token)
+            out.append(token)
+    return out
+
+
+def _news_cache_key(company: str, ticker: str, days: int, limit: int) -> str:
+    return "|".join(
+        [
+            str(company or "").strip().lower(),
+            str(ticker or "").strip().upper(),
+            str(days),
+            str(limit),
+        ]
+    )
+
+
+def _cache_news_items(key: str, items: List[Dict[str, Any]], provider: str) -> None:
+    _NEWS_CACHE[key] = {
+        "ts": time.time(),
+        "items": list(items or []),
+        "provider": provider,
     }
 
-    day_window = max(1, min(int(days or 30), 365))
-    params["published_after"] = (datetime.utcnow() - timedelta(days=day_window)).strftime("%Y-%m-%d")
+    # Keep cache bounded to avoid unbounded growth on long-lived workers.
+    if len(_NEWS_CACHE) > 180:
+        oldest_key = min(_NEWS_CACHE.items(), key=lambda kv: float(kv[1].get("ts", 0) or 0))[0]
+        _NEWS_CACHE.pop(oldest_key, None)
 
+
+def _cached_news_items(key: str) -> Optional[Dict[str, Any]]:
+    row = _NEWS_CACHE.get(key)
+    if not row:
+        return None
+    ts = float(row.get("ts", 0) or 0)
+    if time.time() - ts > _NEWS_CACHE_TTL_SECONDS:
+        _NEWS_CACHE.pop(key, None)
+        return None
+    return row
+
+
+def _provider_error(provider: str, message: str) -> str:
+    msg = _compact_error_text(message)
+    return f"{provider}: {msg}" if msg else f"{provider}: request failed"
+
+
+def _fetch_marketaux_rows(company: str, ticker: str, day_window: int, limit_value: int) -> Dict[str, Any]:
+    tokens = _env_token_pool(
+        "MARKETAUX_API_TOKEN",
+        "MARKETAUX_API_TOKENS",
+        "MARKETAUX_API_TOKEN_2",
+        "MARKETAUX_API_TOKEN_3",
+    )
+    if not tokens:
+        return {"ok": False, "rows": [], "error": "MARKETAUX_API_TOKEN is not configured."}
+
+    params_base = {
+        "language": "en",
+        "sort": "published_desc",
+        "limit": limit_value,
+        "published_after": (datetime.utcnow() - timedelta(days=day_window)).strftime("%Y-%m-%d"),
+    }
     if ticker:
-        params["symbols"] = str(ticker).strip().upper()
+        params_base["symbols"] = str(ticker).strip().upper()
     elif company:
-        params["search"] = str(company).strip()
+        params_base["search"] = str(company).strip()
 
-    url = f"https://api.marketaux.com/v1/news/all?{urlencode(params)}"
-    req = Request(url, headers={"User-Agent": "RiskLens/1.0"}, method="GET")
+    last_error = ""
+    for token in tokens:
+        params = dict(params_base)
+        params["api_token"] = token
+        url = f"https://api.marketaux.com/v1/news/all?{urlencode(params)}"
+        req = Request(url, headers={"User-Agent": "RiskLens/1.0"}, method="GET")
 
-    try:
-        with urlopen(req, timeout=25) as resp:
-            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
-    except HTTPError as e:
-        detail = ""
         try:
-            detail = e.read().decode("utf-8", errors="ignore")
-        except Exception:
-            detail = str(e)
-        return {"error": f"News API HTTP {e.code}: {detail}", "items": []}
-    except URLError as e:
-        return {"error": f"News API network error: {e}", "items": []}
-    except Exception as e:
-        return {"error": f"News API failed: {type(e).__name__}: {e}", "items": []}
-
-    rows = payload.get("data", []) if isinstance(payload, dict) else []
-    out = []
-    og_cache: Dict[str, str] = {}
-    og_state = {"attempts": 0}
-    for item in rows:
-        if not isinstance(item, dict):
+            with urlopen(req, timeout=25) as resp:
+                payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            rows = payload.get("data", []) if isinstance(payload, dict) else []
+            if not isinstance(rows, list):
+                rows = []
+            return {"ok": True, "rows": rows, "error": ""}
+        except HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", errors="ignore")
+            except Exception:
+                detail = str(e)
+            last_error = _provider_error("marketaux", f"HTTP {e.code}: {detail}")
             continue
+        except URLError as e:
+            last_error = _provider_error("marketaux", f"network error: {e}")
+            continue
+        except Exception as e:
+            last_error = _provider_error("marketaux", f"{type(e).__name__}: {e}")
+            continue
+
+    return {"ok": False, "rows": [], "error": last_error or _provider_error("marketaux", "all keys failed")}
+
+
+def _fetch_thenewsapi_rows(company: str, ticker: str, day_window: int, limit_value: int) -> Dict[str, Any]:
+    tokens = _env_token_pool(
+        "THENEWSAPI_TOKEN",
+        "THENEWSAPI_API_TOKEN",
+        "THENEWSAPI_KEY",
+        "TheNewsAPI_KEY",
+    )
+    if not tokens:
+        return {"ok": False, "rows": [], "error": "THENEWSAPI_TOKEN is not configured."}
+
+    search_terms: List[str] = []
+    if ticker:
+        search_terms.append(str(ticker).strip().upper())
+    if company:
+        search_terms.append(str(company).strip())
+    search_query = " OR ".join([t for t in search_terms if t])
+
+    params_base = {
+        "language": "en",
+        "sort": "published_at",
+        "limit": limit_value,
+        "published_after": (datetime.utcnow() - timedelta(days=day_window)).strftime("%Y-%m-%d"),
+    }
+    if search_query:
+        params_base["search"] = search_query
+
+    last_error = ""
+    for token in tokens:
+        params = dict(params_base)
+        params["api_token"] = token
+        url = f"https://api.thenewsapi.com/v1/news/all?{urlencode(params)}"
+        req = Request(url, headers={"User-Agent": "RiskLens/1.0"}, method="GET")
+
+        try:
+            with urlopen(req, timeout=25) as resp:
+                payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            rows = []
+            if isinstance(payload, dict):
+                rows = payload.get("data", payload.get("articles", []))
+            if not isinstance(rows, list):
+                rows = []
+            return {"ok": True, "rows": rows, "error": ""}
+        except HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", errors="ignore")
+            except Exception:
+                detail = str(e)
+            last_error = _provider_error("thenewsapi", f"HTTP {e.code}: {detail}")
+            continue
+        except URLError as e:
+            last_error = _provider_error("thenewsapi", f"network error: {e}")
+            continue
+        except Exception as e:
+            last_error = _provider_error("thenewsapi", f"{type(e).__name__}: {e}")
+            continue
+
+    return {"ok": False, "rows": [], "error": last_error or _provider_error("thenewsapi", "all keys failed")}
+
+
+def _fetch_currents_rows(company: str, ticker: str, limit_value: int) -> Dict[str, Any]:
+    tokens = _env_token_pool(
+        "CURRENTS_API_KEY",
+        "CURRENTS_TOKEN",
+        "Currents_API_KEY",
+    )
+    if not tokens:
+        return {"ok": False, "rows": [], "error": "CURRENTS_API_KEY is not configured."}
+
+    keywords = str(ticker or company or "").strip()
+    if keywords:
+        base_url = "https://api.currentsapi.services/v1/search"
+        params_base = {"language": "en", "keywords": keywords, "page_size": limit_value}
+    else:
+        base_url = "https://api.currentsapi.services/v1/latest-news"
+        params_base = {"language": "en"}
+
+    last_error = ""
+    for token in tokens:
+        url = f"{base_url}?{urlencode(params_base)}"
+        headers = {"User-Agent": "RiskLens/1.0", "Authorization": f"Bearer {token}"}
+        req = Request(url, headers=headers, method="GET")
+
+        try:
+            with urlopen(req, timeout=25) as resp:
+                payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            rows = payload.get("news", []) if isinstance(payload, dict) else []
+            if not isinstance(rows, list):
+                rows = []
+            return {"ok": True, "rows": rows, "error": ""}
+        except HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", errors="ignore")
+            except Exception:
+                detail = str(e)
+            last_error = _provider_error("currents", f"HTTP {e.code}: {detail}")
+            continue
+        except URLError as e:
+            last_error = _provider_error("currents", f"network error: {e}")
+            continue
+        except Exception as e:
+            last_error = _provider_error("currents", f"{type(e).__name__}: {e}")
+            continue
+
+    return {"ok": False, "rows": [], "error": last_error or _provider_error("currents", "all keys failed")}
+
+
+def _normalize_news_row(item: dict, provider: str, og_cache: Dict[str, str], og_state: Dict[str, int]) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+
+    title = ""
+    summary = ""
+    published_at = ""
+    article_url = ""
+    source_name = ""
+
+    if provider == "marketaux":
         source = item.get("source")
         source_name = source.get("name") if isinstance(source, dict) else source
-        article_url = item.get("url") or item.get("link") or ""
-        image_url = _news_image_from_row(item, str(article_url), og_cache, og_state)
-        out.append(
-            {
-                "title": item.get("title") or "",
-                "summary": item.get("description") or item.get("snippet") or "",
-                "published_at": item.get("published_at") or item.get("publishedAt") or "",
-                "url": article_url,
-                "source": source_name or "Unknown",
-                "image_url": image_url or "",
-            }
-        )
-    return {"error": "", "items": out}
+        title = str(item.get("title") or "").strip()
+        summary = str(item.get("description") or item.get("snippet") or "").strip()
+        published_at = str(item.get("published_at") or item.get("publishedAt") or "").strip()
+        article_url = str(item.get("url") or item.get("link") or "").strip()
+    elif provider == "thenewsapi":
+        source = item.get("source")
+        source_name = source.get("name") if isinstance(source, dict) else source
+        title = str(item.get("title") or "").strip()
+        summary = str(item.get("description") or item.get("snippet") or "").strip()
+        published_at = str(item.get("published_at") or item.get("publishedAt") or "").strip()
+        article_url = str(item.get("url") or item.get("link") or "").strip()
+    elif provider == "currents":
+        source = item.get("source")
+        source_name = source.get("name") if isinstance(source, dict) else source
+        if not source_name:
+            source_name = item.get("author") or ""
+        title = str(item.get("title") or "").strip()
+        summary = str(item.get("description") or item.get("snippet") or "").strip()
+        published_at = str(item.get("published") or item.get("published_at") or "").strip()
+        article_url = str(item.get("url") or item.get("link") or "").strip()
+    else:
+        return None
+
+    if not title and not summary:
+        return None
+
+    image_url = _news_image_from_row(item, article_url, og_cache, og_state)
+
+    return {
+        "title": title,
+        "summary": summary,
+        "published_at": published_at,
+        "url": article_url,
+        "source": str(source_name or "Unknown"),
+        "image_url": image_url or "",
+    }
+
+
+def _fetch_news(company: str, ticker: str, days: int, limit: int):
+    company_norm = str(company or "").strip()
+    ticker_norm = str(ticker or "").strip().upper()
+    day_window = max(1, min(int(days or 30), 365))
+    limit_value = max(1, min(int(limit or 20), 50))
+
+    cache_key = _news_cache_key(company_norm, ticker_norm, day_window, limit_value)
+    cached = _cached_news_items(cache_key)
+    if cached:
+        return {
+            "error": "",
+            "items": list(cached.get("items", []) or []),
+            "provider": str(cached.get("provider") or "cache"),
+            "cached": True,
+        }
+
+    providers = [
+        ("marketaux", lambda: _fetch_marketaux_rows(company_norm, ticker_norm, day_window, limit_value)),
+        ("thenewsapi", lambda: _fetch_thenewsapi_rows(company_norm, ticker_norm, day_window, limit_value)),
+        ("currents", lambda: _fetch_currents_rows(company_norm, ticker_norm, limit_value)),
+    ]
+
+    provider_errors: List[str] = []
+    had_successful_response = False
+
+    for provider_name, fetcher in providers:
+        result = fetcher()
+        rows = result.get("rows", []) if isinstance(result, dict) else []
+        ok = bool(result.get("ok")) if isinstance(result, dict) else False
+        err = str(result.get("error") or "").strip() if isinstance(result, dict) else ""
+
+        if ok:
+            had_successful_response = True
+
+        if not rows:
+            if err:
+                provider_errors.append(err)
+            continue
+
+        og_cache: Dict[str, str] = {}
+        og_state = {"attempts": 0}
+        out: List[Dict[str, Any]] = []
+        for item in rows:
+            normalized = _normalize_news_row(item, provider_name, og_cache, og_state)
+            if normalized:
+                out.append(normalized)
+
+        if out:
+            _cache_news_items(cache_key, out, provider_name)
+            return {"error": "", "items": out, "provider": provider_name, "cached": False}
+
+    if had_successful_response:
+        _cache_news_items(cache_key, [], "empty")
+        return {"error": "", "items": [], "provider": "empty", "cached": False}
+
+    if provider_errors:
+        return {"error": " | ".join(provider_errors[:3]), "items": []}
+    return {"error": "No news provider is configured.", "items": []}
 
 
 def _allowed_origins() -> Set[str]:
