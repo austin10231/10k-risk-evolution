@@ -185,6 +185,7 @@ export default function AppShell({ children }) {
   }, [historyItems, threadQuery])
 
   const isAgentRoute = location.pathname === '/agent'
+  const isNewsRoute = location.pathname === '/news'
   const showLandingComposer = isAgentRoute && !isConversationStarted && !loading
   const dockExpanded = dockFocused || loading || Boolean(String(query || '').trim())
   const activeMenuThread = useMemo(
@@ -607,7 +608,7 @@ export default function AppShell({ children }) {
       {!showLandingComposer ? (
         <div
           ref={dockRef}
-          className={`rl-global-dock ${dockExpanded ? 'expanded' : 'compact'} ${isAgentRoute ? 'agent' : ''}`}
+          className={`rl-global-dock ${dockExpanded ? 'expanded' : 'compact'} ${isAgentRoute ? 'agent' : ''} ${isNewsRoute ? 'news' : ''}`}
           aria-live="polite"
         >
           <div className="rl-global-dock-inner">

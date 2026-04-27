@@ -593,7 +593,7 @@ body {
 }
 
 .rl-main-inner {
-  @apply px-7 py-8;
+  @apply px-8 py-8;
 }
 
 .rl-workspace-app {
@@ -859,6 +859,16 @@ body {
 
 .rl-global-dock.agent .rl-global-dock-inner {
   max-width: min(1080px, 100%);
+}
+
+.rl-global-dock.news {
+  bottom: 20px;
+}
+
+.rl-global-dock.news .rl-global-dock-inner {
+  max-width: min(1080px, calc(100% - 440px));
+  margin-left: clamp(72px, 7vw, 120px);
+  margin-right: auto;
 }
 
 .rl-global-dock-error {
@@ -1676,7 +1686,7 @@ body {
 
 .rl-up-page {
   width: 100%;
-  max-width: min(1540px, calc(100% - 56px));
+  max-width: min(1460px, calc(100% - 104px));
   margin: 0 auto;
 }
 
@@ -2827,7 +2837,7 @@ body {
 
 .rl-news-v2-page {
   width: 100%;
-  max-width: min(1540px, calc(100% - 56px));
+  max-width: min(1460px, calc(100% - 104px));
   margin: 0 auto;
 }
 
@@ -3321,6 +3331,17 @@ body {
 }
 
 @media (max-width: 1320px) {
+  .rl-global-dock.news {
+    left: calc(var(--sidebar-width) + 18px);
+    right: 18px;
+    bottom: 14px;
+  }
+
+  .rl-global-dock.news .rl-global-dock-inner {
+    max-width: min(920px, 100%);
+    margin: 0 auto;
+  }
+
   .rl-news-v2-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3488,6 +3509,12 @@ body {
   }
 
   .rl-global-dock.agent {
+    bottom: 12px;
+  }
+
+  .rl-global-dock.news {
+    left: 10px;
+    right: 10px;
     bottom: 12px;
   }
 
