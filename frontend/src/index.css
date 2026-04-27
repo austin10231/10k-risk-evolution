@@ -2234,8 +2234,8 @@ select.input {
 }
 
 .rl-stock-workbench-v2 {
-  grid-template-columns: minmax(0, 1.34fr) minmax(280px, 0.66fr);
-  gap: 13px;
+  grid-template-columns: minmax(0, 1fr) 312px;
+  gap: 24px;
 }
 
 .rl-stock-page .up {
