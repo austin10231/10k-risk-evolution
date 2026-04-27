@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
+import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
 
 const YEARS = Array.from({ length: 16 }, (_, i) => String(2025 - i))
 const INDUSTRIES = [
@@ -52,6 +53,9 @@ export default function TablesPage() {
   const [autoSummary, setAutoSummary] = useState(null)
 
   const fileInputRef = useRef(null)
+  const modeTabsRef = useRef(null)
+
+  useSlidingTabIndicator(modeTabsRef, [ingestMode])
 
   const refreshRecords = async (preferId = '') => {
     setLoading(true)
@@ -156,7 +160,7 @@ export default function TablesPage() {
 
       <section className="rl-up-grid rl-tables-grid">
         <div className="rl-up-form rl-tables-form">
-          <div className="rl-tabs">
+          <div className="rl-tabs rl-tab-motion" ref={modeTabsRef}>
             <button className={`rl-tab-btn ${ingestMode === 'manual' ? 'active' : ''}`} onClick={() => setIngestMode('manual')}>
               📄 Manual PDF Upload
             </button>

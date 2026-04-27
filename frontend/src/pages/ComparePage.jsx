@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
+import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
 
 export default function ComparePage() {
+  const modeTabsRef = React.useRef(null)
   const { config } = useGlobalConfig()
   const [records, setRecords] = useState([])
   const [mode, setMode] = useState('yoy')
@@ -152,6 +154,8 @@ export default function ComparePage() {
     }
   }
 
+  useSlidingTabIndicator(modeTabsRef, [mode])
+
   return (
     <div className="rl-page-shell rl-compare-page">
       <section className="rl-up-header">
@@ -172,7 +176,7 @@ export default function ComparePage() {
       <section className="rl-compare-workbench">
         <div className="rl-up-form rl-compare-control">
           <p className="section-title">Configure</p>
-          <div className="rl-tabs mt-2">
+          <div className="rl-tabs mt-2 rl-tab-motion" ref={modeTabsRef}>
             <button className={`rl-tab-btn ${mode === 'yoy' ? 'active' : ''}`} onClick={() => setMode('yoy')}>
               📅 Year-over-Year
             </button>

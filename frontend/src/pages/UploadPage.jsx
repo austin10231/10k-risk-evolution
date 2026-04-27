@@ -4,6 +4,7 @@ import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
 import { companyOverview, groupedRiskTitles, riskCategoryCount, riskItemCount } from '../lib/records'
+import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
 
 const YEARS = Array.from({ length: 16 }, (_, i) => String(2025 - i))
 const INDUSTRIES = [
@@ -168,6 +169,11 @@ export default function UploadPage() {
   const [loadingSelected, setLoadingSelected] = useState(false)
 
   const fileInputRef = useRef(null)
+  const topTabsRef = useRef(null)
+  const subTabsRef = useRef(null)
+
+  useSlidingTabIndicator(topTabsRef, [tab])
+  useSlidingTabIndicator(subTabsRef, [tab, ingestMode])
 
   const refreshRecords = async (preferId = '') => {
     setLoading(true)
@@ -335,7 +341,7 @@ export default function UploadPage() {
 
       <section className="rl-up-nav-stack">
         <div className="rl-up-nav-head">
-          <div className="rl-up-pill-nav">
+          <div className="rl-up-pill-nav rl-tab-motion" ref={topTabsRef}>
             <button className={`rl-strip-tab ${tab === 'ingest' ? 'active' : ''}`} onClick={() => setTab('ingest')}>
               🆕 Upload
             </button>
@@ -346,7 +352,7 @@ export default function UploadPage() {
         </div>
 
         {tab === 'ingest' ? (
-          <div className="rl-up-pill-subnav">
+          <div className="rl-up-pill-subnav rl-tab-motion" ref={subTabsRef}>
             <button
               className={`rl-strip-tab ${ingestMode === 'manual' ? 'active' : ''}`}
               onClick={() => setIngestMode('manual')}
