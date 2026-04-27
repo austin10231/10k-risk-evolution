@@ -6,6 +6,11 @@ const FIXED_WINDOW_DAYS = 7
 const DEFAULT_LIMIT = 8
 const LOAD_STEP = 4
 const HOT_COMPANY_TICKERS = ['NVDA', 'MSFT', 'AMZN', 'AAPL', 'AVGO']
+const WEATHER_COORD_FALLBACK = {
+  latitude: 37.3382,
+  longitude: -121.8863,
+  location: 'San Jose, California',
+}
 
 const STOP_WORDS = new Set([
   'the',
@@ -126,6 +131,74 @@ function weatherIconByCode(code) {
   return '🌡️'
 }
 
+async function fetchJsonSafe(url) {
+  const resp = await fetch(url)
+  if (!resp.ok) throw new Error(`Request failed: ${resp.status}`)
+  return resp.json()
+}
+
+function formatGeoLocation(city, region) {
+  return [city, region]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .join(', ')
+}
+
+function getBrowserCoords() {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      reject(new Error('Geolocation unavailable'))
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        resolve({
+          latitude: Number(pos?.coords?.latitude),
+          longitude: Number(pos?.coords?.longitude),
+          location: 'Current location',
+        })
+      },
+      (err) => reject(err || new Error('Geolocation denied')),
+      { enableHighAccuracy: false, timeout: 3200, maximumAge: 5 * 60 * 1000 },
+    )
+  })
+}
+
+async function resolveWeatherGeo() {
+  try {
+    const fromBrowser = await getBrowserCoords()
+    if (Number.isFinite(fromBrowser.latitude) && Number.isFinite(fromBrowser.longitude)) return fromBrowser
+  } catch {}
+
+  try {
+    const ipWho = await fetchJsonSafe('https://ipwho.is/')
+    const lat = Number(ipWho?.latitude)
+    const lon = Number(ipWho?.longitude)
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      return {
+        latitude: lat,
+        longitude: lon,
+        location: formatGeoLocation(ipWho?.city, ipWho?.region) || WEATHER_COORD_FALLBACK.location,
+      }
+    }
+  } catch {}
+
+  try {
+    const ipApi = await fetchJsonSafe('https://ipapi.co/json/')
+    const lat = Number(ipApi?.latitude)
+    const lon = Number(ipApi?.longitude)
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      return {
+        latitude: lat,
+        longitude: lon,
+        location: formatGeoLocation(ipApi?.city, ipApi?.region) || WEATHER_COORD_FALLBACK.location,
+      }
+    }
+  } catch {}
+
+  return WEATHER_COORD_FALLBACK
+}
+
 function hashSeed(text) {
   let h = 0
   const str = String(text || '')
@@ -234,34 +307,34 @@ export default function NewsPage() {
     const loadWeather = async () => {
       setWeatherLoading(true)
       try {
-        const geoResp = await fetch('https://ipapi.co/json/')
-        const geoData = await geoResp.json()
-        const lat = Number(geoData?.latitude)
-        const lon = Number(geoData?.longitude)
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-          if (active) setWeather(null)
-          return
-        }
+        const geo = await resolveWeatherGeo()
+        const lat = Number(geo?.latitude)
+        const lon = Number(geo?.longitude)
 
         const weatherResp = await fetch(
           `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(String(lat))}&longitude=${encodeURIComponent(String(lon))}&current=temperature_2m,weather_code,wind_speed_10m&timezone=auto`,
         )
+        if (!weatherResp.ok) throw new Error(`Open-Meteo error: ${weatherResp.status}`)
         const weatherData = await weatherResp.json()
         const current = weatherData?.current || {}
 
         if (active) {
-          const locationParts = [geoData?.city, geoData?.region]
-            .map((v) => String(v || '').trim())
-            .filter(Boolean)
           setWeather({
-            location: locationParts.join(', ') || 'Current location',
+            location: String(geo?.location || WEATHER_COORD_FALLBACK.location),
             temperature: Number(current?.temperature_2m),
             weatherCode: Number(current?.weather_code),
             windSpeed: Number(current?.wind_speed_10m),
           })
         }
       } catch {
-        if (active) setWeather(null)
+        if (active) {
+          setWeather({
+            location: WEATHER_COORD_FALLBACK.location,
+            temperature: Number.NaN,
+            weatherCode: Number.NaN,
+            windSpeed: Number.NaN,
+          })
+        }
       } finally {
         if (active) setWeatherLoading(false)
       }

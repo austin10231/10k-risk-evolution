@@ -862,12 +862,14 @@ body {
 }
 
 .rl-global-dock.news {
+  left: calc(var(--sidebar-width) + max(52px, (100vw - var(--sidebar-width) - 1460px) / 2));
+  right: max(52px, (100vw - var(--sidebar-width) - 1460px) / 2);
   bottom: 20px;
 }
 
 .rl-global-dock.news .rl-global-dock-inner {
-  max-width: min(1080px, calc(100% - 440px));
-  margin-left: clamp(72px, 7vw, 120px);
+  max-width: min(1124px, calc(100% - 336px));
+  margin-left: 0;
   margin-right: auto;
 }
 
