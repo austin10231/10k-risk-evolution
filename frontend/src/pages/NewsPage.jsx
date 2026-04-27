@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react'
 import { get } from '../lib/api'
-import { useGlobalConfig } from '../lib/globalConfig'
 
 const FIXED_WINDOW_DAYS = 7
 const DEFAULT_LIMIT = 8
 const LOAD_STEP = 4
 const HOT_COMPANY_TICKERS = ['NVDA', 'MSFT', 'AMZN', 'AAPL', 'AVGO']
+const TRENDING_NEWS_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'TSLA']
 const WEATHER_COORD_FALLBACK = {
   latitude: 37.3382,
   longitude: -121.8863,
@@ -155,7 +155,6 @@ function getBrowserCoords() {
         resolve({
           latitude: Number(pos?.coords?.latitude),
           longitude: Number(pos?.coords?.longitude),
-          location: 'Current location',
         })
       },
       (err) => reject(err || new Error('Geolocation denied')),
@@ -197,6 +196,22 @@ async function resolveWeatherGeo() {
   } catch {}
 
   return WEATHER_COORD_FALLBACK
+}
+
+async function resolveLocationLabel() {
+  try {
+    const ipWho = await fetchJsonSafe('https://ipwho.is/')
+    const label = formatGeoLocation(ipWho?.city, ipWho?.region)
+    if (label) return label
+  } catch {}
+
+  try {
+    const ipApi = await fetchJsonSafe('https://ipapi.co/json/')
+    const label = formatGeoLocation(ipApi?.city, ipApi?.region)
+    if (label) return label
+  } catch {}
+
+  return WEATHER_COORD_FALLBACK.location
 }
 
 function hashSeed(text) {
@@ -280,9 +295,8 @@ function NewsImage({ item, idx, alt, className }) {
 }
 
 export default function NewsPage() {
-  const { config } = useGlobalConfig()
-  const [company, setCompany] = useState(config.company || 'Apple')
-  const [ticker, setTicker] = useState(config.ticker || 'AAPL')
+  const [company, setCompany] = useState('')
+  const [ticker, setTicker] = useState('')
   const [limit, setLimit] = useState(DEFAULT_LIMIT)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
@@ -294,20 +308,12 @@ export default function NewsPage() {
   const [hotLoading, setHotLoading] = useState(false)
 
   React.useEffect(() => {
-    if (config.company) setCompany(config.company)
-  }, [config.company])
-
-  React.useEffect(() => {
-    if (config.ticker) setTicker(config.ticker)
-  }, [config.ticker])
-
-  React.useEffect(() => {
     let active = true
 
     const loadWeather = async () => {
       setWeatherLoading(true)
       try {
-        const geo = await resolveWeatherGeo()
+        const [geo, locationLabel] = await Promise.all([resolveWeatherGeo(), resolveLocationLabel()])
         const lat = Number(geo?.latitude)
         const lon = Number(geo?.longitude)
 
@@ -320,7 +326,7 @@ export default function NewsPage() {
 
         if (active) {
           setWeather({
-            location: String(geo?.location || WEATHER_COORD_FALLBACK.location),
+            location: String(locationLabel || WEATHER_COORD_FALLBACK.location),
             temperature: Number(current?.temperature_2m),
             weatherCode: Number(current?.weather_code),
             windSpeed: Number(current?.wind_speed_10m),
@@ -378,32 +384,58 @@ export default function NewsPage() {
     setLoading(true)
     setError('')
     try {
-      const qPrimary = new URLSearchParams({
-        company,
-        ticker,
-        days: String(FIXED_WINDOW_DAYS),
-        limit: String(nextLimit),
-      })
-      const shouldRunFallback = Boolean(String(company || '').trim() && String(ticker || '').trim())
-      const tasks = [get(`/api/news?${qPrimary.toString()}`)]
+      const companyNorm = String(company || '').trim()
+      const tickerNorm = String(ticker || '').trim().toUpperCase()
 
-      if (shouldRunFallback) {
-        const qFallback = new URLSearchParams({
-          company,
-          ticker: '',
+      if (!companyNorm && !tickerNorm) {
+        const generalQ = new URLSearchParams({
           days: String(FIXED_WINDOW_DAYS),
-          limit: String(Math.max(nextLimit * 2, 12)),
+          limit: String(nextLimit),
         })
-        tasks.push(get(`/api/news?${qFallback.toString()}`))
+        const perTickerLimit = Math.max(4, Math.ceil(nextLimit / 2))
+        const hotTasks = TRENDING_NEWS_TICKERS.map((sym) => {
+          const qHot = new URLSearchParams({
+            company: '',
+            ticker: sym,
+            days: String(FIXED_WINDOW_DAYS),
+            limit: String(perTickerLimit),
+          })
+          return get(`/api/news?${qHot.toString()}`)
+        })
+        const settled = await Promise.allSettled([get(`/api/news?${generalQ.toString()}`), ...hotTasks])
+        const mergedRaw = settled.flatMap((res) =>
+          res.status === 'fulfilled' && Array.isArray(res.value?.items) ? res.value.items : [],
+        )
+        setItems(mergeNews(mergedRaw, [], nextLimit))
+      } else {
+        const qPrimary = new URLSearchParams({
+          company: companyNorm,
+          ticker: tickerNorm,
+          days: String(FIXED_WINDOW_DAYS),
+          limit: String(nextLimit),
+        })
+        const shouldRunFallback = Boolean(companyNorm && tickerNorm)
+        const tasks = [get(`/api/news?${qPrimary.toString()}`)]
+
+        if (shouldRunFallback) {
+          const qFallback = new URLSearchParams({
+            company: companyNorm,
+            ticker: '',
+            days: String(FIXED_WINDOW_DAYS),
+            limit: String(Math.max(nextLimit * 2, 12)),
+          })
+          tasks.push(get(`/api/news?${qFallback.toString()}`))
+        }
+
+        const settled = await Promise.allSettled(tasks)
+        const primaryItems =
+          settled[0]?.status === 'fulfilled' && Array.isArray(settled[0].value?.items) ? settled[0].value.items : []
+        const fallbackItems =
+          settled[1]?.status === 'fulfilled' && Array.isArray(settled[1].value?.items) ? settled[1].value.items : []
+
+        setItems(mergeNews(primaryItems, fallbackItems, nextLimit))
       }
 
-      const settled = await Promise.allSettled(tasks)
-      const primaryItems =
-        settled[0]?.status === 'fulfilled' && Array.isArray(settled[0].value?.items) ? settled[0].value.items : []
-      const fallbackItems =
-        settled[1]?.status === 'fulfilled' && Array.isArray(settled[1].value?.items) ? settled[1].value.items : []
-
-      setItems(mergeNews(primaryItems, fallbackItems, nextLimit))
       setLimit(nextLimit)
     } catch (e) {
       setError(e.message || 'Failed to load news')
@@ -412,6 +444,11 @@ export default function NewsPage() {
       setLoading(false)
     }
   }
+
+  React.useEffect(() => {
+    run(DEFAULT_LIMIT)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const keywordNorm = String(keyword || '').trim().toLowerCase()
 
@@ -437,7 +474,6 @@ export default function NewsPage() {
   const timeline = filteredItems.slice(4)
 
   const latestHeadlineTime = featured ? formatDate(featured.published_at) : 'N/A'
-  const hasQuery = Boolean(String(company || '').trim() || String(ticker || '').trim())
 
   return (
     <div className="rl-page-shell rl-news-v2-page">
@@ -480,7 +516,7 @@ export default function NewsPage() {
         </div>
 
         <div className="rl-news-v2-command-action">
-          <button className="btn-primary w-full" onClick={() => run(DEFAULT_LIMIT)} disabled={loading || !hasQuery}>
+          <button className="btn-primary w-full" onClick={() => run(DEFAULT_LIMIT)} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>

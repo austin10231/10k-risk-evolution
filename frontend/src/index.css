@@ -1745,6 +1745,55 @@ body {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.42);
 }
 
+.rl-config-hint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 1px solid rgba(147, 163, 184, 0.7);
+  color: #475569;
+  background: rgba(248, 250, 252, 0.82);
+  cursor: help;
+  user-select: none;
+}
+
+.rl-config-hint-icon {
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.rl-config-hint-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: -8px;
+  min-width: 248px;
+  max-width: 300px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(186, 201, 221, 0.86);
+  background: rgba(15, 23, 42, 0.92);
+  color: #e2e8f0;
+  font-size: 0.73rem;
+  font-weight: 600;
+  line-height: 1.4;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.26);
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  z-index: 28;
+}
+
+.rl-config-hint:hover .rl-config-hint-tip,
+.rl-config-hint:focus-within .rl-config-hint-tip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .rl-up-chip {
   @apply inline-flex items-center rounded-full border px-2.5 py-0.5 text-[0.72rem] font-semibold;
   border-color: rgba(148, 163, 184, 0.55);
@@ -3645,6 +3694,13 @@ body {
     width: 100%;
     margin-top: 8px;
     grid-template-columns: 1fr;
+  }
+
+  .rl-config-hint-tip {
+    right: auto;
+    left: 0;
+    min-width: 200px;
+    max-width: min(78vw, 280px);
   }
 
   .rl-up-pill-subnav {

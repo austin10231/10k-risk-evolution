@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
+import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
 
 export default function ComparePage() {
   const { config } = useGlobalConfig()
@@ -162,10 +163,7 @@ export default function ComparePage() {
               <p className="page-subtitle">Detect risk changes year-over-year or between companies</p>
             </div>
           </div>
-          <div className="rl-config-chip-row">
-            <span className="rl-chip muted">Company: —</span>
-            <span className="rl-chip muted">Year: —</span>
-          </div>
+          <GlobalConfigInlineEditor />
         </div>
       </section>
 

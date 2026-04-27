@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { get } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
+import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
 
 const YEARS = Array.from({ length: 16 }, (_, i) => String(2025 - i))
 const INDUSTRIES = [
@@ -80,11 +81,7 @@ export default function TablesPage() {
               <p className="page-subtitle">Extract 5 core financial statements from 10-K PDFs via AWS Textract</p>
             </div>
           </div>
-          <div className="rl-config-chip-row">
-            <span className="rl-chip muted">Company: —</span>
-            <span className="rl-chip muted">Year: —</span>
-            <span className="rl-chip muted">Industry: —</span>
-          </div>
+          <GlobalConfigInlineEditor />
         </div>
       </section>
 
