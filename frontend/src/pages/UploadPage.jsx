@@ -513,11 +513,21 @@ export default function UploadPage() {
                 <div className="rl-up-two-col rl-up-company-ticker-row">
                   <div>
                     <label className="rl-field-label">Company Name</label>
-                    <input className="input mt-2" value={company} onChange={(e) => setCompany(e.target.value)} />
+                    <input
+                      className="input mt-2"
+                      placeholder="e.g. Apple Inc."
+                      value={company}
+                      onChange={(e) => setCompany(e.target.value)}
+                    />
                   </div>
                   <div>
                     <label className="rl-field-label">Ticker</label>
-                    <input className="input mt-2" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} />
+                    <input
+                      className="input mt-2"
+                      placeholder="e.g. AAPL"
+                      value={ticker}
+                      onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                    />
                   </div>
                 </div>
                 <div className="rl-up-three-col rl-up-range-row">
