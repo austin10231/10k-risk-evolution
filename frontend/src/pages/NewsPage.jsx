@@ -294,6 +294,14 @@ function NewsImage({ item, idx, alt, className }) {
   )
 }
 
+function timelineVariant(idx) {
+  const step = idx % 7
+  if (step === 0 || step === 3) return 'row'
+  if (step === 1 || step === 2 || step === 5) return 'tile'
+  if (step === 4) return 'row-reverse'
+  return 'wide'
+}
+
 export default function NewsPage() {
   const [company, setCompany] = useState('')
   const [ticker, setTicker] = useState('')
@@ -588,30 +596,33 @@ export default function NewsPage() {
           ) : null}
 
           {timeline.length ? (
-            <div className="rl-news-v2-timeline">
-              {timeline.map((item, idx) => (
-                <article key={`${item.url || item.title}-timeline-${idx}`} className="rl-news-v2-row-card">
-                  <NewsImage
-                    item={item}
-                    idx={idx + 20}
-                    alt={item.title || 'headline'}
-                    className="rl-news-v2-row-image"
-                  />
-                  <div className="rl-news-v2-row-body">
-                    <div className="rl-news-v2-meta-row">
-                      <span className="rl-news-v2-source">{item.source || 'Unknown'}</span>
-                      <span className="rl-news-v2-time">{formatDate(item.published_at)}</span>
+            <div className="rl-news-v2-mixed-list">
+              {timeline.map((item, idx) => {
+                const variant = timelineVariant(idx)
+                return (
+                  <article key={`${item.url || item.title}-timeline-${idx}`} className={`rl-news-v2-mix-card ${variant}`}>
+                    <NewsImage
+                      item={item}
+                      idx={idx + 20}
+                      alt={item.title || 'headline'}
+                      className={`rl-news-v2-mix-image ${variant === 'tile' ? 'tile' : 'row'}`}
+                    />
+                    <div className="rl-news-v2-mix-body">
+                      <div className="rl-news-v2-meta-row">
+                        <span className="rl-news-v2-source">{item.source || 'Unknown'}</span>
+                        <span className="rl-news-v2-time">{formatDate(item.published_at)}</span>
+                      </div>
+                      <h4>{item.title || 'Untitled'}</h4>
+                      <p>{item.summary || 'No summary available.'}</p>
+                      {item.url ? (
+                        <a href={item.url} target="_blank" rel="noreferrer">
+                          Open source ↗
+                        </a>
+                      ) : null}
                     </div>
-                    <h4>{item.title || 'Untitled'}</h4>
-                    <p>{item.summary || 'No summary available.'}</p>
-                    {item.url ? (
-                      <a href={item.url} target="_blank" rel="noreferrer">
-                        Open source ↗
-                      </a>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
+                  </article>
+                )
+              })}
             </div>
           ) : null}
 
