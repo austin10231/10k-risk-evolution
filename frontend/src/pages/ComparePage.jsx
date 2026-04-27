@@ -486,20 +486,6 @@ export default function ComparePage() {
               </div>
             </div>
           </section>
-          <section className="card p-5">
-            <div className="rl-section-header">Comparison Metadata</div>
-            <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                <span className="font-semibold text-slate-700">Latest Record:</span> {labelMap.get(data.latest_record_id) || data.latest_record_id}
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                <span className="font-semibold text-slate-700">Prior Record:</span> {labelMap.get(data.prior_record_id) || data.prior_record_id}
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                <span className="font-semibold text-slate-700">Mode:</span> {mode === 'yoy' ? 'Year-over-Year' : 'Cross-Company'}
-              </div>
-            </div>
-          </section>
         </>
       )}
     </div>

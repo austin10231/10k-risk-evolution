@@ -32,6 +32,17 @@ body {
   min-height: 42px;
 }
 
+select.input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 2.05rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5.25 7.75L10 12.25L14.75 7.75' stroke='%2354758b' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: 14px 14px;
+  background-position: calc(100% - 12px) 50%;
+}
+
 .btn {
   @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition-all;
   min-height: 40px;
@@ -1799,8 +1810,8 @@ body {
 }
 
 .rl-compare-filter-bar.compact {
-  grid-template-columns: minmax(180px, 220px) minmax(200px, 280px) auto;
-  gap: 8px;
+  grid-template-columns: minmax(168px, 206px) minmax(200px, 260px) auto;
+  gap: 9px;
   align-items: center;
 }
 
@@ -1811,18 +1822,19 @@ body {
 
 .rl-compare-filter-clear {
   min-height: 36px;
-  padding: 7px 12px;
+  padding: 7px 11px;
   font-size: 0.78rem;
   font-weight: 700;
 }
 
 .rl-compare-result-shell {
-  border: 1px solid rgba(204, 214, 228, 0.9);
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(247, 251, 255, 0.44), rgba(239, 246, 255, 0.3));
-  padding: 12px;
+  border: 1px solid rgba(198, 212, 230, 0.85);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(241, 247, 255, 0.38), rgba(227, 236, 248, 0.34));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  padding: 14px;
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .rl-compare-result-top {
@@ -1873,26 +1885,26 @@ body {
 .rl-compare-result-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 
 .rl-compare-column {
-  border: 1px solid rgba(214, 225, 239, 0.9);
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.34);
-  padding: 11px;
+  border: 1px solid rgba(211, 223, 238, 0.78);
+  border-radius: 15px;
+  background: linear-gradient(180deg, rgba(247, 251, 255, 0.3), rgba(240, 247, 255, 0.24));
+  padding: 10px 11px;
 }
 
 .rl-compare-group-list {
-  margin-top: 9px;
+  margin-top: 10px;
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .rl-compare-group {
-  border: 1px solid rgba(219, 228, 240, 0.88);
-  border-radius: 11px;
-  background: rgba(248, 250, 252, 0.46);
+  border: 1px solid rgba(205, 220, 238, 0.84);
+  border-radius: 12px;
+  background: rgba(247, 251, 255, 0.32);
   overflow: hidden;
 }
 
@@ -1901,19 +1913,19 @@ body {
   border: 0;
   background: transparent;
   color: #0f172a;
-  padding: 9px 10px;
+  padding: 9px 11px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 0.82rem;
+  font-size: 0.83rem;
   font-weight: 800;
   text-align: left;
   cursor: pointer;
 }
 
 .rl-compare-group-head:hover {
-  background: rgba(241, 245, 249, 0.9);
+  background: rgba(235, 244, 255, 0.78);
 }
 
 .rl-compare-group-head strong {
@@ -1925,14 +1937,14 @@ body {
 
 .rl-compare-group-items {
   margin: 0;
-  padding: 0 10px 10px 24px;
+  padding: 0 12px 10px 24px;
   list-style: disc;
   list-style-position: outside;
   color: #334155;
   font-size: 0.82rem;
-  line-height: 1.5;
+  line-height: 1.56;
   display: grid;
-  gap: 5px;
+  gap: 6px;
 }
 
 .rl-compare-group-items li {
