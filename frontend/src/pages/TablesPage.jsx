@@ -412,11 +412,16 @@ export default function TablesPage() {
               <div className="rl-up-two-col rl-up-company-ticker-row">
                 <div>
                   <label className="rl-field-label">Company Name</label>
-                  <input className="input mt-2" value={company} onChange={(e) => setCompany(e.target.value)} />
+                  <input className="input mt-2" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Apple Inc." />
                 </div>
                 <div>
                   <label className="rl-field-label">Ticker</label>
-                  <input className="input mt-2" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} />
+                  <input
+                    className="input mt-2"
+                    value={ticker}
+                    onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                    placeholder="e.g. AAPL"
+                  />
                 </div>
               </div>
               <div className="rl-up-three-col rl-up-range-row">
@@ -461,9 +466,6 @@ export default function TablesPage() {
         <div className="rl-up-results rl-tables-results">
           <p className="section-title">Results</p>
           <h3 className="rl-tables-result-headline">Statement Preview Workspace</h3>
-          <p className="rl-tables-result-sub">
-            This panel is prepared for Balance Sheet, Income Statement, Cash Flow, and Notes output with CSV/JSON export.
-          </p>
 
           <div className="mt-3">
             <label className="rl-field-label">Load Existing Filing Context</label>
@@ -478,15 +480,15 @@ export default function TablesPage() {
           </div>
 
           <div className="rl-tables-result-kpis">
-            <div className="metric-card">
+            <div className="metric-card rl-tables-kpi-card">
               <p className="metric-label">Company</p>
               <p className="metric-value">{company || '—'}</p>
             </div>
-            <div className="metric-card">
+            <div className="metric-card rl-tables-kpi-card">
               <p className="metric-label">Year</p>
               <p className="metric-value">{year || '—'}</p>
             </div>
-            <div className="metric-card">
+            <div className="metric-card rl-tables-kpi-card">
               <p className="metric-label">Industry</p>
               <p className="metric-value">{industry || '—'}</p>
             </div>
