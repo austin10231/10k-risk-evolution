@@ -2438,6 +2438,24 @@ select.input {
   white-space: nowrap;
 }
 
+.rl-up-result-meta .rl-up-result-value {
+  color: #0f172a;
+  font-size: 0.88rem;
+  font-weight: 800;
+  max-width: min(62%, 290px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rl-compare-side .rl-up-result-meta strong {
+  font-weight: 400;
+}
+
+.rl-compare-side .rl-up-result-meta .rl-up-result-value {
+  font-weight: 400;
+}
+
 .rl-up-grid-manual .rl-up-form {
   min-height: 100%;
 }
@@ -2514,7 +2532,7 @@ select.input {
   padding: 11px 12px;
   color: #0f172a;
   font-size: 0.86rem;
-  font-weight: 800;
+  font-weight: 400;
 }
 
 .rl-tables-accordion summary::-webkit-details-marker {
@@ -2524,7 +2542,18 @@ select.input {
 .rl-tables-accordion summary strong {
   color: #64748b;
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.rl-tables-accordion summary .rl-tables-row-label {
+  font-weight: 400;
+}
+
+.rl-tables-accordion summary .rl-tables-row-status {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 400;
   white-space: nowrap;
 }
 
@@ -2532,7 +2561,15 @@ select.input {
   color: #0f766e;
 }
 
+.rl-tables-accordion.found summary .rl-tables-row-status {
+  color: #0f766e;
+}
+
 .rl-tables-accordion.missing summary strong {
+  color: #64748b;
+}
+
+.rl-tables-accordion.missing summary .rl-tables-row-status {
   color: #64748b;
 }
 

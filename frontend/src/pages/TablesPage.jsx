@@ -497,11 +497,11 @@ export default function TablesPage() {
             <div className="rl-tables-auto-summary">
               <div className="rl-up-result-meta">
                 <span>Saved</span>
-                <strong>{autoSummary?.count ?? 0}</strong>
+                <span className="rl-up-result-value">{autoSummary?.count ?? 0}</span>
               </div>
               <div className="rl-up-result-meta">
                 <span>Skipped</span>
-                <strong>{Array.isArray(autoSummary?.skipped) ? autoSummary.skipped.length : 0}</strong>
+                <span className="rl-up-result-value">{Array.isArray(autoSummary?.skipped) ? autoSummary.skipped.length : 0}</span>
               </div>
             </div>
           ) : null}
@@ -516,8 +516,10 @@ export default function TablesPage() {
               return (
                 <details key={section.key} className={`rl-tables-accordion ${found ? 'found' : 'missing'}`}>
                   <summary>
-                    <span>{section.label}</span>
-                    <strong>{found ? `${rows.length} rows extracted` : tableResult ? 'Not found in filing' : 'Pending extraction'}</strong>
+                    <span className="rl-tables-row-label">{section.label}</span>
+                    <span className="rl-tables-row-status">
+                      {found ? `${rows.length} rows extracted` : tableResult ? 'Not found in filing' : 'Pending extraction'}
+                    </span>
                   </summary>
                   {found ? (
                     <div className="rl-tables-accordion-body">

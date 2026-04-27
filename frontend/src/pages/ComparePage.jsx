@@ -367,11 +367,15 @@ export default function ComparePage() {
 
           <div className="rl-up-result-meta">
             <span>Latest Record</span>
-            <strong title={labelMap.get(latestId) || latestId || '—'}>{labelMap.get(latestId) || latestId || '—'}</strong>
+            <span className="rl-up-result-value" title={labelMap.get(latestId) || latestId || '—'}>
+              {labelMap.get(latestId) || latestId || '—'}
+            </span>
           </div>
           <div className="rl-up-result-meta">
             <span>Prior Record</span>
-            <strong title={labelMap.get(priorId) || priorId || '—'}>{labelMap.get(priorId) || priorId || '—'}</strong>
+            <span className="rl-up-result-value" title={labelMap.get(priorId) || priorId || '—'}>
+              {labelMap.get(priorId) || priorId || '—'}
+            </span>
           </div>
 
           <div className="rl-compare-side-note">
