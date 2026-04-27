@@ -3,8 +3,9 @@ import { get } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 
 const FIXED_WINDOW_DAYS = 7
-const DEFAULT_LIMIT = 9
-const LOAD_STEP = 6
+const DEFAULT_LIMIT = 8
+const LOAD_STEP = 4
+const HOT_COMPANY_TICKERS = ['NVDA', 'MSFT', 'AMZN', 'AAPL', 'AVGO']
 
 const STOP_WORDS = new Set([
   'the',
@@ -65,6 +66,42 @@ function formatAgo(value) {
   if (hr < 24) return `${hr}h ago`
   const day = Math.floor(hr / 24)
   return `${day}d ago`
+}
+
+function formatPrice(v) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—'
+  return `$${Number(v).toFixed(2)}`
+}
+
+function formatPct(v) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—'
+  const n = Number(v)
+  const sign = n > 0 ? '+' : ''
+  return `${sign}${n.toFixed(2)}%`
+}
+
+function weatherTextByCode(code) {
+  const n = Number(code)
+  if (n === 0) return 'Clear'
+  if (n >= 1 && n <= 3) return 'Cloudy'
+  if (n >= 45 && n <= 48) return 'Fog'
+  if (n >= 51 && n <= 67) return 'Drizzle / Rain'
+  if (n >= 71 && n <= 77) return 'Snow'
+  if (n >= 80 && n <= 82) return 'Rain Showers'
+  if (n >= 95 && n <= 99) return 'Thunderstorm'
+  return 'Unknown'
+}
+
+function weatherIconByCode(code) {
+  const n = Number(code)
+  if (n === 0) return '☀️'
+  if (n >= 1 && n <= 3) return '⛅'
+  if (n >= 45 && n <= 48) return '🌫️'
+  if (n >= 51 && n <= 67) return '🌧️'
+  if (n >= 71 && n <= 77) return '❄️'
+  if (n >= 80 && n <= 82) return '🌦️'
+  if (n >= 95 && n <= 99) return '⛈️'
+  return '🌡️'
 }
 
 function hashSeed(text) {
@@ -156,6 +193,10 @@ export default function NewsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [keyword, setKeyword] = useState('')
+  const [weather, setWeather] = useState(null)
+  const [weatherLoading, setWeatherLoading] = useState(false)
+  const [hotCompanies, setHotCompanies] = useState([])
+  const [hotLoading, setHotLoading] = useState(false)
 
   React.useEffect(() => {
     if (config.company) setCompany(config.company)
@@ -164,6 +205,79 @@ export default function NewsPage() {
   React.useEffect(() => {
     if (config.ticker) setTicker(config.ticker)
   }, [config.ticker])
+
+  React.useEffect(() => {
+    let active = true
+
+    const loadWeather = async () => {
+      setWeatherLoading(true)
+      try {
+        const geoResp = await fetch('https://ipapi.co/json/')
+        const geoData = await geoResp.json()
+        const lat = Number(geoData?.latitude)
+        const lon = Number(geoData?.longitude)
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          if (active) setWeather(null)
+          return
+        }
+
+        const weatherResp = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(String(lat))}&longitude=${encodeURIComponent(String(lon))}&current=temperature_2m,weather_code,wind_speed_10m&timezone=auto`,
+        )
+        const weatherData = await weatherResp.json()
+        const current = weatherData?.current || {}
+
+        if (active) {
+          const locationParts = [geoData?.city, geoData?.region]
+            .map((v) => String(v || '').trim())
+            .filter(Boolean)
+          setWeather({
+            location: locationParts.join(', ') || 'Current location',
+            temperature: Number(current?.temperature_2m),
+            weatherCode: Number(current?.weather_code),
+            windSpeed: Number(current?.wind_speed_10m),
+          })
+        }
+      } catch {
+        if (active) setWeather(null)
+      } finally {
+        if (active) setWeatherLoading(false)
+      }
+    }
+
+    const loadHotCompanies = async () => {
+      setHotLoading(true)
+      try {
+        const rows = await Promise.all(
+          HOT_COMPANY_TICKERS.map(async (sym) => {
+            try {
+              const res = await get(`/api/stock/quote?ticker=${encodeURIComponent(sym)}`)
+              const data = res?.data || {}
+              return {
+                ticker: sym,
+                name: String(data?.name || sym),
+                price: data?.price,
+                changePercent: data?.change_percent,
+              }
+            } catch {
+              return null
+            }
+          }),
+        )
+
+        if (active) setHotCompanies(rows.filter(Boolean))
+      } finally {
+        if (active) setHotLoading(false)
+      }
+    }
+
+    loadWeather()
+    loadHotCompanies()
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   const run = async (nextLimit = limit) => {
     setLoading(true)
@@ -206,8 +320,8 @@ export default function NewsPage() {
   }, [filteredItems])
 
   const featured = filteredItems[0] || null
-  const spotlight = filteredItems.slice(1, 5)
-  const timeline = filteredItems.slice(5)
+  const spotlight = filteredItems.slice(1, 4)
+  const timeline = filteredItems.slice(4)
 
   const latestHeadlineTime = featured ? formatDate(featured.published_at) : 'N/A'
   const hasQuery = Boolean(String(company || '').trim() || String(ticker || '').trim())
@@ -385,6 +499,48 @@ export default function NewsPage() {
           </article>
 
           <article className="rl-news-v2-side-card">
+            <p className="section-title">Weather</p>
+            {weatherLoading ? (
+              <p className="rl-news-v2-side-note">Loading local weather…</p>
+            ) : weather ? (
+              <div className="rl-news-v2-weather-box">
+                <div className="rl-news-v2-weather-main">
+                  <span>{weatherIconByCode(weather.weatherCode)}</span>
+                  <strong>{Number.isFinite(weather.temperature) ? `${Math.round(weather.temperature)}°C` : '—'}</strong>
+                </div>
+                <p>{weather.location || 'Current location'}</p>
+                <p>
+                  {weatherTextByCode(weather.weatherCode)}
+                  {Number.isFinite(weather.windSpeed) ? ` · Wind ${Math.round(weather.windSpeed)} km/h` : ''}
+                </p>
+              </div>
+            ) : (
+              <p className="rl-news-v2-side-note">Weather unavailable right now.</p>
+            )}
+          </article>
+
+          <article className="rl-news-v2-side-card">
+            <p className="section-title">Hot Companies</p>
+            <div className="rl-news-v2-hot-list">
+              {hotLoading ? (
+                <div>
+                  <span>Loading quotes…</span>
+                  <strong>—</strong>
+                </div>
+              ) : (
+                hotCompanies.slice(0, 5).map((row) => (
+                  <div key={row.ticker}>
+                    <span title={row.name}>{row.name}</span>
+                    <strong>{row.ticker}</strong>
+                    <em>{formatPrice(row.price)}</em>
+                    <b className={Number(row.changePercent || 0) >= 0 ? 'up' : 'down'}>{formatPct(row.changePercent)}</b>
+                  </div>
+                ))
+              )}
+            </div>
+          </article>
+
+          <article className="rl-news-v2-side-card">
             <p className="section-title">Top Sources</p>
             <div className="rl-news-v2-source-list">
               {sourceStats.slice(0, 6).map(([name, count]) => (
@@ -399,21 +555,6 @@ export default function NewsPage() {
                   <strong>—</strong>
                 </div>
               ) : null}
-            </div>
-          </article>
-
-          <article className="rl-news-v2-side-card">
-            <p className="section-title">Current Query</p>
-            <div className="rl-news-v2-query-box">
-              <p>
-                <strong>Company:</strong> {company || '—'}
-              </p>
-              <p>
-                <strong>Ticker:</strong> {ticker || '—'}
-              </p>
-              <p>
-                <strong>Keyword:</strong> {keywordNorm || 'None'}
-              </p>
             </div>
           </article>
         </aside>
