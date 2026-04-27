@@ -869,6 +869,20 @@ body {
   max-width: min(1020px, 100%);
 }
 
+.rl-global-dock.focus .rl-global-dock-composer {
+  padding: 9px 11px;
+}
+
+.rl-global-dock.focus.compact .rl-global-dock-composer textarea {
+  min-height: 34px;
+  max-height: 78px;
+}
+
+.rl-global-dock.focus.expanded .rl-global-dock-composer textarea {
+  min-height: 46px;
+  max-height: 130px;
+}
+
 .rl-global-dock.news {
   left: calc(var(--sidebar-width) + max(52px, (100vw - var(--sidebar-width) - 1460px) / 2));
   right: max(52px, (100vw - var(--sidebar-width) - 1460px) / 2);
