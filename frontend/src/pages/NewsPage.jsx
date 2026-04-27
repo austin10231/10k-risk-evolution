@@ -560,7 +560,14 @@ export default function NewsPage() {
                 <h3>{featured.title || 'Untitled'}</h3>
                 <p>{featured.summary || 'No summary available.'}</p>
                 <div className="rl-news-v2-link-row">
-                  <span>{formatDate(featured.published_at)}</span>
+                  <div className="rl-news-v2-date-stack">
+                    <span>{formatDate(featured.published_at)}</span>
+                    {featured.url ? (
+                      <a href={featured.url} target="_blank" rel="noreferrer">
+                        Open source ↗
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
               </div>
               <NewsImage

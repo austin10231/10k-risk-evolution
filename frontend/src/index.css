@@ -3075,6 +3075,13 @@ body {
   font-size: 0.74rem;
 }
 
+.rl-news-v2-date-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
 .rl-news-v2-link-row a,
 .rl-news-v2-tile-body a,
 .rl-news-v2-row-body a {
