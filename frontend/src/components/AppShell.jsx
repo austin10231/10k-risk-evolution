@@ -320,7 +320,6 @@ export default function AppShell({ children }) {
   }
 
   const handleDeleteThread = (threadId) => {
-    if (typeof window !== 'undefined' && !window.confirm('Delete this conversation?')) return
     deleteThread(threadId)
     setActiveMenuThreadId('')
     if (editingThreadId === threadId) cancelRenameThread()
