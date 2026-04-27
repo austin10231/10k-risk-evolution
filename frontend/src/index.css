@@ -1939,7 +1939,16 @@ body {
 .rl-up-pill-subnav {
   margin-top: 2px;
   margin-left: 0;
+  gap: 4px;
+  padding: 4px;
   background: rgba(255, 255, 255, 0.16);
+}
+
+.rl-up-pill-subnav .rl-strip-tab {
+  padding: 5px 11px;
+  font-size: 0.8rem;
+  line-height: 1.1;
+  font-weight: 700;
 }
 
 .rl-strip-tab {
