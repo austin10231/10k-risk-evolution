@@ -22,7 +22,7 @@ const INDUSTRIES = [
 
 function Chip({ label, value, tone = 'default' }) {
   return (
-    <span className={`rl-up-chip ${tone}`}>
+    <span className={`rl-up-chip ${tone}`} title={`${label}: ${value || 'Not Set'}`}>
       {label}: {value || '—'}
     </span>
   )
@@ -167,6 +167,7 @@ export default function UploadPage() {
   const [autoBusy, setAutoBusy] = useState(false)
   const [manualResult, setManualResult] = useState(null)
   const [manualRecord, setManualRecord] = useState(null)
+  const [manualFileName, setManualFileName] = useState('')
   const [autoSummary, setAutoSummary] = useState(null)
 
   const [editingConfig, setEditingConfig] = useState(false)
@@ -286,6 +287,7 @@ export default function UploadPage() {
       })
       setManualResult(res?.result || null)
       setManualRecord(res?.record || null)
+      setManualFileName(uploadFile.name)
 
       const rid = String(res?.record?.record_id || '')
       await refreshRecords(rid)
@@ -339,105 +341,109 @@ export default function UploadPage() {
     <div className="rl-page-shell rl-up-page">
       <section className="rl-up-header">
         <div className="page-header !mb-0">
-          <div className="page-header-left">
+          <div className="page-header-left rl-up-title-block">
             <span className="page-icon">🗂️</span>
             <div>
               <p className="page-title">Filings</p>
               <p className="page-subtitle">Ingest new filings and manage existing records in one place</p>
             </div>
           </div>
+        </div>
+      </section>
 
-          <div className="rl-up-config-wrap">
-            <div className="rl-up-config-row">
-              <strong>Current Configuration</strong>
+      <section className="rl-up-nav-stack">
+        <div className="rl-up-nav-head">
+          <div className="rl-up-pill-nav">
+            <button className={`rl-strip-tab ${tab === 'ingest' ? 'active' : ''}`} onClick={() => setTab('ingest')}>
+              🆕 Upload
+            </button>
+            <button className={`rl-strip-tab ${tab === 'records' ? 'active' : ''}`} onClick={() => setTab('records')}>
+              📚 Records
+            </button>
+          </div>
+
+          <div className="rl-up-right-group">
+            <div className="rl-up-config-inline">
+              <span className="rl-up-config-inline-label">Current Configuration</span>
               <Chip label="Company" value={config.company} tone="violet" />
               <Chip label="Year" value={config.year} tone="blue" />
               <Chip label="Ticker" value={config.ticker} tone="green" />
               <Chip label="Industry" value={config.industry} />
             </div>
-            <button className="btn-secondary" onClick={() => setEditingConfig((v) => !v)}>
-              {editingConfig ? 'Close' : 'Edit'} ▾
-            </button>
+
+            <div className="rl-up-edit-wrap">
+              <button className="btn-secondary rl-up-header-edit" onClick={() => setEditingConfig((v) => !v)}>
+                {editingConfig ? 'Close' : 'Edit'}
+              </button>
+              {editingConfig ? (
+                <div className="rl-up-config-popover">
+                  <div>
+                    <label className="section-title">Company</label>
+                    <input
+                      className="input mt-2"
+                      value={cfgDraft.company || ''}
+                      onChange={(e) => setCfgDraft((p) => ({ ...p, company: e.target.value }))}
+                      placeholder="e.g. Apple Inc."
+                    />
+                  </div>
+                  <div>
+                    <label className="section-title">Year</label>
+                    <select
+                      className="input mt-2"
+                      value={cfgDraft.year || ''}
+                      onChange={(e) => setCfgDraft((p) => ({ ...p, year: e.target.value }))}
+                    >
+                      <option value="">—</option>
+                      {YEARS.map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="section-title">Ticker</label>
+                    <input
+                      className="input mt-2"
+                      value={cfgDraft.ticker || ''}
+                      onChange={(e) => setCfgDraft((p) => ({ ...p, ticker: e.target.value.toUpperCase() }))}
+                      placeholder="e.g. AAPL"
+                    />
+                  </div>
+                  <div>
+                    <label className="section-title">Industry</label>
+                    <select
+                      className="input mt-2"
+                      value={cfgDraft.industry || ''}
+                      onChange={(e) => setCfgDraft((p) => ({ ...p, industry: e.target.value }))}
+                    >
+                      <option value="">—</option>
+                      {INDUSTRIES.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="rl-up-config-actions">
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setCfgDraft({ company: '', year: '', ticker: '', industry: '' })}
+                    >
+                      Reset
+                    </button>
+                    <button className="btn-primary" onClick={saveConfig}>
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
-        {editingConfig ? (
-          <div className="rl-up-config-panel">
-            <div>
-              <label className="section-title">Company</label>
-              <input
-                className="input mt-2"
-                value={cfgDraft.company || ''}
-                onChange={(e) => setCfgDraft((p) => ({ ...p, company: e.target.value }))}
-                placeholder="e.g. Apple Inc."
-              />
-            </div>
-            <div>
-              <label className="section-title">Year</label>
-              <select
-                className="input mt-2"
-                value={cfgDraft.year || ''}
-                onChange={(e) => setCfgDraft((p) => ({ ...p, year: e.target.value }))}
-              >
-                <option value="">—</option>
-                {YEARS.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="section-title">Ticker</label>
-              <input
-                className="input mt-2"
-                value={cfgDraft.ticker || ''}
-                onChange={(e) => setCfgDraft((p) => ({ ...p, ticker: e.target.value.toUpperCase() }))}
-                placeholder="e.g. AAPL"
-              />
-            </div>
-            <div>
-              <label className="section-title">Industry</label>
-              <select
-                className="input mt-2"
-                value={cfgDraft.industry || ''}
-                onChange={(e) => setCfgDraft((p) => ({ ...p, industry: e.target.value }))}
-              >
-                <option value="">—</option>
-                {INDUSTRIES.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="rl-up-config-actions">
-              <button
-                className="btn-secondary"
-                onClick={() => setCfgDraft({ company: '', year: '', ticker: '', industry: '' })}
-              >
-                Reset
-              </button>
-              <button className="btn-primary" onClick={saveConfig}>
-                Save Config
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="rl-up-strip">
-        <button className={`rl-strip-tab ${tab === 'ingest' ? 'active' : ''}`} onClick={() => setTab('ingest')}>
-          🆕 Upload
-        </button>
-        <button className={`rl-strip-tab ${tab === 'records' ? 'active' : ''}`} onClick={() => setTab('records')}>
-          📚 Records
-        </button>
-      </section>
-
-      {tab === 'ingest' ? (
-        <>
-          <section className="rl-up-strip rl-up-sub-strip">
+        {tab === 'ingest' ? (
+          <div className="rl-up-pill-subnav">
             <button
               className={`rl-strip-tab ${ingestMode === 'manual' ? 'active' : ''}`}
               onClick={() => setIngestMode('manual')}
@@ -450,226 +456,234 @@ export default function UploadPage() {
             >
               🛰️ Auto Fetch from SEC EDGAR
             </button>
-          </section>
+          </div>
+        ) : null}
+      </section>
 
-          {ingestMode === 'manual' ? (
-            <section className="rl-up-grid rl-up-grid-manual">
-              <div className="rl-up-form">
-                <p className="section-title">Configure</p>
-                <div className="rl-up-form-fields">
-                  <div>
-                    <label className="rl-field-label">Filing file (HTML or PDF)</label>
-                    <div className="rl-upload-btn-row">
-                      <button className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
-                        ⤴ Upload
-                      </button>
-                      <span>{uploadFile ? `${uploadFile.name} • ${formatBytes(uploadFile.size)}` : '200MB per file • HTML, HTM, PDF'}</span>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".html,.htm,.pdf"
-                        className="rl-hidden-file-input"
-                        onChange={(e) => {
-                          const f = e.target.files && e.target.files[0] ? e.target.files[0] : null
-                          setUploadFile(f)
+      {tab === 'ingest' ? (
+        ingestMode === 'manual' ? (
+          <section className="rl-up-grid rl-up-grid-manual">
+            <div className="rl-up-form">
+              <p className="section-title">Configure</p>
+              <div className="rl-up-form-fields">
+                <div>
+                  <label className="rl-field-label">Filing file (HTML or PDF)</label>
+                  <div className="rl-upload-btn-row">
+                    <button className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
+                      {uploadFile ? '↻ Change File' : '⤴ Upload'}
+                    </button>
+                    <span className={`rl-upload-file-text ${uploadFile ? 'has-file' : ''}`}>
+                      {uploadFile ? `${uploadFile.name} • ${formatBytes(uploadFile.size)}` : '200MB per file • HTML, HTM, PDF'}
+                    </span>
+                    {uploadFile ? (
+                      <button
+                        className="rl-upload-clear-btn"
+                        onClick={() => {
+                          setUploadFile(null)
+                          if (fileInputRef.current) fileInputRef.current.value = ''
                         }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="rl-up-two-col">
-                    <div>
-                      <label className="rl-field-label">Company Name</label>
-                      <input
-                        className="input mt-2"
-                        placeholder="e.g. Apple Inc."
-                        value={company}
-                        onChange={(e) => setCompany(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="rl-field-label">Stock Ticker (optional)</label>
-                      <input
-                        className="input mt-2"
-                        placeholder="e.g. AAPL"
-                        value={ticker}
-                        onChange={(e) => setTicker(e.target.value.toUpperCase())}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="rl-up-two-col">
-                    <div>
-                      <label className="rl-field-label">Filing Year</label>
-                      <select className="input mt-2" value={year} onChange={(e) => setYear(e.target.value)}>
-                        {YEARS.map((y) => (
-                          <option key={y} value={y}>
-                            {y}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="rl-field-label">Industry</label>
-                      <select className="input mt-2" value={industry} onChange={(e) => setIndustry(e.target.value)}>
-                        {INDUSTRIES.map((v) => (
-                          <option key={v} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="rl-up-two-col">
-                    <div>
-                      <label className="rl-field-label">Filing Type</label>
-                      <select className="input mt-2" value={filingType} onChange={(e) => setFilingType(e.target.value)}>
-                        <option value="10-K">10-K</option>
-                        <option value="10-Q">10-Q</option>
-                      </select>
-                    </div>
-                    <div className="rl-up-manual-status-tile">
-                      <p>Selected File</p>
-                      <strong>{uploadFile ? uploadFile.name : 'None'}</strong>
-                    </div>
-                  </div>
-
-                  <button className="btn-primary w-full rl-up-primary-btn" onClick={runManualExtract} disabled={manualBusy}>
-                    {manualBusy ? 'Extracting…' : '🚀 Extract & Save'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="rl-up-results">
-                <p className="section-title">Results</p>
-                {manualBusy ? (
-                  <div className="rl-up-result-placeholder">
-                    <h4>Running extraction pipeline…</h4>
-                    <span>Processing filing and saving to records.</span>
-                  </div>
-                ) : manualResult ? (
-                  <div className="rl-up-result-summary">
-                    <p className="rl-up-result-head">Extraction completed</p>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="metric-card">
-                        <p className="metric-label">Risk Categories</p>
-                        <p className="metric-value">{riskCategoryCount(manualResult)}</p>
-                      </div>
-                      <div className="metric-card">
-                        <p className="metric-label">Risk Items</p>
-                        <p className="metric-value">{riskItemCount(manualResult)}</p>
-                      </div>
-                    </div>
-                    <div className="rl-up-result-meta">
-                      <span>Record ID</span>
-                      <strong>{manualRecord?.record_id || '—'}</strong>
-                    </div>
-                    <button
-                      className="btn-secondary w-full"
-                      onClick={() => {
-                        if (manualRecord?.record_id) setSelectedId(String(manualRecord.record_id))
-                        setTab('records')
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".html,.htm,.pdf"
+                      className="rl-hidden-file-input"
+                      onChange={(e) => {
+                        const f = e.target.files && e.target.files[0] ? e.target.files[0] : null
+                        setUploadFile(f)
                       }}
-                    >
-                      Open in Records
-                    </button>
+                    />
                   </div>
-                ) : (
-                  <div className="rl-up-result-placeholder">
-                    <p>📋</p>
-                    <h4>Extraction results will appear here</h4>
+                </div>
+
+                <div className="rl-up-two-col rl-up-company-ticker-row">
+                  <div>
+                    <label className="rl-field-label">Company Name</label>
+                    <input
+                      className="input mt-2"
+                      placeholder="e.g. Apple Inc."
+                      value={company}
+                      onChange={(e) => setCompany(e.target.value)}
+                    />
                   </div>
-                )}
+                  <div>
+                    <label className="rl-field-label">Stock Ticker (optional)</label>
+                    <input
+                      className="input mt-2"
+                      placeholder="e.g. AAPL"
+                      value={ticker}
+                      onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                    />
+                  </div>
+                </div>
+
+                <div className="rl-up-three-col rl-up-taxonomy-row">
+                  <div>
+                    <label className="rl-field-label">Filing Year</label>
+                    <select className="input mt-2" value={year} onChange={(e) => setYear(e.target.value)}>
+                      {YEARS.map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="rl-field-label">Industry</label>
+                    <select className="input mt-2" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                      {INDUSTRIES.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="rl-field-label">Filing Type</label>
+                    <select className="input mt-2" value={filingType} onChange={(e) => setFilingType(e.target.value)}>
+                      <option value="10-K">10-K</option>
+                      <option value="10-Q">10-Q</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button className="btn-primary w-full rl-up-primary-btn" onClick={runManualExtract} disabled={manualBusy}>
+                  {manualBusy ? 'Extracting…' : '🚀 Extract & Save'}
+                </button>
               </div>
-            </section>
-          ) : (
-            <section className="rl-up-grid">
-              <div className="rl-up-form">
-                <p className="section-title">Auto Fetch Config</p>
-                <div className="rl-up-form-fields">
-                  <div className="rl-up-two-col">
-                    <div>
-                      <label className="rl-field-label">Company Name</label>
-                      <input className="input mt-2" value={company} onChange={(e) => setCompany(e.target.value)} />
+            </div>
+
+            <div className="rl-up-results">
+              <p className="section-title">Results</p>
+              {manualBusy ? (
+                <div className="rl-up-result-placeholder">
+                  <h4>Running extraction pipeline…</h4>
+                  <span>Processing filing and saving to records.</span>
+                </div>
+              ) : manualResult ? (
+                <div className="rl-up-result-summary">
+                  <p className="rl-up-result-head">Extraction completed</p>
+                  <div className="rl-up-result-meta">
+                    <span>Uploaded File</span>
+                    <strong title={manualFileName || '—'}>{manualFileName || '—'}</strong>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="metric-card">
+                      <p className="metric-label">Risk Categories</p>
+                      <p className="metric-value">{riskCategoryCount(manualResult)}</p>
                     </div>
-                    <div>
-                      <label className="rl-field-label">Ticker</label>
-                      <input
-                        className="input mt-2"
-                        value={ticker}
-                        onChange={(e) => setTicker(e.target.value.toUpperCase())}
-                      />
+                    <div className="metric-card">
+                      <p className="metric-label">Risk Items</p>
+                      <p className="metric-value">{riskItemCount(manualResult)}</p>
                     </div>
                   </div>
-                  <div className="rl-up-three-col">
-                    <div>
-                      <label className="rl-field-label">Start Year</label>
-                      <select className="input mt-2" value={autoStartYear} onChange={(e) => setAutoStartYear(e.target.value)}>
-                        {YEARS.map((y) => (
-                          <option key={y} value={y}>
-                            {y}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="rl-field-label">Industry</label>
-                      <select className="input mt-2" value={industry} onChange={(e) => setIndustry(e.target.value)}>
-                        {INDUSTRIES.map((v) => (
-                          <option key={v} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="rl-field-label">End Year</label>
-                      <select className="input mt-2" value={autoEndYear} onChange={(e) => setAutoEndYear(e.target.value)}>
-                        {YEARS.map((y) => (
-                          <option key={y} value={y}>
-                            {y}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                  <div className="rl-up-result-meta">
+                    <span>Record ID</span>
+                    <strong title={manualRecord?.record_id || '—'}>{manualRecord?.record_id || '—'}</strong>
                   </div>
-                  <button className="btn-primary w-full rl-up-primary-btn" onClick={runAutoFetch} disabled={autoBusy}>
-                    {autoBusy ? 'Fetching…' : '🚀 Auto Fetch & Save'}
+                  <button
+                    className="btn-secondary w-full"
+                    onClick={() => {
+                      if (manualRecord?.record_id) setSelectedId(String(manualRecord.record_id))
+                      setTab('records')
+                    }}
+                  >
+                    Open in Records
                   </button>
                 </div>
+              ) : (
+                <div className="rl-up-result-placeholder">
+                  <p>📋</p>
+                  <h4>Extraction results will appear here</h4>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : (
+          <section className="rl-up-grid">
+            <div className="rl-up-form">
+              <p className="section-title">Auto Fetch Config</p>
+              <div className="rl-up-form-fields">
+                <div className="rl-up-two-col rl-up-company-ticker-row">
+                  <div>
+                    <label className="rl-field-label">Company Name</label>
+                    <input className="input mt-2" value={company} onChange={(e) => setCompany(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="rl-field-label">Ticker</label>
+                    <input className="input mt-2" value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} />
+                  </div>
+                </div>
+                <div className="rl-up-three-col rl-up-range-row">
+                  <div>
+                    <label className="rl-field-label">Start Year</label>
+                    <select className="input mt-2" value={autoStartYear} onChange={(e) => setAutoStartYear(e.target.value)}>
+                      {YEARS.map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="rl-field-label">Industry</label>
+                    <select className="input mt-2" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                      {INDUSTRIES.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="rl-field-label">End Year</label>
+                    <select className="input mt-2" value={autoEndYear} onChange={(e) => setAutoEndYear(e.target.value)}>
+                      {YEARS.map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button className="btn-primary w-full rl-up-primary-btn" onClick={runAutoFetch} disabled={autoBusy}>
+                  {autoBusy ? 'Fetching…' : '🚀 Auto Fetch & Save'}
+                </button>
               </div>
+            </div>
 
-              <div className="rl-up-results">
-                <p className="section-title">Status</p>
-                {autoBusy ? (
-                  <div className="rl-up-result-placeholder">
-                    <h4>Auto fetch pipeline running…</h4>
+            <div className="rl-up-results">
+              <p className="section-title">Status</p>
+              {autoBusy ? (
+                <div className="rl-up-result-placeholder">
+                  <h4>Auto fetch pipeline running…</h4>
+                </div>
+              ) : autoSummary ? (
+                <div className="rl-up-result-summary">
+                  <p className="rl-up-result-head">Run completed</p>
+                  <div className="rl-up-result-meta">
+                    <span>Saved</span>
+                    <strong>{autoSummary?.count ?? 0}</strong>
                   </div>
-                ) : autoSummary ? (
-                  <div className="rl-up-result-summary">
-                    <p className="rl-up-result-head">Run completed</p>
-                    <div className="rl-up-result-meta">
-                      <span>Saved</span>
-                      <strong>{autoSummary?.count ?? 0}</strong>
-                    </div>
-                    <div className="rl-up-result-meta">
-                      <span>Skipped</span>
-                      <strong>{Array.isArray(autoSummary?.skipped) ? autoSummary.skipped.length : 0}</strong>
-                    </div>
-                    <button className="btn-secondary w-full" onClick={() => setTab('records')}>
-                      Open Records
-                    </button>
+                  <div className="rl-up-result-meta">
+                    <span>Skipped</span>
+                    <strong>{Array.isArray(autoSummary?.skipped) ? autoSummary.skipped.length : 0}</strong>
                   </div>
-                ) : (
-                  <div className="rl-up-result-placeholder">
-                    <h4>Ready to fetch SEC filings</h4>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-        </>
+                  <button className="btn-secondary w-full" onClick={() => setTab('records')}>
+                    Open Records
+                  </button>
+                </div>
+              ) : (
+                <div className="rl-up-result-placeholder">
+                  <h4>Ready to fetch SEC filings</h4>
+                </div>
+              )}
+            </div>
+          </section>
+        )
       ) : (
         <>
           <section className="rl-up-records">
@@ -760,7 +774,7 @@ export default function UploadPage() {
         </>
       )}
 
-      {error ? <div className="card border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
+      {error ? <div className="rl-up-inline-error">{error}</div> : null}
     </div>
   )
 }
