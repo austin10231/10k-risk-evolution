@@ -2344,6 +2344,56 @@ select.input {
   padding: 11px 12px 9px;
 }
 
+.rl-stock-market-grid {
+  border-top: 1px solid rgba(196, 208, 226, 0.76);
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+}
+
+.rl-stock-market-item {
+  padding: 12px 12px 11px;
+  border-left: 1px solid rgba(196, 208, 226, 0.66);
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.rl-stock-market-item:first-child {
+  border-left: 0;
+}
+
+.rl-stock-market-item p {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rl-stock-market-item strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.05rem;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.rl-stock-market-item em {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.rl-stock-market-item span {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.71rem;
+  color: #64748b;
+  font-weight: 650;
+}
+
 .rl-stock-accordion-list {
   border-top: 1px solid rgba(196, 208, 226, 0.76);
 }
@@ -2423,9 +2473,9 @@ select.input {
 }
 
 .rl-stock-heatmap-tile {
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(148, 163, 184, 0.32);
   border-radius: 4px;
-  color: #f8fafc;
+  color: #0f172a;
   padding: 4px 6px;
   display: flex;
   flex-direction: column;
@@ -2434,7 +2484,7 @@ select.input {
   text-align: left;
   min-width: 0;
   transition: transform 0.12s ease, border-color 0.16s ease, filter 0.16s ease;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
   cursor: pointer;
 }
 
@@ -2456,7 +2506,7 @@ select.input {
 
 .rl-stock-heatmap-tile small {
   margin-top: 2px;
-  color: rgba(248, 250, 252, 0.9);
+  color: rgba(51, 65, 85, 0.88);
   font-size: 0.61rem;
   font-weight: 650;
   line-height: 1.15;
@@ -2473,15 +2523,15 @@ select.input {
 }
 
 .rl-stock-heatmap-tile.tone-up {
-  background: linear-gradient(145deg, rgba(53, 136, 72, 0.96), rgba(93, 182, 116, 0.93));
+  background: linear-gradient(145deg, rgba(196, 242, 213, 0.94), rgba(162, 230, 189, 0.95));
 }
 
 .rl-stock-heatmap-tile.tone-down {
-  background: linear-gradient(145deg, rgba(165, 66, 90, 0.96), rgba(206, 92, 121, 0.92));
+  background: linear-gradient(145deg, rgba(251, 215, 223, 0.95), rgba(246, 188, 202, 0.95));
 }
 
 .rl-stock-heatmap-tile.tone-flat {
-  background: linear-gradient(145deg, rgba(88, 103, 126, 0.94), rgba(111, 126, 149, 0.92));
+  background: linear-gradient(145deg, rgba(235, 241, 248, 0.95), rgba(220, 230, 242, 0.95));
 }
 
 .rl-stock-heatmap-tile.size-xxl {
@@ -2519,13 +2569,13 @@ select.input {
   transform: translate(-50%, -100%);
   min-width: 280px;
   max-width: min(460px, calc(100% - 20px));
-  border: 1px solid rgba(15, 23, 42, 0.2);
+  border: 1px solid rgba(148, 163, 184, 0.48);
   border-radius: 12px;
   background:
-    radial-gradient(140% 150% at 100% 0%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0)),
-    rgba(16, 23, 37, 0.92);
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.4);
-  color: #e5edf9;
+    radial-gradient(140% 150% at 100% 0%, rgba(59, 130, 246, 0.1), rgba(255, 255, 255, 0)),
+    rgba(255, 255, 255, 0.97);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  color: #0f172a;
   padding: 10px 12px;
   pointer-events: none;
   z-index: 8;
@@ -2533,7 +2583,7 @@ select.input {
 
 .rl-stock-heatmap-tooltip p {
   margin: 0;
-  color: #9fb2cf;
+  color: #64748b;
   font-size: 0.72rem;
   font-weight: 650;
 }
@@ -2541,7 +2591,7 @@ select.input {
 .rl-stock-heatmap-tooltip strong {
   margin-top: 4px;
   display: block;
-  color: #f8fbff;
+  color: #0f172a;
   font-size: 0.92rem;
   font-weight: 760;
 }
@@ -2549,7 +2599,7 @@ select.input {
 .rl-stock-heatmap-tooltip span {
   margin-top: 5px;
   display: block;
-  color: #d8e5fb;
+  color: #1e293b;
   font-size: 0.81rem;
   font-weight: 640;
 }
@@ -2557,7 +2607,7 @@ select.input {
 .rl-stock-heatmap-tooltip em {
   margin-top: 5px;
   display: block;
-  color: #c5d2e8;
+  color: #475569;
   font-size: 0.73rem;
   font-style: normal;
   font-weight: 600;
@@ -5447,6 +5497,10 @@ select.input {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .rl-stock-market-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .rl-stock-main-split .rl-stock-side {
     grid-template-columns: 1fr;
   }
@@ -5578,6 +5632,19 @@ select.input {
 
   .rl-stock-metrics-grid-v2 {
     grid-template-columns: 1fr;
+  }
+
+  .rl-stock-market-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rl-stock-market-item {
+    border-left: 0;
+    border-top: 1px solid rgba(196, 208, 226, 0.66);
+  }
+
+  .rl-stock-market-item:first-child {
+    border-top: 0;
   }
 
   .rl-stock-side-metrics {
