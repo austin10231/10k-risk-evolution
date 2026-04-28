@@ -84,6 +84,11 @@ const SIMPLE_ICON_SLUG_BY_TICKER = {
   LMT: 'lockheedmartin',
 }
 
+const LOGO_FORCE_DOMAIN_BY_TICKER = {
+  UBER: 'uber.com',
+  LMT: 'lockheedmartin.com',
+}
+
 const SECTOR_BY_TICKER = {
   AAPL: 'Technology',
   MSFT: 'Technology',
@@ -604,6 +609,11 @@ function normalizeCompanyRoot(raw) {
 function logoCandidates(ticker, companyName) {
   const sym = normalizeTicker(ticker)
   const urls = []
+  const forceDomain = LOGO_FORCE_DOMAIN_BY_TICKER[sym]
+  if (forceDomain) {
+    urls.push(`https://api.faviconkit.com/${encodeURIComponent(forceDomain)}/128`)
+    urls.push(`https://logo.clearbit.com/${encodeURIComponent(forceDomain)}`)
+  }
   const iconSlug = SIMPLE_ICON_SLUG_BY_TICKER[sym]
   if (iconSlug) {
     urls.push(`https://cdn.simpleicons.org/${encodeURIComponent(iconSlug)}`)
@@ -701,6 +711,13 @@ function CompanyLogo({ ticker, company }) {
           src={src}
           alt=""
           loading="lazy"
+          onLoad={(e) => {
+            const w = Number(e.currentTarget?.naturalWidth || 0)
+            const h = Number(e.currentTarget?.naturalHeight || 0)
+            if (w > 0 && h > 0 && (w < 18 || h < 18)) {
+              setCursor((idx) => idx + 1)
+            }
+          }}
           onError={() => setCursor((idx) => idx + 1)}
         />
       ) : (
