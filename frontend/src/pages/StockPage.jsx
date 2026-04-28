@@ -145,6 +145,13 @@ const MARKET_OVERVIEW_TICKERS = [
   { label: 'Volatility', ticker: 'VIXY' },
 ]
 
+const MARKET_SPOTLIGHT_UNIVERSE = [
+  'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA', 'BRK.B', 'JPM', 'V', 'MA', 'UNH',
+  'XOM', 'WMT', 'LLY', 'AVGO', 'ORCL', 'NFLX', 'COST', 'JNJ', 'PG', 'HD', 'BAC', 'ABBV',
+  'KO', 'PEP', 'MRK', 'CVX', 'CSCO', 'AMD', 'ADBE', 'CRM', 'ACN', 'QCOM', 'MCD', 'TMO',
+  'PFE', 'TXN', 'DHR', 'AMAT', 'CAT', 'GE', 'INTU', 'BKNG', 'LOW', 'IBM', 'NOW', 'MS',
+]
+
 function normalizeTicker(raw) {
   return String(raw || '')
     .trim()
@@ -323,6 +330,61 @@ function fmtDateTime(value) {
   const d = new Date(ms)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString()
+}
+
+function resolvePrice(payload) {
+  const p = Number(payload?.price)
+  if (Number.isFinite(p) && p > 0) return p
+  const rows = Array.isArray(payload?.history) ? payload.history : []
+  const last = Number(rows[rows.length - 1]?.close)
+  return Number.isFinite(last) ? last : null
+}
+
+function resolveChange(payload) {
+  const direct = Number(payload?.change)
+  if (Number.isFinite(direct)) return direct
+  const prevClose = Number(payload?.previous_close)
+  const price = resolvePrice(payload)
+  if (Number.isFinite(price) && Number.isFinite(prevClose) && prevClose !== 0) return price - prevClose
+
+  const rows = Array.isArray(payload?.history) ? payload.history : []
+  if (rows.length >= 2) {
+    const last = Number(rows[rows.length - 1]?.close)
+    const prev = Number(rows[rows.length - 2]?.close)
+    if (Number.isFinite(last) && Number.isFinite(prev)) return last - prev
+  }
+  return null
+}
+
+function resolveChangePercent(payload) {
+  const direct = Number(payload?.change_percent)
+  if (Number.isFinite(direct)) return direct
+
+  const change = resolveChange(payload)
+  const prevClose = Number(payload?.previous_close)
+  if (Number.isFinite(change) && Number.isFinite(prevClose) && prevClose !== 0) return (change / prevClose) * 100
+
+  const rows = Array.isArray(payload?.history) ? payload.history : []
+  if (rows.length >= 2) {
+    const last = Number(rows[rows.length - 1]?.close)
+    const prev = Number(rows[rows.length - 2]?.close)
+    if (Number.isFinite(last) && Number.isFinite(prev) && prev !== 0) return ((last - prev) / prev) * 100
+  }
+  return null
+}
+
+function resolveMarketCap(payload) {
+  const candidates = [
+    payload?.market_cap,
+    payload?.marketCap,
+    payload?.market_capitalization,
+    payload?.marketCapitalization,
+  ]
+  for (const raw of candidates) {
+    const n = Number(raw)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return null
 }
 
 function providerLabel(raw) {
@@ -868,6 +930,8 @@ export default function StockPage() {
   const [detailActiveRecordId, setDetailActiveRecordId] = useState('')
   const [detailMainTab, setDetailMainTab] = useState('overview')
   const [heatmapHover, setHeatmapHover] = useState(null)
+  const [marketIntelItems, setMarketIntelItems] = useState([])
+  const [marketIntelLoading, setMarketIntelLoading] = useState(false)
 
   const initializedRef = useRef(false)
   const heatmapWrapRef = useRef(null)
@@ -1121,6 +1185,56 @@ export default function StockPage() {
     return () => timers.forEach((id) => window.clearTimeout(id))
   }, [fetchBundle])
 
+  useEffect(() => {
+    const symbols = mergeTickers(MARKET_SPOTLIGHT_UNIVERSE).filter((tk) => !unsupportedTickerSet.has(tk)).slice(0, 48)
+    const timers = []
+    symbols.forEach((ticker, idx) => {
+      const timer = window.setTimeout(() => {
+        fetchBundle(ticker, {
+          preferCache: true,
+          silent: true,
+          skipIfFresh: true,
+          remember: false,
+          muteError: true,
+          muteStatus: true,
+          lite: true,
+        })
+      }, 1200 + idx * 260)
+      timers.push(timer)
+    })
+    return () => timers.forEach((id) => window.clearTimeout(id))
+  }, [fetchBundle, unsupportedTickerSet])
+
+  useEffect(() => {
+    let alive = true
+    setMarketIntelLoading(true)
+    get(`/api/news?company=${encodeURIComponent('S&P 500')}&ticker=SPY&days=2&limit=6`)
+      .then((res) => {
+        if (!alive) return
+        const items = Array.isArray(res?.items) ? res.items : []
+        setMarketIntelItems(
+          items.map((row) => ({
+            title: String(row?.title || '').trim(),
+            source: String(row?.source || '').trim(),
+            published_at: String(row?.published_at || '').trim(),
+            url: String(row?.url || '').trim(),
+          })).filter((row) => row.title).slice(0, 4),
+        )
+      })
+      .catch(() => {
+        if (!alive) return
+        setMarketIntelItems([])
+      })
+      .finally(() => {
+        if (!alive) return
+        setMarketIntelLoading(false)
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const selectedEntry = bundleMap[selectedTicker] || null
   const data = selectedEntry?.data || null
 
@@ -1187,6 +1301,11 @@ export default function StockPage() {
       const meta = companyMapByTicker[tk] || {}
       const payload = bundleMap[tk]?.data || null
       const company = meta.company || payload?.name || tk
+      const changePercent = resolveChangePercent(payload)
+      const marketCap = resolveMarketCap(payload)
+      const volume = Number.isFinite(Number(payload?.volume))
+        ? Number(payload?.volume)
+        : Number((Array.isArray(payload?.history) ? payload.history[payload.history.length - 1]?.volume : 0) || 0)
       return {
         ticker: tk,
         company,
@@ -1198,9 +1317,9 @@ export default function StockPage() {
         }),
         year: meta.year || null,
         data: payload,
-        change_percent: Number(payload?.change_percent),
-        market_cap: Number(payload?.market_cap),
-        volume: Number((Array.isArray(payload?.history) ? payload.history[payload.history.length - 1]?.volume : 0) || 0),
+        change_percent: changePercent,
+        market_cap: marketCap,
+        volume,
         riskItems: Number(filingSummary?.latest?.risk_items || 0),
       }
     })
@@ -1261,15 +1380,17 @@ export default function StockPage() {
     () =>
       MARKET_OVERVIEW_TICKERS.map((item) => {
         const payload = bundleMap[item.ticker]?.data || null
-        const pct = Number(payload?.change_percent)
-        const price = Number(payload?.price)
-        const change = Number(payload?.change)
+        const pct = resolveChangePercent(payload)
+        const price = resolvePrice(payload)
+        const change = resolveChange(payload)
+        const updatedAt = Number(payload?.regular_market_time || payload?.post_market_time || bundleMap[item.ticker]?.savedAt || 0)
         return {
           ...item,
-          hasData: Boolean(payload),
+          hasData: Boolean(payload) && (Number.isFinite(price) || Number.isFinite(pct)),
           price: Number.isFinite(price) ? price : null,
           change: Number.isFinite(change) ? change : null,
           pct: Number.isFinite(pct) ? pct : null,
+          updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
           source: providerLabel(payload?.quote_source || payload?.history_source || ''),
         }
       }),
@@ -1298,24 +1419,70 @@ export default function StockPage() {
   }, [loadedRows])
 
   const spotlightRows = useMemo(() => {
-    const top = [...loadedRows]
-      .sort((a, b) => Math.abs(Number(b.change_percent || 0)) - Math.abs(Number(a.change_percent || 0)))
-      .slice(0, 3)
-
-    return top.map((row) => {
-      const hist = clipHistory(row.data?.history || [], '1M')
-      const closes = numericSeries(hist, 'close')
-      const vols = numericSeries(hist, 'volume')
-      const sector = sectorRows.find((s) => s.industry === row.industry)
-      const sectorText = sector ? `${sector.industry} is averaging ${fmtPct(sector.avgPct)}.` : 'Sector trend is mixed.'
+    const rows = MARKET_SPOTLIGHT_UNIVERSE.map((tk) => {
+      const payload = bundleMap[normalizeTicker(tk)]?.data || null
+      if (!payload) return null
+      const pct = resolveChangePercent(payload)
+      if (!Number.isFinite(pct)) return null
+      const price = resolvePrice(payload)
       return {
-        ...row,
-        closes,
-        vols,
-        narrative: makeSpotlightSummary(row, sectorText),
+        ticker: normalizeTicker(tk),
+        company: String(payload?.name || normalizeTicker(tk)),
+        industry: resolveEquitySector({
+          filingIndustry: '',
+          quoteSector: payload?.sector,
+          ticker: tk,
+          company: String(payload?.name || tk),
+        }),
+        data: payload,
+        change_percent: pct,
+        market_cap: resolveMarketCap(payload),
+        volume: Number(payload?.volume || 0),
+        price: Number.isFinite(price) ? price : null,
       }
-    })
-  }, [loadedRows, sectorRows])
+    }).filter(Boolean)
+
+    const gainers = [...rows].sort((a, b) => Number(b.change_percent) - Number(a.change_percent)).slice(0, 3).map((row) => ({ ...row, side: 'gainer' }))
+    const losers = [...rows].sort((a, b) => Number(a.change_percent) - Number(b.change_percent)).slice(0, 3).map((row) => ({ ...row, side: 'loser' }))
+    return [...gainers, ...losers]
+  }, [bundleMap])
+
+  const marketSummaryUpdatedAt = useMemo(() => {
+    const values = marketSummaryRows.map((row) => Number(row.updatedAt || 0)).filter((n) => Number.isFinite(n) && n > 0)
+    return values.length ? Math.max(...values) : 0
+  }, [marketSummaryRows])
+
+  const marketSummaryInsights = useMemo(() => {
+    const rows = marketSummaryRows.filter((row) => Number.isFinite(row.pct))
+    if (!rows.length) return []
+    const upCount = rows.filter((row) => Number(row.pct) > 0).length
+    const lead = [...rows].sort((a, b) => Number(b.pct) - Number(a.pct))[0]
+    const lag = [...rows].sort((a, b) => Number(a.pct) - Number(b.pct))[0]
+    const vix = rows.find((row) => row.ticker === 'VIXY')
+    const sectors = sectorRows.filter((row) => Number.isFinite(row.avgPct))
+    const bestSector = [...sectors].sort((a, b) => Number(b.avgPct) - Number(a.avgPct))[0]
+    const weakSector = [...sectors].sort((a, b) => Number(a.avgPct) - Number(b.avgPct))[0]
+    const topMove = spotlightRows[0]
+
+    const riskLine = vix
+      ? (Number(vix.pct) >= 0 ? `Volatility +${Number(vix.pct).toFixed(2)}%, market is in cautious mode.` : `Volatility ${Number(vix.pct).toFixed(2)}%, risk appetite is improving.`)
+      : 'Volatility data is not available yet.'
+
+    const sectorLine = bestSector && weakSector
+      ? `Sector breadth: ${bestSector.industry} ${fmtPct(bestSector.avgPct)} leads, ${weakSector.industry} ${fmtPct(weakSector.avgPct)} lags.`
+      : 'Sector breadth is still building from incoming quotes.'
+
+    const momentumLine = topMove
+      ? `Spotlight mover: ${topMove.company} (${topMove.ticker}) ${fmtPct(topMove.change_percent)}.`
+      : 'Spotlight movers are loading.'
+
+    return [
+      `${upCount}/${rows.length} key indexes are green. Leader: ${lead.label} ${fmtPct(lead.pct)}; laggard: ${lag.label} ${fmtPct(lag.pct)}.`,
+      riskLine,
+      sectorLine,
+      momentumLine,
+    ]
+  }, [marketSummaryRows, sectorRows, spotlightRows])
 
   const miniTickerCards = useMemo(() => {
     return loadedRows
@@ -1334,6 +1501,28 @@ export default function StockPage() {
       .slice(0, 6)
   }, [loadedRows])
 
+  const heatmapSections = useMemo(() => {
+    const groups = {}
+    heatmapTiles.forEach((row) => {
+      const key = String(row.industry || 'Other').trim() || 'Other'
+      if (!groups[key]) groups[key] = []
+      groups[key].push(row)
+    })
+
+    return Object.entries(groups)
+      .map(([industry, rows]) => {
+        const pctList = rows.map((r) => Number(r.change_percent)).filter(Number.isFinite)
+        const avgPct = pctList.length ? (pctList.reduce((sum, cur) => sum + cur, 0) / pctList.length) : null
+        return {
+          industry,
+          avgPct,
+          rows: [...rows].sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0)),
+          totalCap: rows.reduce((sum, r) => sum + Number(r.market_cap || 0), 0),
+        }
+      })
+      .sort((a, b) => Number(b.totalCap) - Number(a.totalCap))
+  }, [heatmapTiles])
+
   const selectedFromUpload = companyMapByTicker[selectedTicker] || null
   const routeSymbol = normalizeTicker(routeTicker || '')
   const isCompanyView = Boolean(routeSymbol)
@@ -1344,6 +1533,10 @@ export default function StockPage() {
     })
     return map
   }, [trackedRows])
+
+  const selectedChange = resolveChange(data)
+  const selectedChangePercent = resolveChangePercent(data)
+  const selectedMarketCap = resolveMarketCap(data) || trackedRowByTicker[normalizeTicker(selectedTicker)]?.market_cap || null
 
   const openDetail = useCallback(
     (rawTicker) => {
@@ -1565,7 +1758,7 @@ export default function StockPage() {
             <div className="rl-stock-chip-row">
               {featuredCompanies.map((c) => {
                 const payload = bundleMap[c.ticker]?.data
-                const pct = Number(payload?.change_percent)
+                const pct = resolveChangePercent(payload)
                 return (
                   <button
                     key={`${c.ticker}-${c.company}`}
@@ -1608,12 +1801,12 @@ export default function StockPage() {
             </div>
             <div className="metric-card rl-stock-metric-card">
               <p className="metric-label">Today</p>
-              <p className={`metric-value ${Number(data?.change_percent || 0) >= 0 ? 'rl-stock-up' : 'rl-stock-down'}`}>{fmtPct(data?.change_percent)}</p>
-              <span className="rl-stock-metric-sub">Change {fmtPrice(data?.change)}</span>
+              <p className={`metric-value ${Number(selectedChangePercent || 0) >= 0 ? 'rl-stock-up' : 'rl-stock-down'}`}>{fmtPct(selectedChangePercent)}</p>
+              <span className="rl-stock-metric-sub">Change {fmtPrice(selectedChange)}</span>
             </div>
             <div className="metric-card rl-stock-metric-card">
               <p className="metric-label">Market Cap</p>
-              <p className="metric-value !text-[1.05rem]">{fmtCompact(data?.market_cap)}</p>
+              <p className="metric-value !text-[1.05rem]">{fmtCompact(selectedMarketCap)}</p>
               <span className="rl-stock-metric-sub">PE {data?.pe_ratio ? Number(data.pe_ratio).toFixed(2) : '—'}</span>
             </div>
             <div className="metric-card rl-stock-metric-card">
@@ -1641,7 +1834,7 @@ export default function StockPage() {
           <section className="rl-stock-side-card rl-stock-summary-card">
             <div className="rl-stock-side-head">
               <p>Market Summary</p>
-              <span>Major market snapshot</span>
+              <span>{marketSummaryUpdatedAt ? `Updated ${timeAgoFrom(marketSummaryUpdatedAt)}` : 'Major market snapshot'}</span>
             </div>
             <div className="rl-stock-market-grid">
               {marketSummaryRows.map((row) => (
@@ -1653,31 +1846,58 @@ export default function StockPage() {
                 </div>
               ))}
             </div>
+            <div className="rl-stock-market-intel">
+              {marketSummaryInsights.map((line, idx) => (
+                <p key={`mkt-intel-${idx}`}>{line}</p>
+              ))}
+              {!marketSummaryInsights.length ? <p>Market intelligence is loading from index snapshots.</p> : null}
+            </div>
+            <div className="rl-stock-market-news">
+              <p className="rl-stock-market-news-title">Headline Intelligence</p>
+              {marketIntelLoading ? <span className="rl-stock-market-news-empty">Loading market headlines…</span> : null}
+              {!marketIntelLoading && !marketIntelItems.length ? <span className="rl-stock-market-news-empty">No market headlines available right now.</span> : null}
+              {!marketIntelLoading && marketIntelItems.map((item, idx) => (
+                <a key={`mkt-news-${idx}`} href={item.url || '#'} target="_blank" rel="noreferrer" className="rl-stock-market-news-item">
+                  <strong>{item.title}</strong>
+                  <span>{item.source || 'Market feed'} · {item.published_at ? fmtDateOnly(item.published_at) : 'today'}</span>
+                </a>
+              ))}
+            </div>
           </section>
 
           <section className="rl-stock-side-card rl-stock-heatmap-card">
             <div className="rl-stock-side-head">
               <p>Tracked Heatmap</p>
-              <span>Color = daily move · size = market cap</span>
+              <span>Click any tile to open company detail</span>
             </div>
             <div ref={heatmapWrapRef} className="rl-stock-heatmap-unified-wrap" onMouseLeave={() => setHeatmapHover(null)}>
-              <div className="rl-stock-heatmap-grid rl-stock-heatmap-grid-unified">
-                {heatmapTiles.map((row) => (
-                  <button
-                    type="button"
-                    key={`heat-${row.ticker}`}
-                    className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)} size-${row.size} intensity-${row.intensity}`}
-                    onDoubleClick={() => openDetail(row.ticker)}
-                    onMouseEnter={(e) => updateHeatmapHover(e, row)}
-                    onMouseMove={(e) => updateHeatmapHover(e, row)}
-                    title={`${row.company} · ${fmtPct(row.change_percent)} · double-click to open`}
-                  >
-                    <span>{row.ticker}</span>
-                    <small>{row.company}</small>
-                    <em>{fmtPct(row.change_percent)}</em>
-                  </button>
+              <div className="rl-stock-heatmap-sections">
+                {heatmapSections.map((group) => (
+                  <section key={`heat-group-${group.industry}`} className="rl-stock-heatmap-sector-block">
+                    <header className="rl-stock-heatmap-sector-head">
+                      <p>{group.industry}</p>
+                      <em className={toneClass(group.avgPct)}>{fmtPct(group.avgPct)}</em>
+                    </header>
+                    <div className="rl-stock-heatmap-grid rl-stock-heatmap-grid-unified">
+                      {group.rows.map((row) => (
+                        <button
+                          type="button"
+                          key={`heat-${row.ticker}`}
+                          className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)} size-${row.size} intensity-${row.intensity}`}
+                          onClick={() => openDetail(row.ticker)}
+                          onMouseEnter={(e) => updateHeatmapHover(e, row)}
+                          onMouseMove={(e) => updateHeatmapHover(e, row)}
+                          title={`${row.company} · ${fmtPct(row.change_percent)} · click to open`}
+                        >
+                          <span>{row.ticker}</span>
+                          <small>{row.company}</small>
+                          <em>{fmtPct(row.change_percent)}</em>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
                 ))}
-                {!heatmapTiles.length ? <p className="rl-stock-muted">Load tracked quotes to render heatmap.</p> : null}
+                {!heatmapSections.length ? <p className="rl-stock-muted">Load tracked quotes to render heatmap.</p> : null}
               </div>
               {heatmapHover?.row ? (
                 <div
@@ -1699,11 +1919,11 @@ export default function StockPage() {
           <section className="rl-stock-side-card rl-stock-spotlight-card">
             <div className="rl-stock-side-head">
               <p>Spotlight Stocks</p>
-              <span>High-impact movers from your tracked universe</span>
+              <span>S&P 500 high/low movers</span>
             </div>
             <div className="rl-stock-spotlight-list">
               {spotlightRows.map((row) => (
-                <article key={`spot-${row.ticker}`} className="rl-stock-spotlight-item">
+                <article key={`spot-${row.ticker}-${row.side}`} className="rl-stock-spotlight-item">
                   <div className="rl-stock-spotlight-head">
                     <div className="rl-stock-company-mini" onClick={() => openDetail(row.ticker)}>
                       <CompanyLogo ticker={row.ticker} company={row.company} />
@@ -1713,25 +1933,20 @@ export default function StockPage() {
                       </div>
                     </div>
                     <div className="rl-stock-company-price">
-                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <strong>{fmtPrice(row.price ?? row.data?.price)}</strong>
                       <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
                     </div>
                   </div>
 
-                  <div className="rl-stock-spotlight-body">
-                    <MiniChart values={row.closes} kind="line" color={chartColorFor(row.closes, '#22c55e', '#ef4444')} compact={false} />
-                    <div className="rl-stock-spotlight-stats">
-                      <span><b>Volume</b>{fmtCompact(row.volume)}</span>
-                      <span><b>Market Cap</b>{fmtCompact(row.market_cap)}</span>
-                      <span><b>PE</b>{row.data?.pe_ratio ? Number(row.data.pe_ratio).toFixed(2) : '—'}</span>
-                      <span><b>52W</b>{fmtPrice(row.data?.low_52)} - {fmtPrice(row.data?.high_52)}</span>
-                    </div>
+                  <div className="rl-stock-spotlight-stats rl-stock-spotlight-stats-market">
+                    <span><b>Direction</b>{row.side === 'gainer' ? 'Top Gainer' : 'Top Loser'}</span>
+                    <span><b>Industry</b>{row.industry || 'Other'}</span>
+                    <span><b>Market Cap</b>{fmtCompact(row.market_cap)}</span>
+                    <span><b>Volume</b>{fmtCompact(row.volume)}</span>
                   </div>
-
-                  <p className="rl-stock-spotlight-note">{row.narrative}</p>
                 </article>
               ))}
-              {!spotlightRows.length ? <p className="rl-stock-muted">No spotlight yet. Select/upload companies with tickers first.</p> : null}
+              {!spotlightRows.length ? <p className="rl-stock-muted">Spotlight movers are loading from the S&P 500 universe.</p> : null}
             </div>
           </section>
           </div>

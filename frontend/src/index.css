@@ -2394,6 +2394,75 @@ select.input {
   font-weight: 650;
 }
 
+.rl-stock-market-intel {
+  border-top: 1px solid rgba(196, 208, 226, 0.76);
+  padding: 10px 12px 8px;
+  display: grid;
+  gap: 6px;
+  background: rgba(248, 252, 255, 0.68);
+}
+
+.rl-stock-market-intel p {
+  margin: 0;
+  color: #334155;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  font-weight: 620;
+}
+
+.rl-stock-market-news {
+  border-top: 1px solid rgba(196, 208, 226, 0.76);
+  padding: 10px 12px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.rl-stock-market-news-title {
+  margin: 0;
+  font-size: 0.7rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 760;
+}
+
+.rl-stock-market-news-empty {
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.rl-stock-market-news-item {
+  border: 1px solid rgba(196, 208, 226, 0.7);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 8px 9px;
+  text-decoration: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.rl-stock-market-news-item:hover {
+  border-color: rgba(59, 130, 246, 0.42);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.1);
+  transform: translateY(-1px);
+}
+
+.rl-stock-market-news-item strong {
+  display: block;
+  color: #0f172a;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  font-weight: 700;
+}
+
+.rl-stock-market-news-item span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 620;
+}
+
 .rl-stock-accordion-list {
   border-top: 1px solid rgba(196, 208, 226, 0.76);
 }
@@ -2467,9 +2536,44 @@ select.input {
 }
 
 .rl-stock-heatmap-grid-unified {
-  grid-template-columns: repeat(24, minmax(0, 1fr));
-  grid-auto-rows: 24px;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  grid-auto-rows: 25px;
   align-items: stretch;
+}
+
+.rl-stock-heatmap-sections {
+  display: grid;
+  gap: 8px;
+}
+
+.rl-stock-heatmap-sector-block {
+  border: 1px solid rgba(189, 202, 224, 0.76);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 8px;
+  display: grid;
+  gap: 7px;
+}
+
+.rl-stock-heatmap-sector-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rl-stock-heatmap-sector-head p {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #334155;
+  font-weight: 760;
+}
+
+.rl-stock-heatmap-sector-head em {
+  margin: 0;
+  font-style: normal;
+  font-size: 0.74rem;
+  font-weight: 750;
 }
 
 .rl-stock-heatmap-tile {
@@ -2535,7 +2639,7 @@ select.input {
 }
 
 .rl-stock-heatmap-tile.size-xxl {
-  grid-column: span 6;
+  grid-column: span 5;
   grid-row: span 3;
 }
 
@@ -2721,6 +2825,10 @@ select.input {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
+}
+
+.rl-stock-spotlight-stats-market {
+  margin-top: 2px;
 }
 
 .rl-stock-spotlight-stats span {

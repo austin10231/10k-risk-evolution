@@ -74,7 +74,8 @@ _NEWS_CACHE_TTL_SECONDS = 120
 _STOCK_PROVIDER_STATE: Dict[str, Dict[str, Any]] = {}
 _STOCK_PROVIDER_DEFAULT_COOLDOWN_SECONDS = 70
 _STOCK_QUOTE_CACHE: Dict[str, Dict[str, Any]] = {}
-_STOCK_QUOTE_CACHE_TTL_SECONDS = 45
+_STOCK_QUOTE_CACHE_TTL_SECONDS = 600
+_STOCK_QUOTE_CACHE_PREFIX = "stock_quote_cache_v1"
 
 
 def _env(name: str, default: str = "") -> str:
@@ -882,13 +883,28 @@ def _stock_cache_get(symbol: str) -> Optional[Dict[str, Any]]:
     sym = str(symbol or "").strip().upper()
     if not sym:
         return None
+
     cached = _STOCK_QUOTE_CACHE.get(sym)
-    if not isinstance(cached, dict):
+    ts = 0.0
+    payload: Optional[Dict[str, Any]] = None
+    if isinstance(cached, dict):
+        ts = float(cached.get("saved_at", 0.0) or 0.0)
+        raw_payload = cached.get("payload")
+        payload = raw_payload if isinstance(raw_payload, dict) else None
+
+    # L1 cache miss: try persistent S3 cache.
+    if not payload:
+        persisted = _stock_cache_read_persistent(sym)
+        if isinstance(persisted, dict):
+            ts = float(persisted.get("saved_at", 0.0) or 0.0)
+            raw_payload = persisted.get("payload")
+            payload = raw_payload if isinstance(raw_payload, dict) else None
+            if payload:
+                _STOCK_QUOTE_CACHE[sym] = {"saved_at": ts, "payload": dict(payload)}
+
+    if not payload:
         return None
-    ts = float(cached.get("saved_at", 0.0) or 0.0)
-    payload = cached.get("payload")
-    if not isinstance(payload, dict):
-        return None
+
     age = time.time() - ts
     if age < 0 or age > _STOCK_QUOTE_CACHE_TTL_SECONDS:
         return None
@@ -902,13 +918,27 @@ def _stock_cache_get_stale(symbol: str) -> Optional[Dict[str, Any]]:
     sym = str(symbol or "").strip().upper()
     if not sym:
         return None
+
     cached = _STOCK_QUOTE_CACHE.get(sym)
-    if not isinstance(cached, dict):
+    payload: Optional[Dict[str, Any]] = None
+    ts = 0.0
+    if isinstance(cached, dict):
+        ts = float(cached.get("saved_at", 0.0) or 0.0)
+        raw_payload = cached.get("payload")
+        payload = raw_payload if isinstance(raw_payload, dict) else None
+
+    if not payload:
+        persisted = _stock_cache_read_persistent(sym)
+        if isinstance(persisted, dict):
+            ts = float(persisted.get("saved_at", 0.0) or 0.0)
+            raw_payload = persisted.get("payload")
+            payload = raw_payload if isinstance(raw_payload, dict) else None
+            if payload:
+                _STOCK_QUOTE_CACHE[sym] = {"saved_at": ts, "payload": dict(payload)}
+
+    if not payload:
         return None
-    ts = float(cached.get("saved_at", 0.0) or 0.0)
-    payload = cached.get("payload")
-    if not isinstance(payload, dict):
-        return None
+
     age = time.time() - ts
     if age < 0:
         age = 0.0
@@ -923,10 +953,53 @@ def _stock_cache_set(symbol: str, payload: dict) -> None:
     sym = str(symbol or "").strip().upper()
     if not sym or not isinstance(payload, dict):
         return
+    saved_at = time.time()
     _STOCK_QUOTE_CACHE[sym] = {
-        "saved_at": time.time(),
+        "saved_at": saved_at,
         "payload": dict(payload),
     }
+    _stock_cache_write_persistent(sym, payload, saved_at=saved_at)
+
+
+def _stock_cache_storage_key(symbol: str) -> str:
+    sym = re.sub(r"[^A-Z0-9_.\-]", "_", str(symbol or "").strip().upper())
+    if not sym:
+        sym = "UNKNOWN"
+    return f"{_STOCK_QUOTE_CACHE_PREFIX}/{sym}.json"
+
+
+def _stock_cache_read_persistent(symbol: str) -> Optional[Dict[str, Any]]:
+    if not _bucket():
+        return None
+    key = _stock_cache_storage_key(symbol)
+    try:
+        raw = _json_from_bytes(_read_s3_bytes(key), None)
+        if not isinstance(raw, dict):
+            return None
+        ts = float(raw.get("saved_at", 0.0) or 0.0)
+        payload = raw.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        return {"saved_at": ts, "payload": payload}
+    except Exception:
+        return None
+
+
+def _stock_cache_write_persistent(symbol: str, payload: dict, *, saved_at: Optional[float] = None) -> None:
+    if not _bucket():
+        return
+    if not isinstance(payload, dict):
+        return
+    key = _stock_cache_storage_key(symbol)
+    envelope = {
+        "saved_at": float(saved_at if saved_at is not None else time.time()),
+        "payload": payload,
+    }
+    try:
+        _write_s3_bytes(key, json.dumps(envelope, ensure_ascii=False, default=str).encode("utf-8"))
+    except Exception:
+        # Cache write failures should never fail the stock quote response path.
+        return
 
 
 def _symbol_candidates(symbol: str) -> List[str]:
@@ -1317,6 +1390,7 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
     industry = ""
     country = ""
     full_time_employees = None
+    shares_outstanding = None
     ceo = ""
     long_description = ""
     ipo_date = ""
@@ -1333,7 +1407,7 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
     def _apply_quote_fields(provider: str, data: dict) -> None:
         nonlocal name, price, change, change_percent, market_cap, pe_ratio, high_52, low_52, exchange, quote_source
         nonlocal previous_close, open_price, day_high, day_low, volume, eps, dividend_yield
-        nonlocal sector, industry, country, full_time_employees, ceo, long_description, ipo_date
+        nonlocal sector, industry, country, full_time_employees, shares_outstanding, ceo, long_description, ipo_date
         nonlocal post_market_price, post_market_change, post_market_change_percent, regular_market_time, post_market_time
         if not isinstance(data, dict):
             return
@@ -1384,6 +1458,8 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
             country = str(data.get("country", "") or "").strip()
         if full_time_employees is None:
             full_time_employees = _to_float(data.get("full_time_employees"))
+        if shares_outstanding is None:
+            shares_outstanding = _to_float(data.get("shares_outstanding"))
         if not ceo:
             ceo = str(data.get("ceo", "") or "").strip()
         if not long_description:
@@ -1567,6 +1643,9 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
                     _apply_quote_fields(
                         "yahoo",
                         {
+                            "market_cap": _to_float(detail.get("marketCap", {}).get("raw"))
+                            if isinstance(detail.get("marketCap"), dict)
+                            else _to_float(detail.get("marketCap")),
                             "sector": asset.get("sector") or asset.get("sectorDisp") or "",
                             "industry": asset.get("industry") or asset.get("industryDisp") or "",
                             "country": asset.get("country") or "",
@@ -1579,6 +1658,9 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
                             "eps": _to_float(stats.get("trailingEps", {}).get("raw"))
                             if isinstance(stats.get("trailingEps"), dict)
                             else _to_float(stats.get("trailingEps")),
+                            "shares_outstanding": _to_float(stats.get("sharesOutstanding", {}).get("raw"))
+                            if isinstance(stats.get("sharesOutstanding"), dict)
+                            else _to_float(stats.get("sharesOutstanding")),
                             "ipo_date": ipo_text,
                         },
                     )
@@ -1648,6 +1730,16 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
             change_percent = pct
         if not quote_source:
             quote_source = history_source or "derived"
+
+    if change_percent is None and change is not None and previous_close not in (None, 0):
+        change_percent = (float(change) / float(previous_close)) * 100.0
+    if change is None and price is not None and previous_close is not None:
+        change = float(price) - float(previous_close)
+    if previous_close is None and price is not None and change is not None:
+        previous_close = float(price) - float(change)
+
+    if (market_cap is None or float(market_cap) <= 0) and shares_outstanding not in (None, 0) and price is not None:
+        market_cap = float(shares_outstanding) * float(price)
 
     if price is None and not history:
         stale_cached = _stock_cache_get_stale(cache_symbol)
