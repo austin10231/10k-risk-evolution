@@ -37,6 +37,14 @@ function plannedTools(query, hasConfig, pathname) {
   return Array.from(new Set(tools))
 }
 
+function parseContextFromSearch(search = '') {
+  const params = new URLSearchParams(search || '')
+  return {
+    recordId: String(params.get('record_id') || '').trim(),
+    compareRecordId: String(params.get('compare_record_id') || '').trim(),
+  }
+}
+
 const WorkspaceChatContext = createContext({
   query: '',
   setQuery: () => {},
@@ -81,6 +89,8 @@ export function WorkspaceChatProvider({ children }) {
     const lang = detectLang(userText)
     const hasGlobalConfig = Boolean(config.company || config.year || config.ticker || config.industry)
     const routePath = options.pathname || location.pathname || '/agent'
+    const routeSearch = options.search ?? location.search ?? ''
+    const context = parseContextFromSearch(routeSearch)
     const tools = plannedTools(userText, hasGlobalConfig, routePath)
 
     const createdId = !currentThreadId ? createThread() : ''
@@ -103,6 +113,8 @@ export function WorkspaceChatProvider({ children }) {
         user_query: userText,
         company: config.company || '',
         year: config.year ? Number(config.year) : 0,
+        record_id: options.recordId || context.recordId || '',
+        compare_record_id: options.compareRecordId || context.compareRecordId || '',
       }
       const res = await post('/api/agent/query', payload)
       const report = res?.report || res?.result || {}

@@ -209,6 +209,9 @@ def _fallback_report(company: str, year: int, user_query: str, error: str) -> di
         "risk_themes": [],
         "overall_risk_rating": "Unknown",
         "compare_insights": "",
+        "direct_answer": "",
+        "evidence": [],
+        "follow_up_questions": [],
         "agent_steps": [f"❌ {error}"],
         "enriched_risks": [],
     }
@@ -418,6 +421,86 @@ Return ONLY the JSON object, no preamble, no markdown fences."""
     }
 
 
+def _answer_user_query_impl(
+    user_query: str,
+    company: str,
+    year: int,
+    report: dict,
+) -> dict:
+    q = str(user_query or "").strip()
+    if not q:
+        return {
+            "direct_answer": "",
+            "evidence": [],
+            "follow_up_questions": [],
+        }
+
+    priority_matrix = report.get("priority_matrix", {}) if isinstance(report, dict) else {}
+    high_top = priority_matrix.get("high", {}).get("top", [])[:5]
+    key_findings = report.get("key_findings", [])[:5] if isinstance(report, dict) else []
+    summary = str(report.get("executive_summary", "") if isinstance(report, dict) else "")
+    compare_insights = str(report.get("compare_insights", "") if isinstance(report, dict) else "")
+
+    prompt = f"""You are a risk intelligence assistant. Answer the user question with concise evidence.
+
+Company: {company}
+Year: {year}
+Question: {q}
+Executive summary: {summary}
+Top high-priority risks: {json.dumps(high_top, ensure_ascii=False)}
+Key findings: {json.dumps(key_findings, ensure_ascii=False)}
+Compare insights: {compare_insights}
+
+Return ONLY JSON:
+{{
+  "direct_answer": "4-7 sentence direct answer to the question.",
+  "evidence": [
+    "Evidence bullet 1 tied to top risk or compare signal",
+    "Evidence bullet 2",
+    "Evidence bullet 3"
+  ],
+  "follow_up_questions": [
+    "Optional follow-up 1",
+    "Optional follow-up 2"
+  ]
+}}"""
+
+    try:
+        out = _extract_json_obj(_invoke(prompt, max_tokens=1000)) or {}
+        if not isinstance(out, dict):
+            out = {}
+    except Exception:
+        out = {}
+
+    direct_answer = str(out.get("direct_answer", "") or "").strip()
+    evidence = out.get("evidence", []) if isinstance(out.get("evidence"), list) else []
+    follow_ups = out.get("follow_up_questions", []) if isinstance(out.get("follow_up_questions"), list) else []
+
+    if not direct_answer:
+        top_titles = [str(x.get("title", "") or "") for x in high_top[:3] if isinstance(x, dict)]
+        direct_answer = summary or "Available risk data is limited; please refine the question or provide more context."
+        if top_titles:
+            direct_answer += " Key high-priority risks include: " + "; ".join(top_titles) + "."
+
+    evidence = [str(e).strip() for e in evidence if str(e).strip()][:5]
+    if not evidence and high_top:
+        evidence = [
+            f"High-priority: {str(x.get('title', ''))[:160]}"
+            for x in high_top[:3]
+            if isinstance(x, dict)
+        ]
+    if compare_insights:
+        evidence = [*evidence, f"Comparison signal: {compare_insights[:180]}"][:6]
+
+    follow_ups = [str(x).strip() for x in follow_ups if str(x).strip()][:3]
+
+    return {
+        "direct_answer": direct_answer,
+        "evidence": evidence,
+        "follow_up_questions": follow_ups,
+    }
+
+
 def _normalize_report(report: dict, company: str, year: int, user_query: str, enriched_risks: list, steps: list) -> dict:
     out = dict(report or {})
     out.setdefault("company", company)
@@ -434,6 +517,9 @@ def _normalize_report(report: dict, company: str, year: int, user_query: str, en
     out.setdefault("risk_themes", [])
     out.setdefault("overall_risk_rating", "Unknown")
     out.setdefault("compare_insights", "")
+    out.setdefault("direct_answer", "")
+    out.setdefault("evidence", [])
+    out.setdefault("follow_up_questions", [])
     out["enriched_risks"] = out.get("enriched_risks", enriched_risks)
     out["agent_steps"] = out.get("agent_steps", steps)
     return out
@@ -464,6 +550,18 @@ def run_agent(
             user_query=user_query,
         )
         steps.append("✅ Report generation complete.")
+        if str(user_query or "").strip():
+            steps.append("💬 Tool 5: Building direct answer to the user question...")
+            answer_payload = _answer_user_query_impl(
+                user_query=user_query,
+                company=company,
+                year=year,
+                report=report,
+            )
+            report["direct_answer"] = str(answer_payload.get("direct_answer", "") or "")
+            report["evidence"] = answer_payload.get("evidence", [])
+            report["follow_up_questions"] = answer_payload.get("follow_up_questions", [])
+            steps.append("✅ Direct answer complete.")
 
         return _normalize_report(report, company, year, user_query, enriched_risks, steps)
     except Exception as exc:

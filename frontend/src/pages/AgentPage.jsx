@@ -1,12 +1,29 @@
 import React, { useEffect, useMemo, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
+import { popPendingChat } from '../lib/pendingChat'
 
 export default function AgentPage() {
   const threadRef = useRef(null)
+  const pendingSentRef = useRef('')
+  const location = useLocation()
   const { currentThread, currentThreadId } = useChatMemory()
-  const { loading, error, isConversationStarted } = useWorkspaceChat()
+  const { loading, error, isConversationStarted, send } = useWorkspaceChat()
   const messages = currentThread?.messages || []
+
+  useEffect(() => {
+    if (location.pathname !== '/agent') return
+    const pending = popPendingChat()
+    if (!pending?.text) return
+    const marker = `${pending.ts || 0}:${pending.text}`
+    if (pendingSentRef.current === marker) return
+    pendingSentRef.current = marker
+    send(pending.text, {
+      pathname: pending.originPath || '/agent',
+      search: pending.originSearch || '',
+    })
+  }, [location.pathname, location.search, send])
 
   const lastReport = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {

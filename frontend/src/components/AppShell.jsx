@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
+import { stashPendingChat } from '../lib/pendingChat'
 import brandIcon from '../assets/logo-icon.svg'
 
 const WORKSPACE_TABS = [
@@ -121,6 +122,17 @@ function dockPlaceholder(pathname) {
   if (pathname === '/dashboard') return 'Ask what to prioritize from this dashboard snapshot…'
   if (pathname === '/library') return 'Ask what this filing history suggests…'
   return 'Ask any risk question…'
+}
+
+function buildAgentHref(search = '') {
+  const src = new URLSearchParams(search || '')
+  const next = new URLSearchParams()
+  const recordId = String(src.get('record_id') || '').trim()
+  const compareRecordId = String(src.get('compare_record_id') || '').trim()
+  if (recordId) next.set('record_id', recordId)
+  if (compareRecordId) next.set('compare_record_id', compareRecordId)
+  const query = next.toString()
+  return `/agent${query ? `?${query}` : ''}`
 }
 
 function getHistoryMenuPosition(rect) {
@@ -340,7 +352,18 @@ export default function AppShell({ children }) {
   const submitQuery = async (forced) => {
     const text = String(forced ?? query).trim()
     if (!text || loading) return
-    await send(text)
+    const originPath = location.pathname || '/agent'
+    const originSearch = location.search || ''
+    const targetHref = buildAgentHref(originSearch)
+    const needsJump = `${location.pathname || ''}${location.search || ''}` !== targetHref
+    if (needsJump) {
+      stashPendingChat({ text, originPath, originSearch })
+      setQuery('')
+      navigate(targetHref)
+      setDockFocused(false)
+      return
+    }
+    await send(text, { pathname: originPath, search: originSearch })
     setDockFocused(false)
   }
 

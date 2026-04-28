@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { post } from '../lib/api'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useChatMemory } from '../lib/chatMemory'
+import { useWorkspaceChat } from '../lib/workspaceChat'
+import { stashPendingChat } from '../lib/pendingChat'
 
 const MAX_MESSAGES = 30
 const FAB_KEY = 'risklens_chat_fab_pos_v1'
@@ -33,6 +36,17 @@ function defaultMessage() {
   }
 }
 
+function buildAgentHref(search = '') {
+  const src = new URLSearchParams(search || '')
+  const next = new URLSearchParams()
+  const recordId = String(src.get('record_id') || '').trim()
+  const compareRecordId = String(src.get('compare_record_id') || '').trim()
+  if (recordId) next.set('record_id', recordId)
+  if (compareRecordId) next.set('compare_record_id', compareRecordId)
+  const query = next.toString()
+  return `/agent${query ? `?${query}` : ''}`
+}
+
 function SendArrowIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -43,6 +57,11 @@ function SendArrowIcon() {
 }
 
 export default function FloatingChatWidget() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const { currentThread } = useChatMemory()
+  const { send, loading, error, clearError, startNewThread } = useWorkspaceChat()
+
   const [open, setOpen] = useState(false)
   const [fabPos, setFabPos] = useState(() => {
     if (typeof window === 'undefined') return { x: 0, y: 0 }
@@ -73,17 +92,17 @@ export default function FloatingChatWidget() {
     }
   })
   const [query, setQuery] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [messages, setMessages] = useState([defaultMessage()])
-  const [error, setError] = useState('')
   const bottomRef = useRef(null)
   const fabDragRef = useRef(null)
   const panelDragRef = useRef(null)
 
+  const threadMessages = currentThread?.messages || []
+  const messages = threadMessages.length ? threadMessages.slice(-MAX_MESSAGES) : [defaultMessage()]
+
   useEffect(() => {
     if (!open) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, open, loading])
+  }, [threadMessages.length, open, loading])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -123,36 +142,30 @@ export default function FloatingChatWidget() {
   const canSend = query.trim().length > 0 && !loading
 
   const clearChat = () => {
-    setMessages([defaultMessage()])
-    setError('')
+    startNewThread()
+    clearError()
     setQuery('')
   }
 
-  const send = async () => {
+  const sendFromWidget = async () => {
     const text = query.trim()
     if (!text || loading) return
 
-    setMessages((prev) => [...prev, { role: 'user', text }].slice(-MAX_MESSAGES))
-    setQuery('')
-    setLoading(true)
-    setError('')
-
-    try {
-      const res = await post('/api/agent/query', {
-        user_query: text,
-        company: '',
-        year: 0,
-      })
-      const report = res?.report || res?.result || {}
-      const answer = report?.direct_answer || report?.executive_summary || 'No answer generated.'
-      setMessages((prev) => [...prev, { role: 'assistant', text: answer }].slice(-MAX_MESSAGES))
-    } catch (e) {
-      const msg = e?.message || 'Chat request failed.'
-      setError(msg)
-      setMessages((prev) => [...prev, { role: 'assistant', text: `Sorry, I failed to answer: ${msg}` }].slice(-MAX_MESSAGES))
-    } finally {
-      setLoading(false)
+    const originPath = location.pathname || '/agent'
+    const originSearch = location.search || ''
+    const targetHref = buildAgentHref(originSearch)
+    const needsJump = `${location.pathname || ''}${location.search || ''}` !== targetHref
+    if (needsJump) {
+      stashPendingChat({ text, originPath, originSearch })
+      setQuery('')
+      setOpen(false)
+      navigate(targetHref)
+      return
     }
+    await send(text, { pathname: originPath, search: originSearch })
+
+    setQuery('')
+    setOpen(false)
   }
 
   const startFabDrag = (e) => {
@@ -243,7 +256,7 @@ export default function FloatingChatWidget() {
 
           <div className="rl-chat-messages">
             {messages.map((m, idx) => (
-              <div key={`${m.role}-${idx}`} className={`rl-chat-row ${m.role === 'user' ? 'user' : 'assistant'}`}>
+              <div key={`${m.role}-${idx}-${m.meta?.timestamp || idx}`} className={`rl-chat-row ${m.role === 'user' ? 'user' : 'assistant'}`}>
                 <div className="rl-chat-bubble">{m.text}</div>
               </div>
             ))}
@@ -262,21 +275,24 @@ export default function FloatingChatWidget() {
               className="rl-chat-input"
               value={query}
               placeholder="Ask anything about company risk..."
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                if (error) clearError()
+                setQuery(e.target.value)
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
-                  send()
+                  sendFromWidget()
                 }
               }}
             />
             <div className="rl-chat-actions">
               <button className="btn-secondary text-xs" onClick={clearChat} disabled={loading}>
-                Clear
+                New Chat
               </button>
               <button
                 className={`rl-chat-send-round ${loading ? 'loading' : ''}`}
-                onClick={send}
+                onClick={sendFromWidget}
                 disabled={!canSend}
                 aria-label={loading ? 'Thinking' : 'Send'}
               >
