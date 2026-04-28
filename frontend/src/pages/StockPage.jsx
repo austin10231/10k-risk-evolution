@@ -56,6 +56,8 @@ const LOGO_DOMAIN_BY_TICKER = {
   XOM: 'exxonmobil.com',
   CVX: 'chevron.com',
   BA: 'boeing.com',
+  UBER: 'uber.com',
+  LMT: 'lockheedmartin.com',
   CAT: 'cat.com',
   GE: 'ge.com',
   UNH: 'unitedhealthgroup.com',
@@ -136,6 +138,20 @@ const EQUITY_SECTOR_BENCHMARKS = [
   { industry: 'Real Estate', ticker: 'XLRE' },
   { industry: 'Healthcare', ticker: 'XLV' },
 ]
+
+const SECTOR_BENCHMARK_CANDIDATES = {
+  Technology: ['XLK', 'VGT'],
+  Energy: ['XLE', 'VDE'],
+  'Consumer Cyclical': ['XLY', 'VCR'],
+  'Consumer Defensive': ['XLP', 'VDC'],
+  'Communication Services': ['XLC', 'VOX'],
+  Industrials: ['XLI', 'VIS'],
+  'Financial Services': ['XLF', 'VFH'],
+  Utilities: ['XLU', 'IDU'],
+  'Basic Materials': ['XLB', 'VAW'],
+  'Real Estate': ['XLRE', 'IYR'],
+  Healthcare: ['XLV', 'VHT'],
+}
 
 const MARKET_OVERVIEW_TICKERS = [
   { label: 'S&P 500', ticker: 'SPY' },
@@ -582,20 +598,21 @@ function normalizeCompanyRoot(raw) {
 function logoCandidates(ticker, companyName) {
   const sym = normalizeTicker(ticker)
   const urls = []
+  const mappedDomain = LOGO_DOMAIN_BY_TICKER[sym]
+  if (mappedDomain) {
+    urls.push(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(mappedDomain)}&sz=128`)
+    urls.push(`https://logo.clearbit.com/${mappedDomain}`)
+  }
+  const root = normalizeCompanyRoot(companyName)
+  if (root && root.length >= 3) {
+    urls.push(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(`${root}.com`)}&sz=128`)
+    urls.push(`https://logo.clearbit.com/${root}.com`)
+  }
   if (sym) {
     urls.push(`https://financialmodelingprep.com/image-stock/${encodeURIComponent(sym)}.png`)
     urls.push(`https://eodhistoricaldata.com/img/logos/US/${encodeURIComponent(sym)}.png`)
   }
-  const mappedDomain = LOGO_DOMAIN_BY_TICKER[sym]
-  if (mappedDomain) {
-    urls.push(`https://logo.clearbit.com/${mappedDomain}`)
-  } else {
-    const root = normalizeCompanyRoot(companyName)
-    if (root && root.length >= 3) {
-      urls.push(`https://logo.clearbit.com/${root}.com`)
-    }
-  }
-  return urls
+  return Array.from(new Set(urls))
 }
 
 function normalizeSectorName(raw) {
@@ -1203,10 +1220,13 @@ export default function StockPage() {
   }, [selectedTicker, featuredCompanies, fetchBundle, unsupportedTickerSet])
 
   useEffect(() => {
+    const sectorTickers = mergeTickers(
+      ...Object.values(SECTOR_BENCHMARK_CANDIDATES).map((arr) => (Array.isArray(arr) ? arr : [])),
+    )
     const timers = []
-    EQUITY_SECTOR_BENCHMARKS.forEach((item, idx) => {
-      const timer = window.setTimeout(() => {
-        fetchBundle(item.ticker, {
+    sectorTickers.forEach((ticker, idx) => {
+      const quick = window.setTimeout(() => {
+        fetchBundle(ticker, {
           preferCache: true,
           silent: true,
           skipIfFresh: true,
@@ -1215,8 +1235,21 @@ export default function StockPage() {
           muteStatus: true,
           lite: true,
         })
-      }, 900 + idx * 4200)
-      timers.push(timer)
+      }, 700 + idx * 260)
+      timers.push(quick)
+
+      const retry = window.setTimeout(() => {
+        fetchBundle(ticker, {
+          preferCache: true,
+          silent: true,
+          skipIfFresh: false,
+          remember: false,
+          muteError: true,
+          muteStatus: true,
+          lite: true,
+        })
+      }, 10000 + idx * 320)
+      timers.push(retry)
     })
     return () => timers.forEach((id) => window.clearTimeout(id))
   }, [fetchBundle])
@@ -1398,14 +1431,18 @@ export default function StockPage() {
   const sectorRows = useMemo(
     () =>
       EQUITY_SECTOR_BENCHMARKS.map((item) => {
-        const payload = bundleMap[item.ticker]?.data || null
-        const pct = Number(payload?.change_percent)
-        const price = Number(payload?.price)
+        const candidates = Array.isArray(SECTOR_BENCHMARK_CANDIDATES[item.industry])
+          ? SECTOR_BENCHMARK_CANDIDATES[item.industry]
+          : [item.ticker]
+        const pickedTicker = candidates.find((tk) => Boolean(bundleMap[normalizeTicker(tk)]?.data)) || item.ticker
+        const payload = bundleMap[normalizeTicker(pickedTicker)]?.data || null
+        const pct = resolveChangePercent(payload)
+        const price = resolvePrice(payload)
         const uploaded = uploadedSectorAgg[item.industry]
         const uploadedPct = uploaded?.count ? uploaded.sumPct / uploaded.count : null
         return {
           industry: item.industry,
-          ticker: item.ticker,
+          ticker: pickedTicker,
           price: Number.isFinite(price) ? price : undefined,
           avgPct: Number.isFinite(pct) ? pct : (Number.isFinite(uploadedPct) ? uploadedPct : undefined),
         }
@@ -2061,7 +2098,7 @@ export default function StockPage() {
               {sectorRows.map((row) => (
                 <div key={`sector-${row.industry}`} className="rl-stock-sector-item">
                   <span>{row.industry}</span>
-                  <strong>{fmtPrice(row.price)}</strong>
+                  <strong>{Number.isFinite(Number(row.price)) ? fmtPrice(row.price) : row.ticker}</strong>
                   <em className={toneClass(row.avgPct)}>{fmtPct(row.avgPct)}</em>
                 </div>
               ))}
