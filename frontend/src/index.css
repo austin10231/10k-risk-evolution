@@ -1912,6 +1912,18 @@ select.input {
   color: #dc2626 !important;
 }
 
+.rl-stock-main-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.32fr) minmax(300px, 0.68fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.rl-stock-main-col {
+  display: grid;
+  gap: 12px;
+}
+
 .rl-stock-workbench {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
@@ -5324,6 +5336,10 @@ select.input {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .rl-stock-main-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .rl-stock-side {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5429,6 +5445,10 @@ select.input {
 
   .rl-stock-metrics-grid-v2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rl-stock-main-split .rl-stock-side {
+    grid-template-columns: 1fr;
   }
 
   .rl-stock-side {

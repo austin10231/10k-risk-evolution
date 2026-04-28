@@ -1477,90 +1477,85 @@ export default function StockPage() {
       </section>
 
       {!isCompanyView ? (
-      <>
-      <section className="rl-stock-command rl-stock-command-v2">
-        <div className="rl-stock-command-head">
-          <div>
-            <p className="rl-stock-command-title">Tracked Companies</p>
-            <span>
-              {recordsLoading
-                ? 'Loading uploaded company universe…'
-                : `${uploadedCompanies.length} companies from uploaded filings · showing ${featuredCompanies.length} random cards`}
-            </span>
-          </div>
-          <button className="btn-secondary" onClick={() => setShowAddTicker((v) => !v)}>
-            {showAddTicker ? 'Cancel' : '+ Add Ticker'}
-          </button>
-        </div>
-
-        <div className="rl-stock-chip-row">
-          {featuredCompanies.map((c) => {
-            const payload = bundleMap[c.ticker]?.data
-            const pct = Number(payload?.change_percent)
-            return (
-              <button
-                key={`${c.ticker}-${c.company}`}
-                className={`rl-stock-chip ${selectedTicker === c.ticker ? 'active' : ''}`}
-                onClick={() => openDetail(c.ticker)}
-                title={`${c.company} · ${c.industry}`}
-              >
-                <span>{c.company}</span>
-                <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : c.ticker}</em>
+      <section className="rl-stock-main-split">
+        <div className="rl-stock-main-col">
+          <section className="rl-stock-command rl-stock-command-v2">
+            <div className="rl-stock-command-head">
+              <div>
+                <p className="rl-stock-command-title">Tracked Companies</p>
+                <span>
+                  {recordsLoading
+                    ? 'Loading uploaded company universe…'
+                    : `${uploadedCompanies.length} companies from uploaded filings · showing ${featuredCompanies.length} random cards`}
+                </span>
+              </div>
+              <button className="btn-secondary" onClick={() => setShowAddTicker((v) => !v)}>
+                {showAddTicker ? 'Cancel' : '+ Add Ticker'}
               </button>
-            )
-          })}
-        </div>
+            </div>
 
-        {showAddTicker ? (
-          <div className="rl-stock-input-row rl-stock-add-row">
-            <input className="input" value={addTickerInput} onChange={(e) => setAddTickerInput(normalizeTicker(e.target.value))} placeholder="e.g. TSLA" />
-            <button className="btn-primary" onClick={addTicker}>Add & View</button>
-          </div>
-        ) : null}
+            <div className="rl-stock-chip-row">
+              {featuredCompanies.map((c) => {
+                const payload = bundleMap[c.ticker]?.data
+                const pct = Number(payload?.change_percent)
+                return (
+                  <button
+                    key={`${c.ticker}-${c.company}`}
+                    className={`rl-stock-chip ${selectedTicker === c.ticker ? 'active' : ''}`}
+                    onClick={() => openDetail(c.ticker)}
+                    title={`${c.company} · ${c.industry}`}
+                  >
+                    <span>{c.company}</span>
+                    <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : c.ticker}</em>
+                  </button>
+                )
+              })}
+            </div>
 
-        <p className="rl-stock-cache-note">
-          {selectedEntry?.savedAt ? `Instant view from cache (${timeAgoFrom(selectedEntry.savedAt)}), then background refresh.` : 'Loading data and caching for faster next visit.'}
-        </p>
-        {statusHint ? <p className="rl-stock-cache-note rl-stock-status-note">{statusHint}</p> : null}
-      </section>
+            {showAddTicker ? (
+              <div className="rl-stock-input-row rl-stock-add-row">
+                <input className="input" value={addTickerInput} onChange={(e) => setAddTickerInput(normalizeTicker(e.target.value))} placeholder="e.g. TSLA" />
+                <button className="btn-primary" onClick={addTicker}>Add & View</button>
+              </div>
+            ) : null}
 
-      {error ? <div className="rl-up-inline-error">{error}</div> : null}
+            <p className="rl-stock-cache-note">
+              {selectedEntry?.savedAt ? `Instant view from cache (${timeAgoFrom(selectedEntry.savedAt)}), then background refresh.` : 'Loading data and caching for faster next visit.'}
+            </p>
+            {statusHint ? <p className="rl-stock-cache-note rl-stock-status-note">{statusHint}</p> : null}
+          </section>
 
-      <section className="rl-stock-metrics-grid rl-stock-metrics-grid-v2">
-        <div className="metric-card rl-stock-metric-card">
-          <p className="metric-label">Selected</p>
-          <p className="metric-value">{selectedTicker || '—'}</p>
-          <span className="rl-stock-metric-sub">{data?.name || selectedFromUpload?.company || '—'}</span>
-        </div>
-        <div className="metric-card rl-stock-metric-card">
-          <p className="metric-label">Current Price</p>
-          <p className="metric-value">{fmtPrice(data?.price)}</p>
-          <span className="rl-stock-metric-sub">{data?.exchange || 'US Equities'}</span>
-        </div>
-        <div className="metric-card rl-stock-metric-card">
-          <p className="metric-label">Today</p>
-          <p className={`metric-value ${Number(data?.change_percent || 0) >= 0 ? 'rl-stock-up' : 'rl-stock-down'}`}>{fmtPct(data?.change_percent)}</p>
-          <span className="rl-stock-metric-sub">Change {fmtPrice(data?.change)}</span>
-        </div>
-        <div className="metric-card rl-stock-metric-card">
-          <p className="metric-label">Market Cap</p>
-          <p className="metric-value !text-[1.05rem]">{fmtCompact(data?.market_cap)}</p>
-          <span className="rl-stock-metric-sub">PE {data?.pe_ratio ? Number(data.pe_ratio).toFixed(2) : '—'}</span>
-        </div>
-        <div className="metric-card rl-stock-metric-card">
-          <p className="metric-label">Uploaded Scope</p>
-          <p className="metric-value !text-[1.05rem]">{uploadedCompanies.length}</p>
-          <span className="rl-stock-metric-sub">companies with filing context</span>
-        </div>
-      </section>
-      </>
-      ) : null}
+          {error ? <div className="rl-up-inline-error">{error}</div> : null}
 
-      {isCompanyView && error ? <div className="rl-up-inline-error">{error}</div> : null}
+          <section className="rl-stock-metrics-grid rl-stock-metrics-grid-v2">
+            <div className="metric-card rl-stock-metric-card">
+              <p className="metric-label">Selected</p>
+              <p className="metric-value">{selectedTicker || '—'}</p>
+              <span className="rl-stock-metric-sub">{data?.name || selectedFromUpload?.company || '—'}</span>
+            </div>
+            <div className="metric-card rl-stock-metric-card">
+              <p className="metric-label">Current Price</p>
+              <p className="metric-value">{fmtPrice(data?.price)}</p>
+              <span className="rl-stock-metric-sub">{data?.exchange || 'US Equities'}</span>
+            </div>
+            <div className="metric-card rl-stock-metric-card">
+              <p className="metric-label">Today</p>
+              <p className={`metric-value ${Number(data?.change_percent || 0) >= 0 ? 'rl-stock-up' : 'rl-stock-down'}`}>{fmtPct(data?.change_percent)}</p>
+              <span className="rl-stock-metric-sub">Change {fmtPrice(data?.change)}</span>
+            </div>
+            <div className="metric-card rl-stock-metric-card">
+              <p className="metric-label">Market Cap</p>
+              <p className="metric-value !text-[1.05rem]">{fmtCompact(data?.market_cap)}</p>
+              <span className="rl-stock-metric-sub">PE {data?.pe_ratio ? Number(data.pe_ratio).toFixed(2) : '—'}</span>
+            </div>
+            <div className="metric-card rl-stock-metric-card">
+              <p className="metric-label">Uploaded Scope</p>
+              <p className="metric-value !text-[1.05rem]">{uploadedCompanies.length}</p>
+              <span className="rl-stock-metric-sub">companies with filing context</span>
+            </div>
+          </section>
 
-      {!isCompanyView ? (
-      <section className="rl-stock-workbench rl-stock-workbench-v2">
-        <div className="rl-stock-left">
+          <div className="rl-stock-left">
           <div className="rl-stock-chart-grid">
             {miniTickerCards.map((card) => (
               <button key={`mini-card-${card.ticker}`} className={`rl-stock-chart-tile ${selectedTicker === card.ticker ? 'active' : ''}`} onClick={() => openDetail(card.ticker)}>
@@ -1691,6 +1686,7 @@ export default function StockPage() {
               {!spotlightRows.length ? <p className="rl-stock-muted">No spotlight yet. Select/upload companies with tickers first.</p> : null}
             </div>
           </section>
+          </div>
         </div>
 
         <aside className="rl-stock-side">
@@ -1813,6 +1809,8 @@ export default function StockPage() {
         </aside>
       </section>
       ) : (
+      <>
+      {isCompanyView && error ? <div className="rl-up-inline-error">{error}</div> : null}
       <section className="rl-stock-workbench rl-stock-workbench-v2 rl-stock-detail-layout">
         <div className="rl-stock-left">
           <section className="rl-stock-side-card rl-stock-detail-main-card">
@@ -2019,6 +2017,7 @@ export default function StockPage() {
           </section>
         </aside>
       </section>
+      </>
       )}
     </div>
   )

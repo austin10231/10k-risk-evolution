@@ -12,7 +12,7 @@ import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
@@ -898,6 +898,27 @@ def _stock_cache_get(symbol: str) -> Optional[Dict[str, Any]]:
     return out
 
 
+def _stock_cache_get_stale(symbol: str) -> Optional[Dict[str, Any]]:
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        return None
+    cached = _STOCK_QUOTE_CACHE.get(sym)
+    if not isinstance(cached, dict):
+        return None
+    ts = float(cached.get("saved_at", 0.0) or 0.0)
+    payload = cached.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    age = time.time() - ts
+    if age < 0:
+        age = 0.0
+    out = dict(payload)
+    out["cache_hit"] = True
+    out["cache_age_s"] = int(age)
+    out["stale_cache"] = True
+    return out
+
+
 def _stock_cache_set(symbol: str, payload: dict) -> None:
     sym = str(symbol or "").strip().upper()
     if not sym or not isinstance(payload, dict):
@@ -906,6 +927,47 @@ def _stock_cache_set(symbol: str, payload: dict) -> None:
         "saved_at": time.time(),
         "payload": dict(payload),
     }
+
+
+def _symbol_candidates(symbol: str) -> List[str]:
+    base = str(symbol or "").strip().upper()
+    if not base:
+        return []
+    variants = [base]
+    if "." in base:
+        variants.append(base.replace(".", "-"))
+        variants.append(base.replace(".", ""))
+    if "-" in base:
+        variants.append(base.replace("-", "."))
+        variants.append(base.replace("-", ""))
+    # Prefer common US share-class form with dash for Yahoo-like providers.
+    if "." in base and len(base.split(".", 1)[-1]) == 1:
+        variants.insert(0, base.replace(".", "-"))
+    out: List[str] = []
+    for v in variants:
+        cleaned = re.sub(r"[^A-Z0-9.\-]", "", str(v or "").strip().upper())
+        if cleaned and cleaned not in out:
+            out.append(cleaned)
+    return out
+
+
+def _try_symbol_variants(
+    symbol: str,
+    loader: Callable[[str], Any],
+    *,
+    require_truthy: bool = True,
+) -> tuple[Any, str, List[str]]:
+    attempts: List[str] = []
+    for candidate in _symbol_candidates(symbol):
+        try:
+            data = loader(candidate)
+            if require_truthy and not data:
+                attempts.append(f"{candidate}: empty")
+                continue
+            return data, candidate, attempts
+        except Exception as exc:
+            attempts.append(f"{candidate}: {type(exc).__name__}: {exc}")
+    return None, "", attempts
 
 
 def _twelvedata_api_key() -> str:
@@ -1152,8 +1214,8 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
             history_source = "stooq"
 
         if not history and _provider_available("yahoo"):
-            chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1y&interval=1d"
-            try:
+            def _load_yahoo_chart(candidate: str) -> List[dict]:
+                chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{candidate}?range=1y&interval=1d"
                 chart_payload = _yahoo_json(chart_url)
                 chart = chart_payload.get("chart", {}) if isinstance(chart_payload, dict) else {}
                 results = chart.get("result", []) if isinstance(chart, dict) else []
@@ -1177,15 +1239,27 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
                             continue
                         vol = _to_float(vols[i], 0.0) if i < len(vols) else 0.0
                         parsed_history.append({"date": dt, "close": float(c), "volume": vol})
-                if parsed_history:
-                    history = parsed_history
-                    history_source = "yahoo"
+                return parsed_history
+
+            parsed_history, _, yahoo_attempts = _try_symbol_variants(sym, _load_yahoo_chart, require_truthy=True)
+            if parsed_history:
+                history = parsed_history
+                history_source = "yahoo"
                 _provider_mark_success("yahoo")
-            except Exception as e:
-                _provider_mark_failure("yahoo", e)
-                errors.append(f"yahoo chart: {type(e).__name__}: {e}")
+            else:
+                exc = RuntimeError("; ".join(yahoo_attempts) if yahoo_attempts else "empty history")
+                _provider_mark_failure("yahoo", exc)
+                errors.append(f"yahoo chart: {exc}")
 
         if not history:
+            stale_cached = _stock_cache_get_stale(cache_symbol)
+            if stale_cached:
+                stale_cached["providers"] = _provider_snapshot(["twelvedata", "fmp", "yahoo"])
+                stale_cached["warning"] = (
+                    "Upstream providers temporarily returned no data. "
+                    f"Showing stale cache ({int(stale_cached.get('cache_age_s', 0) or 0)}s old)."
+                )
+                return stale_cached
             detail = "; ".join(errors) if errors else "no data returned by public fallback providers"
             return {"error": f"Failed to fetch stock data: {detail}"}
 
@@ -1333,63 +1407,93 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
     twelvedata_key = _twelvedata_api_key()
 
     if twelvedata_key and _provider_available("twelvedata") and _need_quote_fields():
-        try:
-            _apply_quote_fields("twelvedata", _twelvedata_quote(sym, twelvedata_key))
+        td_quote, _, td_quote_attempts = _try_symbol_variants(
+            sym,
+            lambda candidate: _twelvedata_quote(candidate, twelvedata_key),
+            require_truthy=True,
+        )
+        if td_quote:
+            _apply_quote_fields("twelvedata", td_quote)
             _provider_mark_success("twelvedata")
-        except Exception as e:
-            _provider_mark_failure("twelvedata", e)
-            errors.append(f"twelvedata quote: {type(e).__name__}: {e}")
+        else:
+            exc = RuntimeError("; ".join(td_quote_attempts) if td_quote_attempts else "no quote response")
+            _provider_mark_failure("twelvedata", exc)
+            errors.append(f"twelvedata quote: {exc}")
 
     if twelvedata_key and _provider_available("twelvedata") and not history:
-        try:
-            td_history = _twelvedata_history(sym, twelvedata_key)
-            if td_history:
-                history = td_history
-                history_source = "twelvedata"
+        td_history, _, td_history_attempts = _try_symbol_variants(
+            sym,
+            lambda candidate: _twelvedata_history(candidate, twelvedata_key),
+            require_truthy=True,
+        )
+        if td_history:
+            history = td_history
+            history_source = "twelvedata"
             _provider_mark_success("twelvedata")
-        except Exception as e:
-            _provider_mark_failure("twelvedata", e)
-            errors.append(f"twelvedata history: {type(e).__name__}: {e}")
+        else:
+            exc = RuntimeError("; ".join(td_history_attempts) if td_history_attempts else "no history response")
+            _provider_mark_failure("twelvedata", exc)
+            errors.append(f"twelvedata history: {exc}")
 
     fmp_key = _fmp_api_key()
     if fmp_key and _provider_available("fmp") and _need_quote_fields():
-        try:
-            _apply_quote_fields("fmp", _fmp_quote(sym, fmp_key))
+        fmp_quote, _, fmp_quote_attempts = _try_symbol_variants(
+            sym,
+            lambda candidate: _fmp_quote(candidate, fmp_key),
+            require_truthy=True,
+        )
+        if fmp_quote:
+            _apply_quote_fields("fmp", fmp_quote)
             _provider_mark_success("fmp")
-        except Exception as e:
-            _provider_mark_failure("fmp", e)
-            errors.append(f"fmp quote: {type(e).__name__}: {e}")
+        else:
+            exc = RuntimeError("; ".join(fmp_quote_attempts) if fmp_quote_attempts else "no quote response")
+            _provider_mark_failure("fmp", exc)
+            errors.append(f"fmp quote: {exc}")
 
     if fmp_key and _provider_available("fmp") and not history:
-        try:
-            fmp_hist = _fmp_history(sym, fmp_key)
-            if fmp_hist:
-                history = fmp_hist
-                history_source = "fmp"
+        fmp_hist, _, fmp_hist_attempts = _try_symbol_variants(
+            sym,
+            lambda candidate: _fmp_history(candidate, fmp_key),
+            require_truthy=True,
+        )
+        if fmp_hist:
+            history = fmp_hist
+            history_source = "fmp"
             _provider_mark_success("fmp")
-        except Exception as e:
-            _provider_mark_failure("fmp", e)
-            errors.append(f"fmp history: {type(e).__name__}: {e}")
+        else:
+            exc = RuntimeError("; ".join(fmp_hist_attempts) if fmp_hist_attempts else "no history response")
+            _provider_mark_failure("fmp", exc)
+            errors.append(f"fmp history: {exc}")
 
     need_yahoo_quote = _need_quote_fields()
     need_yahoo_chart = not history
     if (need_yahoo_quote or need_yahoo_chart) and _provider_available("yahoo"):
-        quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={sym}"
-        chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1y&interval=1d"
         row: dict = {}
+        yahoo_quote_symbol = sym
 
         if need_yahoo_quote:
-            try:
+            def _load_yahoo_quote(candidate: str) -> dict:
+                quote_url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={candidate}"
                 quote_payload = _yahoo_json(quote_url)
                 quote_result = (
                     quote_payload.get("quoteResponse", {}).get("result", [])
                     if isinstance(quote_payload, dict) else []
                 )
-                row = quote_result[0] if quote_result else {}
+                return quote_result[0] if quote_result and isinstance(quote_result[0], dict) else {}
+
+            quote_row, used_quote_symbol, quote_attempts = _try_symbol_variants(
+                sym,
+                _load_yahoo_quote,
+                require_truthy=True,
+            )
+            if quote_row:
+                row = quote_row
+                yahoo_quote_symbol = used_quote_symbol or sym
                 _provider_mark_success("yahoo")
-            except Exception as e:
-                _provider_mark_failure("yahoo", e)
-                errors.append(f"yahoo quote: {type(e).__name__}: {e}")
+            else:
+                exc = RuntimeError("; ".join(quote_attempts) if quote_attempts else "no quote response")
+                _provider_mark_failure("yahoo", exc)
+                errors.append(f"yahoo quote: {exc}")
 
             _apply_quote_fields(
                 "yahoo",
@@ -1422,9 +1526,9 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
                 },
             )
 
-            if _provider_available("yahoo"):
+            if row and _provider_available("yahoo"):
                 summary_url = (
-                    f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{sym}"
+                    f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{yahoo_quote_symbol}"
                     "?modules=assetProfile,summaryDetail,defaultKeyStatistics"
                 )
                 try:
@@ -1484,7 +1588,8 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
                     errors.append(f"yahoo summary: {type(e).__name__}: {e}")
 
         if need_yahoo_chart and _provider_available("yahoo"):
-            try:
+            def _load_yahoo_chart(candidate: str) -> List[dict]:
+                chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{candidate}?range=1y&interval=1d"
                 chart_payload = _yahoo_json(chart_url)
                 chart = chart_payload.get("chart", {}) if isinstance(chart_payload, dict) else {}
                 results = chart.get("result", []) if isinstance(chart, dict) else []
@@ -1508,13 +1613,21 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
                             continue
                         vol = _to_float(vols[i], 0.0) if i < len(vols) else 0.0
                         parsed_history.append({"date": dt, "close": float(c), "volume": vol})
-                if parsed_history:
-                    history = parsed_history
-                    history_source = "yahoo"
+                return parsed_history
+
+            parsed_history, _, chart_attempts = _try_symbol_variants(
+                sym,
+                _load_yahoo_chart,
+                require_truthy=True,
+            )
+            if parsed_history:
+                history = parsed_history
+                history_source = "yahoo"
                 _provider_mark_success("yahoo")
-            except Exception as e:
-                _provider_mark_failure("yahoo", e)
-                errors.append(f"yahoo chart: {type(e).__name__}: {e}")
+            else:
+                exc = RuntimeError("; ".join(chart_attempts) if chart_attempts else "no chart response")
+                _provider_mark_failure("yahoo", exc)
+                errors.append(f"yahoo chart: {exc}")
 
     if not history:
         stooq_history = _stooq_history(sym)
@@ -1537,6 +1650,14 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
             quote_source = history_source or "derived"
 
     if price is None and not history:
+        stale_cached = _stock_cache_get_stale(cache_symbol)
+        if stale_cached:
+            stale_cached["providers"] = _provider_snapshot(["twelvedata", "fmp", "yahoo"])
+            stale_cached["warning"] = (
+                "Upstream providers temporarily returned no data. "
+                f"Showing stale cache ({int(stale_cached.get('cache_age_s', 0) or 0)}s old)."
+            )
+            return stale_cached
         detail = "; ".join(errors) if errors else "no data returned by upstream providers"
         return {"error": f"Failed to fetch stock data: {detail}"}
 
