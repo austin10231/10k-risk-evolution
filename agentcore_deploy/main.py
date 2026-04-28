@@ -3495,11 +3495,8 @@ Return plain text only."""
         if not ticker:
             return {
                 "response": {
-                    "type": "action",
-                    "action": "navigate",
-                    "target": "stock_page",
-                    "params": {"company": company},
-                    "message": "Please provide a ticker (for example AAPL) so I can fetch stock data.",
+                    "type": "text",
+                    "content": "Please provide a ticker (for example AAPL) so I can fetch stock data here in chat.",
                 },
                 "tool_payload": {"ticker": ""},
             }
@@ -3517,18 +3514,25 @@ Return plain text only."""
         price = quote_payload.get("price")
         pct = quote_payload.get("change_percent")
         chg = quote_payload.get("change")
+        volume = quote_payload.get("volume")
+        source = str(quote_payload.get("source", "") or "").strip()
         if isinstance(price, (int, float)) and isinstance(pct, (int, float)):
             summary = f"{ticker} is trading at {price:.2f}, with a daily move of {pct:+.2f}% ({chg:+.2f})."
+            if isinstance(volume, (int, float)) and volume > 0:
+                summary += f" Volume: {int(volume):,}."
+            if source:
+                summary += f" Source: {source}."
         else:
             summary = f"I fetched the latest stock snapshot for {ticker}."
+            if source:
+                summary += f" Source: {source}."
+
+        summary = _polish_business_answer(summary, query, "stock_query")
 
         return {
             "response": {
-                "type": "action",
-                "action": "navigate",
-                "target": "stock_page",
-                "params": {"ticker": ticker},
-                "message": summary,
+                "type": "text",
+                "content": summary,
             },
             "tool_payload": {"ticker": ticker, "quote": quote_payload},
         }
@@ -3542,11 +3546,8 @@ Return plain text only."""
         if not company_for_news and not ticker:
             return {
                 "response": {
-                    "type": "action",
-                    "action": "navigate",
-                    "target": "news_page",
-                    "params": {},
-                    "message": "Please provide a company name or ticker so I can fetch relevant news.",
+                    "type": "text",
+                    "content": "Please provide a company name or ticker so I can fetch relevant news here in chat.",
                 },
                 "tool_payload": {"company": "", "ticker": ""},
             }
@@ -3562,19 +3563,32 @@ Return plain text only."""
             }
 
         items = news_payload.get("items", []) if isinstance(news_payload.get("items"), list) else []
-        top_titles = [str(x.get("title", "") or "").strip() for x in items[:3] if isinstance(x, dict) and str(x.get("title", "")).strip()]
-        if top_titles:
-            summary = "Top headlines: " + " | ".join(top_titles)
+        top_rows = []
+        for row in items[:3]:
+            if not isinstance(row, dict):
+                continue
+            title = str(row.get("title", "") or "").strip()
+            if not title:
+                continue
+            source = str(row.get("source", "") or "").strip()
+            published_at = str(row.get("published_at", "") or "").strip()
+            extra_bits = [x for x in [source, published_at] if x]
+            if extra_bits:
+                top_rows.append(f"{title} ({' · '.join(extra_bits)})")
+            else:
+                top_rows.append(title)
+
+        if top_rows:
+            summary = f"I found {len(items)} recent headlines for {ticker or company_for_news}. Top headlines: " + " | ".join(top_rows)
         else:
             summary = f"I found no major recent headlines for {ticker or company_for_news}."
 
+        summary = _polish_business_answer(summary, query, "news_query")
+
         return {
             "response": {
-                "type": "action",
-                "action": "navigate",
-                "target": "news_page",
-                "params": {"company": company_for_news, "ticker": ticker},
-                "message": summary,
+                "type": "text",
+                "content": summary,
             },
             "tool_payload": {
                 "company": company_for_news,

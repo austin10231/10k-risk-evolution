@@ -51,12 +51,12 @@ function parseContextFromSearch(search = '') {
 function buildActionPath(response) {
   if (!response || response.type !== 'action' || response.action !== 'navigate') return ''
   const target = String(response.target || '').trim()
+  // Keep stock/news answers in chat even if backend returns legacy navigate actions.
+  if (target === 'stock_page' || target === 'news_page') return ''
   const params = response.params && typeof response.params === 'object' ? response.params : {}
 
   const baseMap = {
     compare_page: '/compare',
-    stock_page: '/stock',
-    news_page: '/news',
     upload_page: '/upload',
     analyze_page: '/analyze',
     risk_page: '/analyze',

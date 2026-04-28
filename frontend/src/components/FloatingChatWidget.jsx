@@ -96,7 +96,9 @@ export default function FloatingChatWidget() {
   const fabDragRef = useRef(null)
   const panelDragRef = useRef(null)
   const isComposingRef = useRef(false)
-  const lastCompositionEndAtRef = useRef(0)
+  const suppressEnterUntilRef = useRef(0)
+  const ignoreNextEnterRef = useRef(false)
+  const compositionEndTimerRef = useRef(0)
 
   const threadMessages = currentThread?.messages || []
   const messages = threadMessages.length ? threadMessages.slice(-MAX_MESSAGES) : [defaultMessage()]
@@ -144,20 +146,53 @@ export default function FloatingChatWidget() {
   const canSend = query.trim().length > 0 && !loading
 
   const markCompositionStart = () => {
+    if (compositionEndTimerRef.current && typeof window !== 'undefined') {
+      window.clearTimeout(compositionEndTimerRef.current)
+      compositionEndTimerRef.current = 0
+    }
     isComposingRef.current = true
+    ignoreNextEnterRef.current = false
   }
 
   const markCompositionEnd = () => {
-    isComposingRef.current = false
-    lastCompositionEndAtRef.current = Date.now()
+    suppressEnterUntilRef.current = Date.now() + 320
+    ignoreNextEnterRef.current = true
+    if (typeof window !== 'undefined') {
+      if (compositionEndTimerRef.current) window.clearTimeout(compositionEndTimerRef.current)
+      compositionEndTimerRef.current = window.setTimeout(() => {
+        isComposingRef.current = false
+        compositionEndTimerRef.current = 0
+      }, 0)
+    } else {
+      isComposingRef.current = false
+    }
   }
 
   const shouldIgnoreEnterSubmit = (event) => {
     const nativeEvent = event?.nativeEvent || {}
+    const key = String(event?.key || nativeEvent.key || '')
+    if (key && key !== 'Enter' && key !== 'NumpadEnter' && key !== 'Process') {
+      ignoreNextEnterRef.current = false
+      return false
+    }
+    const keyCode = Number(nativeEvent.keyCode || nativeEvent.which || nativeEvent.charCode || 0)
+    const isProcessKey = key === 'Process' || String(nativeEvent.code || '') === 'Process'
     if (isComposingRef.current) return true
-    if (nativeEvent.isComposing || event?.isComposing || nativeEvent.keyCode === 229) return true
-    return Date.now() - Number(lastCompositionEndAtRef.current || 0) < 120
+    if (nativeEvent.isComposing || event?.isComposing || keyCode === 229 || isProcessKey) return true
+    if (Date.now() < Number(suppressEnterUntilRef.current || 0)) return true
+    if (ignoreNextEnterRef.current) {
+      ignoreNextEnterRef.current = false
+      return true
+    }
+    return false
   }
+
+  useEffect(() => () => {
+    if (compositionEndTimerRef.current && typeof window !== 'undefined') {
+      window.clearTimeout(compositionEndTimerRef.current)
+      compositionEndTimerRef.current = 0
+    }
+  }, [])
 
   const clearChat = () => {
     startNewThread()
