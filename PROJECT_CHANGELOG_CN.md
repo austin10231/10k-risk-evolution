@@ -70,6 +70,11 @@
 - 在不改变现有优质 logo 效果的前提下，新增缺失 ticker（如 `UBER`、`LMT`）的专属 fallback 源。
 - 增加 logo 低分辨率自动跳过机制，避免命中空白/极小占位图导致“看起来没 logo”。
 
+### 11) 列表样式简化（去卡片化）
+- `Equity Sectors` 改为“行 + 细横线分隔”，不再每个 sector 都是独立圆角框。
+- `Popular Companies`、`Leaders Board`、`Peers` 同步改为细分隔线列表风格，减少视觉噪音。
+- 保留原有点击交互与信息布局，只调整视觉层级与间距。
+
 ## 2026-04-27 最近已完成改动（Stock / News）
 
 1. `c49ad26`  
