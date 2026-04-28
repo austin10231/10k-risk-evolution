@@ -98,6 +98,12 @@
 - 新闻摘要改为 `description + snippet` 的去重合并策略，优先输出更完整的一段文本。
 - 升级新闻缓存键版本，避免旧缓存里的截断摘要继续被复用。
 
+### 17) Heatmap 外框移除 + Spotlight 真正日内化
+- `Tracked Heatmap` 移除外框、阴影与额外容器背景，改为无框展示。
+- 后端新增 `intraday_history`（日内 30m/1h 粒度）并返回给前端。
+- Spotlight 图表优先使用 `intraday_history`，确保亮点股默认看近 24h 变化，而不是 1 个月走势。
+- 升级前端股票缓存 key 到 `v2`，避免继续命中旧缓存导致仍显示月线。
+
 ## 2026-04-27 最近已完成改动（Stock / News）
 
 1. `c49ad26`  

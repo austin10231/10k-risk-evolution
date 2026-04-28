@@ -17,7 +17,7 @@ const TABLE_SECTIONS = [
 
 const STOCK_LAST_TICKER_KEY = 'rl_stock_last_ticker_v1'
 const STOCK_RECENT_TICKERS_KEY = 'rl_stock_recent_tickers_v1'
-const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v1_'
+const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v2_'
 const STOCK_BUNDLE_TTL_MS = 1000 * 60 * 60 * 12
 
 const LOGO_DOMAIN_BY_TICKER = {
@@ -1721,7 +1721,8 @@ export default function StockPage() {
   const spotlightRows = useMemo(() => {
     const scored = loadedRows.map((row) => {
       const price = Number(resolvePrice(row?.data))
-      const spotlightHistory = clipSpotlightHistory(row?.data?.history || [])
+      const intradayRows = Array.isArray(row?.data?.intraday_history) ? row.data.intraday_history : []
+      const spotlightHistory = clipSpotlightHistory(intradayRows.length ? intradayRows : (row?.data?.history || []))
       const absChangePct = Math.abs(Number(row?.change_percent || 0))
       const volNow = Number(row?.volume || 0)
       const volAvg = Number(avgVolumeFromHistory(row?.data?.history || []))

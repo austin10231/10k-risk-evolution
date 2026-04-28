@@ -1138,6 +1138,30 @@ def _twelvedata_history(symbol: str, api_key: str) -> List[dict]:
     return out
 
 
+def _twelvedata_intraday_history(symbol: str, api_key: str) -> List[dict]:
+    sym = str(symbol or "").strip().upper()
+    url = (
+        "https://api.twelvedata.com/time_series"
+        f"?symbol={quote(sym)}&interval=1h&outputsize=48&apikey={quote(api_key)}"
+    )
+    payload = _twelvedata_json(url)
+    rows = payload.get("values", []) if isinstance(payload, dict) else []
+    out: List[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        dt = str(row.get("datetime") or row.get("date") or "").strip()
+        if not dt:
+            continue
+        close_val = _to_float(row.get("close"))
+        if close_val is None:
+            continue
+        vol = _to_float(row.get("volume"), 0.0)
+        out.append({"date": dt, "close": close_val, "volume": vol})
+    out.sort(key=lambda x: str(x.get("date", "")))
+    return out
+
+
 def _fmp_json(url: str):
     req = Request(
         url,
@@ -1400,9 +1424,11 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
     regular_market_time = None
     post_market_time = None
     history: List[dict] = []
+    intraday_history: List[dict] = []
     errors: List[str] = []
     quote_source = ""
     history_source = ""
+    intraday_history_source = ""
 
     def _apply_quote_fields(provider: str, data: dict) -> None:
         nonlocal name, price, change, change_percent, market_cap, pe_ratio, high_52, low_52, exchange, quote_source
@@ -1511,6 +1537,21 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
             _provider_mark_failure("twelvedata", exc)
             errors.append(f"twelvedata history: {exc}")
 
+    if twelvedata_key and _provider_available("twelvedata") and not intraday_history:
+        td_intraday, _, td_intraday_attempts = _try_symbol_variants(
+            sym,
+            lambda candidate: _twelvedata_intraday_history(candidate, twelvedata_key),
+            require_truthy=True,
+        )
+        if td_intraday:
+            intraday_history = td_intraday
+            intraday_history_source = "twelvedata"
+            _provider_mark_success("twelvedata")
+        else:
+            exc = RuntimeError("; ".join(td_intraday_attempts) if td_intraday_attempts else "no intraday response")
+            _provider_mark_failure("twelvedata", exc)
+            errors.append(f"twelvedata intraday: {exc}")
+
     fmp_key = _fmp_api_key()
     if fmp_key and _provider_available("fmp") and _need_quote_fields():
         fmp_quote, _, fmp_quote_attempts = _try_symbol_variants(
@@ -1543,7 +1584,8 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
 
     need_yahoo_quote = _need_quote_fields()
     need_yahoo_chart = not history
-    if (need_yahoo_quote or need_yahoo_chart) and _provider_available("yahoo"):
+    need_yahoo_intraday = not intraday_history
+    if (need_yahoo_quote or need_yahoo_chart or need_yahoo_intraday) and _provider_available("yahoo"):
         row: dict = {}
         yahoo_quote_symbol = sym
 
@@ -1711,6 +1753,48 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
                 _provider_mark_failure("yahoo", exc)
                 errors.append(f"yahoo chart: {exc}")
 
+        if need_yahoo_intraday and _provider_available("yahoo"):
+            def _load_yahoo_intraday(candidate: str) -> List[dict]:
+                chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{candidate}?range=1d&interval=30m&includePrePost=true"
+                chart_payload = _yahoo_json(chart_url)
+                chart = chart_payload.get("chart", {}) if isinstance(chart_payload, dict) else {}
+                results = chart.get("result", []) if isinstance(chart, dict) else []
+                parsed_intraday: List[dict] = []
+                if results:
+                    first = results[0] if isinstance(results[0], dict) else {}
+                    ts = first.get("timestamp", []) or []
+                    q = first.get("indicators", {}).get("quote", []) or []
+                    closes = q[0].get("close", []) if q and isinstance(q[0], dict) else []
+                    vols = q[0].get("volume", []) if q and isinstance(q[0], dict) else []
+                    for i, t in enumerate(ts):
+                        try:
+                            c = closes[i]
+                        except Exception:
+                            c = None
+                        if c is None:
+                            continue
+                        try:
+                            dt = datetime.fromtimestamp(int(t), tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+                        except Exception:
+                            continue
+                        vol = _to_float(vols[i], 0.0) if i < len(vols) else 0.0
+                        parsed_intraday.append({"date": dt, "close": float(c), "volume": vol})
+                return parsed_intraday
+
+            parsed_intraday, _, intraday_attempts = _try_symbol_variants(
+                sym,
+                _load_yahoo_intraday,
+                require_truthy=True,
+            )
+            if parsed_intraday:
+                intraday_history = parsed_intraday
+                intraday_history_source = "yahoo"
+                _provider_mark_success("yahoo")
+            else:
+                exc = RuntimeError("; ".join(intraday_attempts) if intraday_attempts else "no intraday chart response")
+                _provider_mark_failure("yahoo", exc)
+                errors.append(f"yahoo intraday: {exc}")
+
     if not history:
         stooq_history = _stooq_history(sym)
         if stooq_history:
@@ -1784,8 +1868,10 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
         "regular_market_time": regular_market_time,
         "post_market_time": post_market_time,
         "history": history,
+        "intraday_history": intraday_history,
         "quote_source": quote_source or "",
         "history_source": history_source or "",
+        "intraday_history_source": intraday_history_source or "",
         "providers": _provider_snapshot(["twelvedata", "fmp", "yahoo"]),
         "cache_hit": False,
         "cache_age_s": 0,
