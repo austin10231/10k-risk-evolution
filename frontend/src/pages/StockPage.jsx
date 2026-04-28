@@ -1704,7 +1704,7 @@ export default function StockPage() {
                 <span>
                   {recordsLoading
                     ? 'Loading uploaded company universe…'
-                    : `${supportedUploadedCompanies.length} companies from uploaded filings · showing ${featuredCompanies.length} random cards`}
+                    : `${supportedUploadedCompanies.length} companies from uploaded filings`}
                 </span>
               </div>
               <button className="btn-secondary" onClick={() => setShowAddTicker((v) => !v)}>
@@ -1737,10 +1737,7 @@ export default function StockPage() {
               </div>
             ) : null}
 
-            <p className="rl-stock-cache-note">
-              {selectedEntry?.savedAt ? `Instant view from cache (${timeAgoFrom(selectedEntry.savedAt)}), then background refresh.` : 'Loading data and caching for faster next visit.'}
-            </p>
-            {statusHint ? <p className="rl-stock-cache-note rl-stock-status-note">{statusHint}</p> : null}
+            
           </section>
 
           {error ? <div className="rl-up-inline-error">{error}</div> : null}
