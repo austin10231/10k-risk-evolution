@@ -1687,14 +1687,33 @@ export default function StockPage() {
     const wrapRect = heatmapWrapRef.current && typeof heatmapWrapRef.current.getBoundingClientRect === 'function'
       ? heatmapWrapRef.current.getBoundingClientRect()
       : null
-    const x = (tileRect.left + tileRect.width / 2) - (wrapRect?.left || 0)
-    const y = (tileRect.top - 8) - (wrapRect?.top || 0)
+    const wrapLeft = wrapRect?.left || 0
+    const wrapTop = wrapRect?.top || 0
+    const wrapWidth = wrapRect?.width || 0
+
+    const rawX = Number.isFinite(Number(event?.clientX))
+      ? (Number(event.clientX) - wrapLeft)
+      : ((tileRect.left + tileRect.width / 2) - wrapLeft)
+    const rawY = Number.isFinite(Number(event?.clientY))
+      ? (Number(event.clientY) - wrapTop)
+      : ((tileRect.top + tileRect.height / 2) - wrapTop)
+
+    const placeBelow = rawY < 170
+    const minEdge = 18
+    const maxEdge = Math.max(minEdge, wrapWidth - minEdge)
+    const x = Math.max(minEdge, Math.min(maxEdge, rawX))
+    const y = placeBelow ? rawY + 16 : rawY - 12
     if (!Number.isFinite(x) || !Number.isFinite(y)) return
     setHeatmapHover((prev) => {
-      if (prev?.row?.ticker === row.ticker && Math.abs((prev.x || 0) - x) < 0.6 && Math.abs((prev.y || 0) - y) < 0.6) {
+      if (
+        prev?.row?.ticker === row.ticker
+        && prev?.placeBelow === placeBelow
+        && Math.abs((prev.x || 0) - x) < 0.6
+        && Math.abs((prev.y || 0) - y) < 0.6
+      ) {
         return prev
       }
-      return { x, y, row }
+      return { x, y, row, placeBelow }
     })
   }, [])
 
@@ -1878,7 +1897,7 @@ export default function StockPage() {
               </div>
               {heatmapHover?.row ? (
                 <div
-                  className="rl-stock-heatmap-tooltip"
+                  className={`rl-stock-heatmap-tooltip ${heatmapHover.placeBelow ? 'below' : 'above'}`}
                   style={{
                     left: `${heatmapHover.x}px`,
                     top: `${heatmapHover.y}px`,
