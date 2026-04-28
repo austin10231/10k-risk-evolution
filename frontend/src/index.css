@@ -2945,6 +2945,17 @@ select.input {
   letter-spacing: 0.05em;
 }
 
+.rl-stock-spotlight-chart {
+  margin-top: 2px;
+  border-top: 1px solid rgba(203, 213, 225, 0.68);
+  padding-top: 6px;
+}
+
+.rl-stock-spotlight-chart .rl-stock-mini-svg {
+  margin-top: 0;
+  height: 82px;
+}
+
 .rl-stock-spotlight-note {
   margin: 0;
   border-top: 1px solid rgba(196, 210, 229, 0.75);

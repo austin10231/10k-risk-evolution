@@ -88,8 +88,8 @@ const SECTOR_BY_TICKER = {
   CSCO: 'Technology',
   ORCL: 'Technology',
   META: 'Communication Services',
-  GOOGL: 'Communication Services',
-  GOOG: 'Communication Services',
+  GOOGL: 'Technology',
+  GOOG: 'Technology',
   NFLX: 'Communication Services',
   CMCSA: 'Communication Services',
   T: 'Communication Services',
@@ -1527,6 +1527,7 @@ export default function StockPage() {
       return {
         ...row,
         price: Number.isFinite(price) ? price : null,
+        closes: numericSeries(clipHistory(row?.data?.history || [], '1M'), 'close'),
         volume_surge: volumeSurge,
         dist_to_high_pct: distToHighPct,
         dist_to_low_pct: distToLowPct,
@@ -1542,15 +1543,18 @@ export default function StockPage() {
       .filter((row) => Number.isFinite(row.highlight_score))
       .sort((a, b) => Number(b.highlight_score) - Number(a.highlight_score))
 
-    const primary = scored.filter((row) => !leadersCluster.has(normalizeTicker(row?.ticker))).slice(0, 3)
+    const primary = uniqueRowsByCompany(
+      scored.filter((row) => !leadersCluster.has(normalizeTicker(row?.ticker))),
+      3,
+    )
     if (primary.length >= 3) return primary
 
     const used = new Set(primary.map((row) => normalizeTicker(row?.ticker)))
-    const extra = scored.filter((row) => {
+    const extra = uniqueRowsByCompany(scored.filter((row) => {
       const sym = normalizeTicker(row?.ticker)
       return sym && !used.has(sym)
-    }).slice(0, Math.max(0, 3 - primary.length))
-    return [...primary, ...extra].slice(0, 3)
+    }), Math.max(0, 3 - primary.length))
+    return uniqueRowsByCompany([...primary, ...extra], 3)
   }, [loadedRows, leadersCluster])
 
   const marketSummaryUpdatedAt = useMemo(() => {
@@ -2019,6 +2023,14 @@ export default function StockPage() {
                     <span><b>Industry</b>{row.industry || 'Other'}</span>
                     <span><b>Market Cap</b>{fmtCompact(row.market_cap)}</span>
                     <span><b>Volume</b>{fmtCompact(row.volume)}</span>
+                  </div>
+
+                  <div className="rl-stock-spotlight-chart">
+                    <MiniChart
+                      values={Array.isArray(row.closes) ? row.closes : []}
+                      kind="line"
+                      color={chartColorFor(row.closes, '#22c55e', '#ef4444')}
+                    />
                   </div>
                 </article>
               ))}
