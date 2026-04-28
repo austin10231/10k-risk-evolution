@@ -1495,29 +1495,52 @@ export default function StockPage() {
   useEffect(() => {
     let alive = true
     setMarketIntelLoading(true)
-    get(`/api/news?company=${encodeURIComponent('S&P 500')}&ticker=SPY&days=2&limit=12`)
-      .then((res) => {
-        if (!alive) return
-        const items = Array.isArray(res?.items) ? res.items : []
-        setMarketIntelItems(
-          items.map((row) => ({
-            title: String(row?.title || '').trim(),
-            summary: String(row?.summary || '').trim(),
-            source: String(row?.source || '').trim(),
-            published_at: String(row?.published_at || '').trim(),
-            url: String(row?.url || '').trim(),
-          })).filter((row) => row.title).slice(0, 5),
-        )
-      })
-      .catch(() => {
-        if (!alive) return
-        setMarketIntelItems([])
-        setMarketSummaryOpenIdx(0)
-      })
-      .finally(() => {
-        if (!alive) return
-        setMarketIntelLoading(false)
-      })
+    ;(async () => {
+      const seeds = [
+        { company: 'S&P 500', ticker: 'SPY' },
+        { company: 'Nasdaq', ticker: 'QQQ' },
+        { company: 'Dow Jones', ticker: 'DIA' },
+      ]
+      const collected = []
+      const seen = new Set()
+
+      for (const seed of seeds) {
+        try {
+          const q = new URLSearchParams({
+            company: seed.company,
+            ticker: seed.ticker,
+            days: '2',
+            limit: '12',
+          })
+          const res = await get(`/api/news?${q.toString()}`)
+          const items = Array.isArray(res?.items) ? res.items : []
+          for (const row of items) {
+            const title = String(row?.title || '').trim()
+            if (!title) continue
+            const normalized = {
+              title,
+              summary: String(row?.summary || '').trim(),
+              source: String(row?.source || '').trim(),
+              published_at: String(row?.published_at || '').trim(),
+              url: String(row?.url || '').trim(),
+            }
+            const key = String(normalized.url || normalized.title).toLowerCase()
+            if (!key || seen.has(key)) continue
+            seen.add(key)
+            collected.push(normalized)
+            if (collected.length >= 5) break
+          }
+        } catch {
+          // Keep going to next seed query so we can still fill 5 rows.
+        }
+        if (collected.length >= 5) break
+      }
+
+      if (!alive) return
+      setMarketIntelItems(collected.slice(0, 5))
+      if (!collected.length) setMarketSummaryOpenIdx(0)
+      setMarketIntelLoading(false)
+    })()
 
     return () => {
       alive = false
