@@ -114,7 +114,7 @@ function SubmitArrowIcon() {
 
 function dockPlaceholder(pathname) {
   if (pathname === '/compare') return 'Ask about comparison changes, deltas, or risk shifts…'
-  if (pathname === '/stock') return 'Ask about this ticker movement or risk implications…'
+  if (String(pathname || '').startsWith('/stock')) return 'Ask about this ticker movement or risk implications…'
   if (pathname === '/news') return 'Ask how this headline changes risk outlook…'
   if (pathname === '/tables') return 'Ask what this financial table implies for risk…'
   if (pathname === '/upload') return 'Ask how to ingest or parse a filing quickly…'
@@ -186,7 +186,7 @@ export default function AppShell({ children }) {
 
   const isAgentRoute = location.pathname === '/agent'
   const isNewsRoute = location.pathname === '/news'
-  const isStockRoute = location.pathname === '/stock'
+  const isStockRoute = String(location.pathname || '').startsWith('/stock')
   const isNewsStyleDockRoute = isNewsRoute || isStockRoute
   const isFocusDockRoute = ['/upload', '/compare', '/tables'].includes(location.pathname)
   const showLandingComposer = isAgentRoute && !isConversationStarted && !loading

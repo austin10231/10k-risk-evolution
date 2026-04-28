@@ -6,6 +6,13 @@ import { useGlobalConfig } from '../lib/globalConfig'
 const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL']
 const RANGE_OPTIONS = ['1W', '1M', '3M', '6M', '1Y']
 const RANGE_SIZE = { '1W': 5, '1M': 22, '3M': 66, '6M': 132, '1Y': 252 }
+const TABLE_SECTIONS = [
+  { key: 'income_statement', label: 'Income Statement' },
+  { key: 'comprehensive_income', label: 'Comprehensive Income' },
+  { key: 'balance_sheet', label: 'Balance Sheet' },
+  { key: 'shareholders_equity', label: "Shareholders' Equity" },
+  { key: 'cash_flow', label: 'Cash Flow' },
+]
 
 const STOCK_LAST_TICKER_KEY = 'rl_stock_last_ticker_v1'
 const STOCK_RECENT_TICKERS_KEY = 'rl_stock_recent_tickers_v1'
@@ -360,23 +367,6 @@ function numericSeries(history, key) {
   return history.map((row) => Number(row?.[key])).filter((v) => Number.isFinite(v))
 }
 
-function returnSeries(closeVals) {
-  if (!closeVals.length) return []
-  const base = closeVals[0]
-  if (!Number.isFinite(base) || base === 0) return closeVals.map(() => 0)
-  return closeVals.map((v) => ((v / base - 1) * 100.0))
-}
-
-function drawdownSeries(closeVals) {
-  if (!closeVals.length) return []
-  let rollingHigh = closeVals[0]
-  return closeVals.map((v) => {
-    rollingHigh = Math.max(rollingHigh, v)
-    if (!Number.isFinite(rollingHigh) || rollingHigh === 0) return 0
-    return (v / rollingHigh - 1) * 100.0
-  })
-}
-
 function chartColorFor(values, up = '#16a34a', down = '#ef4444') {
   if (!Array.isArray(values) || values.length < 2) return '#2563eb'
   return Number(values[values.length - 1]) >= Number(values[0]) ? up : down
@@ -650,7 +640,7 @@ function MiniChart({ values, kind, color, compact = true }) {
   )
 }
 
-function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey }) {
+function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey, formal = false }) {
   const width = 920
   const height = 360
 
@@ -676,7 +666,7 @@ function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey 
         </div>
         <svg viewBox={`0 0 ${width} ${height}`} className="rl-stock-focus-svg" aria-hidden="true">
           {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
-            <line key={ratio} x1="28" x2={width - 24} y1={(height - 28) * ratio + 8} y2={(height - 28) * ratio + 8} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" />
+            <line key={ratio} x1="28" x2={width - 24} y1={(height - 28) * ratio + 8} y2={(height - 28) * ratio + 8} stroke={formal ? 'rgba(100, 116, 139, 0.28)' : 'rgba(148, 163, 184, 0.2)'} strokeWidth="1" />
           ))}
           {bars.bars.map((bar, idx) => (
             <rect key={`${idx}-${bar.x}`} x={bar.x} y={bar.y} width={bar.w} height={bar.h} rx="2" fill={color} opacity="0.9" />
@@ -702,11 +692,11 @@ function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey 
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="rl-stock-focus-svg" aria-hidden="true">
         {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
-          <line key={ratio} x1="28" x2={width - 24} y1={(height - 28) * ratio + 8} y2={(height - 28) * ratio + 8} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" />
+          <line key={ratio} x1="28" x2={width - 24} y1={(height - 28) * ratio + 8} y2={(height - 28) * ratio + 8} stroke={formal ? 'rgba(100, 116, 139, 0.28)' : 'rgba(148, 163, 184, 0.2)'} strokeWidth="1" />
         ))}
-        <path d={line.areaPath} fill={color} opacity="0.12" />
-        <path d={line.path} fill="none" stroke={color} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-        {lastPoint ? (
+        <path d={line.areaPath} fill={color} opacity={formal ? '0.05' : '0.12'} />
+        <path d={line.path} fill="none" stroke={color} strokeWidth={formal ? '2.25' : '2.8'} strokeLinecap="round" strokeLinejoin="round" />
+        {!formal && lastPoint ? (
           <>
             <circle cx={lastPoint.x} cy={lastPoint.y} r="4.7" fill={color} stroke="#ffffff" strokeWidth="2" />
             <line x1={lastPoint.x} x2={lastPoint.x} y1={lastPoint.y + 10} y2={height - 22} stroke={color} strokeOpacity="0.25" strokeWidth="1.2" strokeDasharray="4 3" />
@@ -743,7 +733,6 @@ export default function StockPage() {
   const [error, setError] = useState('')
   const [statusHint, setStatusHint] = useState('')
   const [rangeKey, setRangeKey] = useState('3M')
-  const [activeChart, setActiveChart] = useState('price')
   const [filingSummaryMap, setFilingSummaryMap] = useState({})
   const [filingLoading, setFilingLoading] = useState(false)
   const [uploadedCompanies, setUploadedCompanies] = useState([])
@@ -752,6 +741,11 @@ export default function StockPage() {
   const [summaryOpenIdx, setSummaryOpenIdx] = useState(0)
   const [showAddTicker, setShowAddTicker] = useState(false)
   const [addTickerInput, setAddTickerInput] = useState('')
+  const [filingRecordsMap, setFilingRecordsMap] = useState({})
+  const [detailTablesMap, setDetailTablesMap] = useState({})
+  const [detailTableLoading, setDetailTableLoading] = useState(false)
+  const [detailTableSection, setDetailTableSection] = useState('income_statement')
+  const [detailActiveRecordId, setDetailActiveRecordId] = useState('')
 
   const initializedRef = useRef(false)
 
@@ -942,9 +936,6 @@ export default function StockPage() {
 
   const chartRows = useMemo(() => clipHistory(data?.history || [], rangeKey), [data?.history, rangeKey])
   const closeValues = useMemo(() => numericSeries(chartRows, 'close'), [chartRows])
-  const volumeValues = useMemo(() => numericSeries(chartRows, 'volume'), [chartRows])
-  const returnValues = useMemo(() => returnSeries(closeValues), [closeValues])
-  const drawdownValues = useMemo(() => drawdownSeries(closeValues), [closeValues])
 
   const dateRange = useMemo(() => {
     if (!chartRows.length) return { start: '', end: '' }
@@ -966,11 +957,13 @@ export default function StockPage() {
         if (!alive) return
         const items = Array.isArray(res?.items) ? res.items : []
         const matched = matchRecordsToCompany(items, selectedDisplayName)
+        setFilingRecordsMap((prev) => ({ ...prev, [selectedCompanyQuery]: matched }))
         const summary = buildFilingSummary(matched)
         setFilingSummaryMap((prev) => ({ ...prev, [selectedCompanyQuery]: summary }))
       })
       .catch(() => {
         if (!alive) return
+        setFilingRecordsMap((prev) => ({ ...prev, [selectedCompanyQuery]: [] }))
         setFilingSummaryMap((prev) => ({
           ...prev,
           [selectedCompanyQuery]: { count: 0, years: [], latest: null, avgRiskItems: 0, avgCategories: 0, recent: [] },
@@ -1113,21 +1106,66 @@ export default function StockPage() {
     return items.slice(0, 6)
   }, [loadedRows, sectorRows, filingSummary, selectedDisplayName, selectedTicker])
 
-  const heatmapRows = useMemo(() => {
-    const rows = [...loadedRows].sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0)).slice(0, 30)
+  const heatmapGroups = useMemo(() => {
+    const rows = [...loadedRows]
+      .filter((r) => r.data)
+      .sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0))
+      .slice(0, 64)
     if (!rows.length) return []
+
     const caps = rows.map((r) => Number(r.market_cap || 0)).filter((n) => Number.isFinite(n) && n > 0)
     const maxCap = caps.length ? Math.max(...caps) : 0
-    return rows.map((r) => {
-      const cap = Number(r.market_cap || 0)
-      const ratio = maxCap > 0 ? cap / maxCap : 0
-      const span = ratio >= 0.65 ? 4 : ratio >= 0.4 ? 3 : ratio >= 0.2 ? 2 : 1
+    const sectorPctMap = {}
+    sectorRows.forEach((s) => {
+      sectorPctMap[s.industry] = Number.isFinite(Number(s.avgPct)) ? Number(s.avgPct) : undefined
+    })
+
+    const buckets = {}
+    rows.forEach((row) => {
+      const key = String(row.industry || 'Other').trim() || 'Other'
+      if (!buckets[key]) buckets[key] = []
+      buckets[key].push(row)
+    })
+
+    const groups = Object.entries(buckets).map(([industry, items]) => {
+      const sorted = [...items].sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0))
+      const totalCap = sorted.reduce((sum, r) => sum + Math.max(0, Number(r.market_cap || 0)), 0)
+      const localCaps = sorted.map((r) => Math.max(0, Number(r.market_cap || 0)))
+      const maxLocalCap = localCaps.length ? Math.max(...localCaps) : 0
+      const avgPctFallback = sorted.length
+        ? sorted.reduce((sum, r) => sum + (Number.isFinite(Number(r.change_percent)) ? Number(r.change_percent) : 0), 0) / sorted.length
+        : undefined
+
+      const formatted = sorted.map((row) => {
+        const cap = Math.max(0, Number(row.market_cap || 0))
+        const ratioGlobal = maxCap > 0 ? cap / maxCap : 0
+        const ratioLocal = maxLocalCap > 0 ? cap / maxLocalCap : 0
+        const size = ratioGlobal >= 0.33 ? 'xxl' : ratioGlobal >= 0.17 ? 'xl' : ratioGlobal >= 0.08 ? 'lg' : ratioGlobal >= 0.03 ? 'md' : 'sm'
+        const intensity = Math.max(1, Math.min(5, Math.ceil(Math.abs(Number(row.change_percent || 0)) / 1.1)))
+        return {
+          ...row,
+          size,
+          intensity,
+          showName: ratioLocal >= 0.38,
+        }
+      })
+
+      const globalShare = maxCap > 0 ? totalCap / maxCap : 0
+      const span = globalShare >= 1.25 ? 6 : globalShare >= 0.7 ? 5 : globalShare >= 0.35 ? 4 : 3
+
       return {
-        ...r,
+        industry,
         span,
+        avgPct: Number.isFinite(sectorPctMap[industry]) ? sectorPctMap[industry] : avgPctFallback,
+        items: formatted.slice(0, 30),
+        totalCap,
       }
     })
-  }, [loadedRows])
+
+    return groups
+      .sort((a, b) => Number(b.totalCap || 0) - Number(a.totalCap || 0))
+      .slice(0, 10)
+  }, [loadedRows, sectorRows])
 
   const spotlightRows = useMemo(() => {
     const top = [...loadedRows]
@@ -1149,21 +1187,22 @@ export default function StockPage() {
     })
   }, [loadedRows, sectorRows])
 
-  const chartDefs = useMemo(() => {
-    const lastClose = closeValues.length ? closeValues[closeValues.length - 1] : null
-    const lastVol = volumeValues.length ? volumeValues[volumeValues.length - 1] : null
-    const lastRet = returnValues.length ? returnValues[returnValues.length - 1] : null
-    const lastDd = drawdownValues.length ? drawdownValues[drawdownValues.length - 1] : null
-
-    return [
-      { key: 'price', title: 'Price Trend', subtitle: 'Close (USD)', value: fmtPrice(lastClose), series: closeValues, kind: 'line', color: chartColorFor(closeValues, '#16a34a', '#ef4444') },
-      { key: 'volume', title: 'Trading Volume', subtitle: 'Shares traded', value: fmtCompact(lastVol), series: volumeValues, kind: 'bars', color: '#0ea5e9' },
-      { key: 'return', title: 'Cumulative Return', subtitle: 'vs first point in range', value: fmtPct(lastRet), series: returnValues, kind: 'line', color: chartColorFor(returnValues, '#22c55e', '#ef4444') },
-      { key: 'drawdown', title: 'Drawdown', subtitle: 'From rolling high', value: fmtPct(lastDd), series: drawdownValues, kind: 'line', color: '#f59e0b' },
-    ]
-  }, [closeValues, volumeValues, returnValues, drawdownValues])
-
-  const activeDef = chartDefs.find((def) => def.key === activeChart) || chartDefs[0]
+  const miniTickerCards = useMemo(() => {
+    return loadedRows
+      .map((row) => {
+        const hist = clipHistory(row.data?.history || [], rangeKey)
+        const closes = numericSeries(hist, 'close')
+        const lastClose = closes.length ? closes[closes.length - 1] : null
+        return {
+          ...row,
+          closes,
+          lastClose,
+        }
+      })
+      .filter((row) => row.closes.length >= 2)
+      .sort((a, b) => Number(Math.abs(b.change_percent || 0)) - Number(Math.abs(a.change_percent || 0)))
+      .slice(0, 6)
+  }, [loadedRows, rangeKey])
 
   const selectedFromUpload = companyMapByTicker[selectedTicker] || null
   const routeSymbol = normalizeTicker(routeTicker || '')
@@ -1195,6 +1234,14 @@ export default function StockPage() {
   const detailData = detailRow?.data || data
   const detailCompany = detailRow?.company || detailData?.name || detailSymbol
   const detailIndustry = detailRow?.industry || 'Other'
+  const detailMappedSector = normalizeSectorName(SECTOR_BY_TICKER[normalizeTicker(detailSymbol)])
+  const detailSector = detailMappedSector || resolveEquitySector({
+    filingIndustry: detailRow?.industry,
+    quoteSector: detailData?.sector,
+    ticker: detailSymbol,
+    company: detailCompany,
+  })
+  const detailProfileIndustry = normalizeSectorName(detailData?.industry) || detailIndustry || '—'
   const detailHistory = Array.isArray(detailData?.history) ? detailData.history : []
   const lastHistory = detailHistory.length ? detailHistory[detailHistory.length - 1] : null
   const prevHistory = detailHistory.length > 1 ? detailHistory[detailHistory.length - 2] : null
@@ -1204,6 +1251,83 @@ export default function StockPage() {
   const dayLow = Number.isFinite(Number(detailData?.day_low)) ? Number(detailData?.day_low) : null
   const volumeNow = Number.isFinite(Number(detailData?.volume)) ? Number(detailData?.volume) : Number(lastHistory?.volume)
   const fullTimeEmployees = Number(detailData?.full_time_employees)
+  const detailRecords = useMemo(() => {
+    const list = Array.isArray(filingRecordsMap[selectedCompanyQuery]) ? filingRecordsMap[selectedCompanyQuery] : []
+    return list
+      .filter((r) => Number.isFinite(Number(r?.year)) && String(r?.record_id || '').trim())
+      .slice(0, 6)
+  }, [filingRecordsMap, selectedCompanyQuery])
+
+  useEffect(() => {
+    if (!isCompanyView) return
+    if (!detailRecords.length) {
+      setDetailActiveRecordId('')
+      return
+    }
+    const firstId = String(detailRecords[0]?.record_id || '')
+    if (!detailActiveRecordId || !detailRecords.some((r) => String(r?.record_id || '') === detailActiveRecordId)) {
+      setDetailActiveRecordId(firstId)
+    }
+  }, [isCompanyView, detailRecords, detailActiveRecordId])
+
+  useEffect(() => {
+    if (!isCompanyView) return
+    if (!detailRecords.length) return
+    const pending = detailRecords.filter((r) => {
+      const rid = String(r?.record_id || '')
+      return rid && !Object.prototype.hasOwnProperty.call(detailTablesMap, rid)
+    })
+    if (!pending.length) return
+
+    let alive = true
+    setDetailTableLoading(true)
+    Promise.all(
+      pending.map(async (rec) => {
+        const company = String(rec?.company || '').trim()
+        const year = Number(rec?.year || 0)
+        const filingType = String(rec?.filing_type || '10-K').trim() || '10-K'
+        const rid = String(rec?.record_id || '')
+        if (!company || !year || !rid) return { rid, result: null }
+        try {
+          const res = await get(
+            `/api/tables/result?company=${encodeURIComponent(company)}&year=${encodeURIComponent(String(year))}&filing_type=${encodeURIComponent(filingType)}`,
+          )
+          const result = res?.result && typeof res.result === 'object' ? res.result : null
+          return { rid, result }
+        } catch {
+          return { rid, result: null }
+        }
+      }),
+    )
+      .then((pairs) => {
+        if (!alive) return
+        setDetailTablesMap((prev) => {
+          const next = { ...prev }
+          pairs.forEach((item) => {
+            if (!item?.rid) return
+            next[item.rid] = item.result
+          })
+          return next
+        })
+      })
+      .finally(() => {
+        if (!alive) return
+        setDetailTableLoading(false)
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [isCompanyView, detailRecords, detailTablesMap])
+
+  const activeDetailRecord = useMemo(
+    () => detailRecords.find((r) => String(r?.record_id || '') === detailActiveRecordId) || detailRecords[0] || null,
+    [detailRecords, detailActiveRecordId],
+  )
+  const activeTableResult = activeDetailRecord ? detailTablesMap[String(activeDetailRecord?.record_id || '')] : null
+  const activeTableBlock = activeTableResult && detailTableSection ? activeTableResult[detailTableSection] : null
+  const activeTableHeaders = Array.isArray(activeTableBlock?.headers) ? activeTableBlock.headers : []
+  const activeTableRows = Array.isArray(activeTableBlock?.rows) ? activeTableBlock.rows : []
   const detailPeers = useMemo(() => {
     const sameSector = loadedRows
       .filter((row) => row.ticker !== detailSymbol && row.industry === detailIndustry)
@@ -1245,7 +1369,7 @@ export default function StockPage() {
               <span className="page-icon">💹</span>
               <div>
                 <p className="page-title">Stock</p>
-                <p className="page-subtitle">Perplexity-style market board powered by uploaded 10-K companies</p>
+                <p className="page-subtitle">Market board for your tracked companies, grounded in uploaded 10-K context</p>
               </div>
             </div>
             <button className="btn-secondary" onClick={refreshSelected} disabled={loadingTicker === selectedTicker}>
@@ -1359,25 +1483,26 @@ export default function StockPage() {
           </div>
 
           <div className="rl-stock-chart-grid">
-            {chartDefs.map((def) => (
-              <button key={def.key} className={`rl-stock-chart-tile ${activeChart === def.key ? 'active' : ''}`} onClick={() => setActiveChart(def.key)}>
+            {miniTickerCards.map((card) => (
+              <button key={`mini-card-${card.ticker}`} className={`rl-stock-chart-tile ${selectedTicker === card.ticker ? 'active' : ''}`} onClick={() => openDetail(card.ticker)}>
                 <div className="rl-stock-chart-tile-top">
-                  <p>{def.title}</p>
-                  <span>{def.value}</span>
+                  <p>{card.company}</p>
+                  <span className={toneClass(card.change_percent)}>{fmtPct(card.change_percent)}</span>
                 </div>
-                <small>{def.subtitle}</small>
-                <MiniChart values={def.series} kind={def.kind} color={def.color} />
+                <small>{card.ticker} · {fmtPrice(card.lastClose)} · {card.data?.exchange || card.industry || 'US'}</small>
+                <MiniChart values={card.closes} kind="line" color={chartColorFor(card.closes, '#22c55e', '#ef4444')} />
               </button>
             ))}
+            {!miniTickerCards.length ? <p className="rl-stock-muted">No tracked ticker charts yet.</p> : null}
           </div>
 
           <div className="rl-stock-focus-card">
             <FocusChart
-              title={`${activeDef?.title || 'Chart'} · ${selectedTicker}`}
+              title={`Price Trend · ${selectedTicker}`}
               subtitle={`${selectedDisplayName || selectedTicker} (${rangeKey})`}
-              values={activeDef?.series || []}
-              kind={activeDef?.kind || 'line'}
-              color={activeDef?.color || '#2563eb'}
+              values={closeValues || []}
+              kind="line"
+              color={chartColorFor(closeValues, '#16a34a', '#ef4444')}
               dateRange={dateRange}
               rangeKey={rangeKey}
             />
@@ -1407,22 +1532,32 @@ export default function StockPage() {
           <section className="rl-stock-side-card rl-stock-heatmap-card">
             <div className="rl-stock-side-head">
               <p>Tracked Heatmap</p>
-              <span>Color = daily move · size = market cap</span>
+              <span>Color = daily move · size = market cap · grouped by sector</span>
             </div>
-            <div className="rl-stock-heatmap-grid">
-              {heatmapRows.map((row) => (
-                <button
-                  key={`heat-${row.ticker}`}
-                  className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)}`}
-                  style={{ gridColumn: `span ${row.span}` }}
-                  onClick={() => openDetail(row.ticker)}
-                  title={`${row.company} · ${fmtPct(row.change_percent)}`}
-                >
-                  <span>{row.ticker}</span>
-                  <em>{fmtPct(row.change_percent)}</em>
-                </button>
+            <div className="rl-stock-heatmap-grid rl-stock-heatmap-grid-v2">
+              {heatmapGroups.map((group) => (
+                <section key={`heat-sector-${group.industry}`} className="rl-stock-heatmap-sector" style={{ gridColumn: `span ${group.span}` }}>
+                  <div className="rl-stock-heatmap-sector-head">
+                    <p>{group.industry}</p>
+                    <em className={toneClass(group.avgPct)}>{fmtPct(group.avgPct)}</em>
+                  </div>
+                  <div className="rl-stock-heatmap-sector-grid">
+                    {group.items.map((row) => (
+                      <button
+                        key={`heat-${group.industry}-${row.ticker}`}
+                        className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)} size-${row.size} intensity-${row.intensity}`}
+                        onClick={() => openDetail(row.ticker)}
+                        title={`${row.company} · ${fmtPct(row.change_percent)}`}
+                      >
+                        <span>{row.ticker}</span>
+                        {row.showName ? <small>{row.company}</small> : null}
+                        <em>{fmtPct(row.change_percent)}</em>
+                      </button>
+                    ))}
+                  </div>
+                </section>
               ))}
-              {!heatmapRows.length ? <p className="rl-stock-muted">Load a few tracked quotes to render heatmap.</p> : null}
+              {!heatmapGroups.length ? <p className="rl-stock-muted">Load tracked quotes to render heatmap.</p> : null}
             </div>
           </section>
 
@@ -1588,46 +1723,48 @@ export default function StockPage() {
       ) : (
       <section className="rl-stock-workbench rl-stock-workbench-v2 rl-stock-detail-layout">
         <div className="rl-stock-left">
-          <section className="rl-stock-side-card rl-stock-quote-strip">
-            <div className="rl-stock-quote-cell">
-              <p className="rl-stock-quote-price">
-                {fmtPrice(detailData?.price)} <span className={toneClass(detailData?.change_percent)}>{fmtSigned(detailData?.change)} {fmtPct(detailData?.change_percent)}</span>
-              </p>
-              <span>Regular close · {fmtDateTime(detailData?.regular_market_time)}</span>
+          <section className="rl-stock-side-card rl-stock-detail-market-panel">
+            <div className="rl-stock-quote-strip">
+              <div className="rl-stock-quote-cell">
+                <p className="rl-stock-quote-price">
+                  {fmtPrice(detailData?.price)} <span className={toneClass(detailData?.change_percent)}>{fmtSigned(detailData?.change)} {fmtPct(detailData?.change_percent)}</span>
+                </p>
+                <span>Regular close · {fmtDateTime(detailData?.regular_market_time)}</span>
+              </div>
+              <div className="rl-stock-quote-cell">
+                <p className="rl-stock-quote-price">
+                  {fmtPrice(detailData?.post_market_price)}{' '}
+                  <span className={toneClass(detailData?.post_market_change_percent)}>
+                    {fmtSigned(detailData?.post_market_change)} {fmtPct(detailData?.post_market_change_percent)}
+                  </span>
+                </p>
+                <span>After hours · {fmtDateTime(detailData?.post_market_time)}</span>
+              </div>
             </div>
-            <div className="rl-stock-quote-cell">
-              <p className="rl-stock-quote-price">
-                {fmtPrice(detailData?.post_market_price)}{' '}
-                <span className={toneClass(detailData?.post_market_change_percent)}>
-                  {fmtSigned(detailData?.post_market_change)} {fmtPct(detailData?.post_market_change_percent)}
-                </span>
-              </p>
-              <span>After hours · {fmtDateTime(detailData?.post_market_time)}</span>
+
+            <div className="rl-stock-detail-chart-shell">
+              <div className="rl-stock-range-row rl-stock-range-row-compact">
+                <label className="section-title">Time Range</label>
+                <div className="rl-segment">
+                  {RANGE_OPTIONS.map((key) => (
+                    <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => setRangeKey(key)}>{key}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="rl-stock-focus-card rl-stock-focus-card-formal">
+                <FocusChart
+                  title={`Price Trend · ${detailSymbol}`}
+                  subtitle={`${detailCompany || detailSymbol} (${rangeKey})`}
+                  values={closeValues || []}
+                  kind="line"
+                  color={chartColorFor(closeValues, '#15803d', '#b91c1c')}
+                  dateRange={dateRange}
+                  rangeKey={rangeKey}
+                  formal
+                />
+              </div>
             </div>
-          </section>
 
-          <div className="rl-stock-range-row">
-            <label className="section-title">Time Range</label>
-            <div className="rl-segment">
-              {RANGE_OPTIONS.map((key) => (
-                <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => setRangeKey(key)}>{key}</button>
-              ))}
-            </div>
-          </div>
-
-          <div className="rl-stock-focus-card">
-            <FocusChart
-              title={`Price Trend · ${detailSymbol}`}
-              subtitle={`${detailCompany || detailSymbol} (${rangeKey})`}
-              values={closeValues || []}
-              kind="line"
-              color={chartColorFor(closeValues, '#22c55e', '#ef4444')}
-              dateRange={dateRange}
-              rangeKey={rangeKey}
-            />
-          </div>
-
-          <section className="rl-stock-side-card rl-stock-kpi-table-card">
             <div className="rl-stock-kpi-table">
               <div><span>Previous Close</span><strong>{fmtPrice(prevClose)}</strong></div>
               <div><span>Market Cap</span><strong>{fmtCompact(detailData?.market_cap)}</strong></div>
@@ -1644,20 +1781,84 @@ export default function StockPage() {
 
         <aside className="rl-stock-side">
           <section className="rl-stock-side-card rl-stock-profile-card">
-            <div className="rl-stock-side-head">
-              <p>Company Profile</p>
-            </div>
             <div className="rl-stock-profile-list">
               <div><span>Symbol</span><strong>{detailSymbol || '—'}</strong></div>
               <div><span>IPO Date</span><strong>{fmtDateOnly(detailData?.ipo_date)}</strong></div>
               <div><span>CEO</span><strong>{detailData?.ceo || '—'}</strong></div>
               <div><span>Full-time Employees</span><strong>{Number.isFinite(fullTimeEmployees) ? fmtWhole(fullTimeEmployees) : '—'}</strong></div>
-              <div><span>Sector</span><strong>{detailData?.sector || detailIndustry || '—'}</strong></div>
-              <div><span>Industry</span><strong>{detailData?.industry || '—'}</strong></div>
+              <div><span>Sector</span><strong>{detailSector || '—'}</strong></div>
+              <div><span>Industry</span><strong>{detailProfileIndustry}</strong></div>
               <div><span>Country/Region</span><strong>{detailData?.country || '—'}</strong></div>
               <div><span>Exchange</span><strong>{detailData?.exchange || 'US'}</strong></div>
             </div>
             {detailData?.description ? <p className="rl-stock-profile-desc">{detailData.description}</p> : null}
+          </section>
+
+          <section className="rl-stock-side-card rl-stock-financial-card">
+            <div className="rl-stock-side-head">
+              <p>Financial Data</p>
+              <span>{activeDetailRecord ? `${activeDetailRecord.year} · ${activeDetailRecord.filing_type || '10-K'}` : 'No extracted tables'}</span>
+            </div>
+
+            <div className="rl-stock-fin-year-tabs">
+              {detailRecords.map((rec) => {
+                const rid = String(rec?.record_id || '')
+                return (
+                  <button
+                    key={`fin-year-${rid}`}
+                    className={detailActiveRecordId === rid ? 'active' : ''}
+                    onClick={() => setDetailActiveRecordId(rid)}
+                  >
+                    {rec?.year || '—'}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="rl-stock-fin-section-tabs">
+              {TABLE_SECTIONS.map((section) => (
+                <button
+                  key={`fin-section-${section.key}`}
+                  className={detailTableSection === section.key ? 'active' : ''}
+                  onClick={() => setDetailTableSection(section.key)}
+                >
+                  {section.label}
+                </button>
+              ))}
+            </div>
+
+            {detailTableLoading ? <p className="rl-stock-muted">Loading extracted tables…</p> : null}
+            {!detailTableLoading && !activeTableResult ? <p className="rl-stock-muted">No extracted table bundle for this filing year yet.</p> : null}
+            {!detailTableLoading && activeTableResult && !activeTableBlock?.found ? (
+              <p className="rl-stock-muted">This statement was not found in the selected filing.</p>
+            ) : null}
+            {!detailTableLoading && activeTableBlock?.found ? (
+              <>
+                {String(activeTableBlock?.unit || '').trim() ? <p className="rl-stock-fin-unit">Unit: {String(activeTableBlock.unit)}</p> : null}
+                <div className="rl-stock-fin-table-wrap">
+                  <table className="rl-stock-fin-table">
+                    {activeTableHeaders.length ? (
+                      <thead>
+                        <tr>
+                          {activeTableHeaders.map((h, idx) => (
+                            <th key={`fin-head-${idx}`}>{String(h || `Col ${idx + 1}`)}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                    ) : null}
+                    <tbody>
+                      {activeTableRows.slice(0, 60).map((row, rIdx) => (
+                        <tr key={`fin-row-${rIdx}`}>
+                          {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
+                            <td key={`fin-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
           </section>
 
           <section className="rl-stock-side-card">
@@ -1681,34 +1882,6 @@ export default function StockPage() {
                   </div>
                 </button>
               ))}
-            </div>
-          </section>
-
-          <section className="rl-stock-side-card">
-            <div className="rl-stock-side-head">
-              <p>Popular Companies</p>
-              <span>{popularRows.length} names</span>
-            </div>
-            <div className="rl-stock-company-list">
-              {popularRows.map((row) => {
-                const pct = Number(row.data?.change_percent)
-                return (
-                  <button key={`popular-detail-${row.ticker}`} className="rl-stock-company-item" onClick={() => openDetail(row.ticker)}>
-                    <div className="rl-stock-company-mini">
-                      <CompanyLogo ticker={row.ticker} company={row.company} />
-                      <div>
-                        <p>{row.company}</p>
-                        <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
-                      </div>
-                    </div>
-                    <div className="rl-stock-company-price">
-                      <strong>{fmtPrice(row.data?.price)}</strong>
-                      <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : '—'}</em>
-                    </div>
-                  </button>
-                )
-              })}
-              {!popularRows.length ? <p className="rl-stock-muted">No uploaded companies yet.</p> : null}
             </div>
           </section>
 
