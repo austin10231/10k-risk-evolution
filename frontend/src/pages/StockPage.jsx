@@ -2132,7 +2132,6 @@ export default function StockPage() {
           <section className="rl-stock-side-card rl-stock-spotlight-card">
             <div className="rl-stock-side-head">
               <p>Spotlight Stocks</p>
-              <span>3 highlighted names (not leaders board)</span>
             </div>
             <div className="rl-stock-spotlight-list">
               {spotlightRows.map((row) => (
@@ -2180,7 +2179,6 @@ export default function StockPage() {
           <section className="rl-stock-side-card">
             <div className="rl-stock-side-head">
               <p>Popular Companies</p>
-              <span>{popularRows.length} names</span>
             </div>
             <div className="rl-stock-company-list">
               {popularRows.map((row) => {
