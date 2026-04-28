@@ -824,6 +824,14 @@ function makeSpotlightSummary(row, sectorText) {
   return `${name} ${direction} ${pct} in the selected window. ${sectorText} ${risk}`
 }
 
+function isInvalidTickerMessage(msg) {
+  const s = String(msg || '').toLowerCase()
+  if (!s) return false
+  return (
+    s.includes('symbol') && s.includes('invalid')
+  ) || s.includes('figi') || s.includes('provide a valid symbol')
+}
+
 export default function StockPage() {
   const { config } = useGlobalConfig()
   const navigate = useNavigate()
@@ -840,6 +848,7 @@ export default function StockPage() {
   const [filingLoading, setFilingLoading] = useState(false)
   const [uploadedCompanies, setUploadedCompanies] = useState([])
   const [featuredCompanies, setFeaturedCompanies] = useState([])
+  const [unsupportedTickers, setUnsupportedTickers] = useState([])
   const [recordsLoading, setRecordsLoading] = useState(true)
   const [boardTab, setBoardTab] = useState('gainers')
   const [summaryOpenIdx, setSummaryOpenIdx] = useState(0)
@@ -854,6 +863,10 @@ export default function StockPage() {
   const [heatmapHover, setHeatmapHover] = useState(null)
 
   const initializedRef = useRef(false)
+  const unsupportedTickerSet = useMemo(
+    () => new Set((Array.isArray(unsupportedTickers) ? unsupportedTickers : []).map((t) => normalizeTicker(t)).filter(Boolean)),
+    [unsupportedTickers],
+  )
 
   const upsertBundle = useCallback((ticker, data, savedAt = Date.now(), source = 'live') => {
     const sym = normalizeTicker(ticker)
@@ -923,11 +936,19 @@ export default function StockPage() {
         if (!muteStatus) setStatusHint(buildBundleHint(payload, 'live'))
         return payload
       } catch (e) {
+        const errMsg = String(e?.message || '')
+        if (isInvalidTickerMessage(errMsg)) {
+          setUnsupportedTickers((prev) => {
+            const next = new Set(Array.isArray(prev) ? prev.map((t) => normalizeTicker(t)) : [])
+            next.add(sym)
+            return Array.from(next)
+          })
+        }
         if (!hasCached) {
-          if (!muteError) setError(e.message || `Failed to load ${sym}`)
+          if (!muteError) setError(errMsg || `Failed to load ${sym}`)
           if (!muteStatus) setStatusHint('')
         } else if (cachedPayload?.data) {
-          if (!muteStatus) setStatusHint(buildBundleHint({ ...cachedPayload.data, warning: e.message || 'refresh failed' }, 'cache'))
+          if (!muteStatus) setStatusHint(buildBundleHint({ ...cachedPayload.data, warning: errMsg || 'refresh failed' }, 'cache'))
         }
         return null
       } finally {
@@ -984,19 +1005,24 @@ export default function StockPage() {
 
   useEffect(() => {
     if (!uploadedCompanies.length) return
-    const uploadedTickers = uploadedCompanies.map((c) => c.ticker)
+    const uploadedTickers = uploadedCompanies.map((c) => c.ticker).filter((tk) => !unsupportedTickerSet.has(tk))
     setWatchlist((prev) => mergeTickers(uploadedTickers, prev, DEFAULT_TICKERS).slice(0, 14))
     if (!normalizeTicker(selectedTicker)) {
       setSelectedTicker(uploadedTickers[0])
     }
-  }, [uploadedCompanies, selectedTicker])
+  }, [uploadedCompanies, selectedTicker, unsupportedTickerSet])
+
+  const supportedUploadedCompanies = useMemo(
+    () => uploadedCompanies.filter((c) => !unsupportedTickerSet.has(c.ticker)),
+    [uploadedCompanies, unsupportedTickerSet],
+  )
 
   useEffect(() => {
-    if (!uploadedCompanies.length) {
+    if (!supportedUploadedCompanies.length) {
       setFeaturedCompanies([])
       return
     }
-    const shuffled = [...uploadedCompanies]
+    const shuffled = [...supportedUploadedCompanies]
     for (let i = shuffled.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1))
       const tmp = shuffled[i]
@@ -1004,7 +1030,7 @@ export default function StockPage() {
       shuffled[j] = tmp
     }
     setFeaturedCompanies(shuffled.slice(0, 9))
-  }, [uploadedCompanies])
+  }, [supportedUploadedCompanies])
 
   useEffect(() => {
     if (!selectedTicker) return
@@ -1012,10 +1038,19 @@ export default function StockPage() {
   }, [selectedTicker, fetchBundle])
 
   useEffect(() => {
+    const selected = normalizeTicker(selectedTicker)
+    if (!selected || !unsupportedTickerSet.has(selected)) return
+    const fallback = supportedUploadedCompanies[0]?.ticker || DEFAULT_TICKERS.find((tk) => !unsupportedTickerSet.has(normalizeTicker(tk))) || ''
+    if (fallback && fallback !== selected) setSelectedTicker(fallback)
+  }, [selectedTicker, unsupportedTickerSet, supportedUploadedCompanies])
+
+  useEffect(() => {
     const candidates = mergeTickers(
       [selectedTicker],
-      uploadedCompanies.map((c) => c.ticker),
-    ).slice(0, 6)
+      featuredCompanies.map((c) => c.ticker),
+    )
+      .filter((tk) => !unsupportedTickerSet.has(tk))
+      .slice(0, 10)
 
     if (!candidates.length) return
 
@@ -1023,7 +1058,14 @@ export default function StockPage() {
     candidates.forEach((tk, idx) => {
       if (tk === selectedTicker) return
       const timer = window.setTimeout(() => {
-        fetchBundle(tk, { preferCache: true, silent: true, skipIfFresh: true })
+        fetchBundle(tk, {
+          preferCache: true,
+          silent: true,
+          skipIfFresh: true,
+          remember: false,
+          muteError: true,
+          muteStatus: true,
+        })
       }, 700 + idx * 500)
       timers.push(timer)
     })
@@ -1031,7 +1073,7 @@ export default function StockPage() {
     return () => {
       timers.forEach((id) => window.clearTimeout(id))
     }
-  }, [selectedTicker, uploadedCompanies, fetchBundle])
+  }, [selectedTicker, featuredCompanies, fetchBundle, unsupportedTickerSet])
 
   useEffect(() => {
     const timers = []
@@ -1111,7 +1153,9 @@ export default function StockPage() {
   }, [uploadedCompanies])
 
   const trackedRows = useMemo(() => {
-    const tickers = mergeTickers(uploadedCompanies.map((c) => c.ticker), watchlist).slice(0, 18)
+    const tickers = mergeTickers(uploadedCompanies.map((c) => c.ticker), watchlist)
+      .filter((tk) => !unsupportedTickerSet.has(tk))
+      .slice(0, 18)
     return tickers.map((tk) => {
       const meta = companyMapByTicker[tk] || {}
       const payload = bundleMap[tk]?.data || null
@@ -1133,7 +1177,7 @@ export default function StockPage() {
         riskItems: Number(filingSummary?.latest?.risk_items || 0),
       }
     })
-  }, [uploadedCompanies, watchlist, companyMapByTicker, bundleMap, filingSummary?.latest?.risk_items])
+  }, [uploadedCompanies, watchlist, companyMapByTicker, bundleMap, filingSummary?.latest?.risk_items, unsupportedTickerSet])
 
   const loadedRows = useMemo(() => trackedRows.filter((r) => r.data), [trackedRows])
 
@@ -1486,7 +1530,7 @@ export default function StockPage() {
                 <span>
                   {recordsLoading
                     ? 'Loading uploaded company universe…'
-                    : `${uploadedCompanies.length} companies from uploaded filings · showing ${featuredCompanies.length} random cards`}
+                    : `${supportedUploadedCompanies.length} companies from uploaded filings · showing ${featuredCompanies.length} random cards`}
                 </span>
               </div>
               <button className="btn-secondary" onClick={() => setShowAddTicker((v) => !v)}>
@@ -1602,7 +1646,7 @@ export default function StockPage() {
                   <button
                     key={`heat-${row.ticker}`}
                     className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)} size-${row.size} intensity-${row.intensity}`}
-                    onClick={() => openDetail(row.ticker)}
+                    onDoubleClick={() => openDetail(row.ticker)}
                     onMouseEnter={(e) => {
                       setHeatmapHover({
                         x: e.currentTarget.offsetLeft + e.currentTarget.offsetWidth / 2,
@@ -1622,7 +1666,7 @@ export default function StockPage() {
                         return { ...prev, x: e.currentTarget.offsetLeft + e.currentTarget.offsetWidth / 2, y: e.currentTarget.offsetTop - 8 }
                       })
                     }}
-                    title={`${row.company} · ${fmtPct(row.change_percent)}`}
+                    title={`${row.company} · ${fmtPct(row.change_percent)} · double-click to open`}
                   >
                     <span>{row.ticker}</span>
                     <small>{row.company}</small>
