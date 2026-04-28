@@ -1918,6 +1918,7 @@ def _env_token_pool(*names: str) -> List[str]:
 def _news_cache_key(company: str, ticker: str, days: int, limit: int) -> str:
     return "|".join(
         [
+            "v2",
             str(company or "").strip().lower(),
             str(ticker or "").strip().upper(),
             str(days),
@@ -2122,6 +2123,8 @@ def _normalize_news_row(item: dict, provider: str, og_cache: Dict[str, str], og_
 
     title = ""
     summary = ""
+    description = ""
+    snippet = ""
     published_at = ""
     article_url = ""
     source_name = ""
@@ -2130,14 +2133,18 @@ def _normalize_news_row(item: dict, provider: str, og_cache: Dict[str, str], og_
         source = item.get("source")
         source_name = source.get("name") if isinstance(source, dict) else source
         title = str(item.get("title") or "").strip()
-        summary = str(item.get("description") or item.get("snippet") or "").strip()
+        description = str(item.get("description") or "").strip()
+        snippet = str(item.get("snippet") or "").strip()
+        summary = description or snippet
         published_at = str(item.get("published_at") or item.get("publishedAt") or "").strip()
         article_url = str(item.get("url") or item.get("link") or "").strip()
     elif provider == "thenewsapi":
         source = item.get("source")
         source_name = source.get("name") if isinstance(source, dict) else source
         title = str(item.get("title") or "").strip()
-        summary = str(item.get("description") or item.get("snippet") or "").strip()
+        description = str(item.get("description") or "").strip()
+        snippet = str(item.get("snippet") or "").strip()
+        summary = description or snippet
         published_at = str(item.get("published_at") or item.get("publishedAt") or "").strip()
         article_url = str(item.get("url") or item.get("link") or "").strip()
     elif provider == "currents":
@@ -2146,11 +2153,25 @@ def _normalize_news_row(item: dict, provider: str, og_cache: Dict[str, str], og_
         if not source_name:
             source_name = item.get("author") or ""
         title = str(item.get("title") or "").strip()
-        summary = str(item.get("description") or item.get("snippet") or "").strip()
+        description = str(item.get("description") or "").strip()
+        snippet = str(item.get("snippet") or "").strip()
+        summary = description or snippet
         published_at = str(item.get("published") or item.get("published_at") or "").strip()
         article_url = str(item.get("url") or item.get("link") or "").strip()
     else:
         return None
+
+    # Upstream providers often truncate `description`; merge with `snippet`
+    # when they contain different fragments so Market Summary reads complete.
+    desc = str(description or "").strip()
+    snip = str(snippet or "").strip()
+    if desc and snip:
+        if snip not in desc and desc not in snip:
+            summary = f"{desc} {snip}".strip()
+        else:
+            summary = desc if len(desc) >= len(snip) else snip
+    else:
+        summary = desc or snip or summary
 
     if not title and not summary:
         return None

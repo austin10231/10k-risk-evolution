@@ -349,18 +349,33 @@ function fmtDateOnly(value) {
   return raw
 }
 
-function fmtDateAxis(value) {
+function parseDateValue(value) {
   const raw = String(value || '').trim()
-  if (!raw) return '—'
+  if (!raw) return null
   const direct = new Date(raw)
-  if (!Number.isNaN(direct.getTime())) return `${direct.getMonth() + 1}/${direct.getDate()}`
+  if (!Number.isNaN(direct.getTime())) return direct
   const numeric = Number(value)
   if (Number.isFinite(numeric) && numeric > 0) {
     const ms = numeric > 1e12 ? numeric : numeric * 1000
     const d = new Date(ms)
-    if (!Number.isNaN(d.getTime())) return `${d.getMonth() + 1}/${d.getDate()}`
+    if (!Number.isNaN(d.getTime())) return d
   }
-  return raw
+  return null
+}
+
+function isIntradayLabel(value) {
+  const raw = String(value || '').trim()
+  return raw.includes(':') || raw.includes('T')
+}
+
+function fmtDateAxis(value, preferTime = false) {
+  const parsed = parseDateValue(value)
+  if (parsed) {
+    if (preferTime) return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+    return `${parsed.getMonth() + 1}/${parsed.getDate()}`
+  }
+  const raw = String(value || '').trim()
+  return raw || '—'
 }
 
 function fmtDateTime(value) {
@@ -481,6 +496,35 @@ function clipHistory(history, key) {
   if (!rows.length) return []
   const size = RANGE_SIZE[key] || RANGE_SIZE['1M']
   return rows.length <= size ? rows : rows.slice(-size)
+}
+
+function clipSpotlightHistory(history) {
+  const rows = (Array.isArray(history) ? history : [])
+    .map((row) => ({
+      date: String(row?.date || ''),
+      close: Number(row?.close),
+      open: Number(row?.open),
+      high: Number(row?.high),
+      low: Number(row?.low),
+      volume: Number(row?.volume || 0),
+    }))
+    .filter((row) => row.date && Number.isFinite(row.close))
+
+  if (!rows.length) return []
+
+  const withTs = rows
+    .map((row) => ({ ...row, ts: parseDateValue(row.date)?.getTime() || null, hasTime: isIntradayLabel(row.date) }))
+    .filter((row) => Number.isFinite(row.ts) && row.hasTime)
+
+  if (withTs.length >= 6) {
+    const newestTs = Number(withTs[withTs.length - 1].ts || 0)
+    const DAY_MS = 24 * 60 * 60 * 1000
+    const recent = withTs.filter((row) => Number(row.ts) >= newestTs - DAY_MS)
+    if (recent.length >= 6) return recent.slice(-36).map(({ ts, hasTime, ...rest }) => rest)
+    return withTs.slice(-24).map(({ ts, hasTime, ...rest }) => rest)
+  }
+
+  return rows.slice(-Math.min(22, rows.length))
 }
 
 function numericSeries(history, key) {
@@ -917,6 +961,7 @@ function SpotlightHoverChart({ rows, values, color, onOpenDetail }) {
   const yTop = line.max
   const yMid = (line.max + line.min) / 2
   const yBottom = line.min
+  const showTimeAxis = chartRows.some((row) => isIntradayLabel(row?.date))
 
   return (
     <div className="rl-stock-spotlight-hover-wrap">
@@ -969,9 +1014,9 @@ function SpotlightHoverChart({ rows, values, color, onOpenDetail }) {
             <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="4.8" fill="#ffffff" stroke={color} strokeWidth="2.3" />
           </>
         ) : null}
-        <text x="12" y={height - 1} className="rl-stock-spotlight-axis-label axis-x" textAnchor="start">{fmtDateAxis(xLeft)}</text>
-        <text x={width / 2} y={height - 1} className="rl-stock-spotlight-axis-label axis-x" textAnchor="middle">{fmtDateAxis(xMid)}</text>
-        <text x={width - 12} y={height - 1} className="rl-stock-spotlight-axis-label axis-x" textAnchor="end">{fmtDateAxis(xRight)}</text>
+        <text x="12" y={height - 1} className="rl-stock-spotlight-axis-label axis-x" textAnchor="start">{fmtDateAxis(xLeft, showTimeAxis)}</text>
+        <text x={width / 2} y={height - 1} className="rl-stock-spotlight-axis-label axis-x" textAnchor="middle">{fmtDateAxis(xMid, showTimeAxis)}</text>
+        <text x={width - 12} y={height - 1} className="rl-stock-spotlight-axis-label axis-x" textAnchor="end">{fmtDateAxis(xRight, showTimeAxis)}</text>
       </svg>
     </div>
   )
@@ -1676,7 +1721,7 @@ export default function StockPage() {
   const spotlightRows = useMemo(() => {
     const scored = loadedRows.map((row) => {
       const price = Number(resolvePrice(row?.data))
-      const spotlightHistory = clipHistory(row?.data?.history || [], '1M')
+      const spotlightHistory = clipSpotlightHistory(row?.data?.history || [])
       const absChangePct = Math.abs(Number(row?.change_percent || 0))
       const volNow = Number(row?.volume || 0)
       const volAvg = Number(avgVolumeFromHistory(row?.data?.history || []))
