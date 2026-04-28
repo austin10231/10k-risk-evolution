@@ -78,6 +78,12 @@ const LOGO_DOMAIN_BY_TICKER = {
   AIR: 'airbus.com',
 }
 
+const SIMPLE_ICON_SLUG_BY_TICKER = {
+  AAPL: 'apple',
+  BA: 'boeing',
+  LMT: 'lockheedmartin',
+}
+
 const SECTOR_BY_TICKER = {
   AAPL: 'Technology',
   MSFT: 'Technology',
@@ -598,19 +604,21 @@ function normalizeCompanyRoot(raw) {
 function logoCandidates(ticker, companyName) {
   const sym = normalizeTicker(ticker)
   const urls = []
-  const mappedDomain = LOGO_DOMAIN_BY_TICKER[sym]
-  if (mappedDomain) {
-    urls.push(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(mappedDomain)}&sz=128`)
-    urls.push(`https://logo.clearbit.com/${mappedDomain}`)
-  }
-  const root = normalizeCompanyRoot(companyName)
-  if (root && root.length >= 3) {
-    urls.push(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(`${root}.com`)}&sz=128`)
-    urls.push(`https://logo.clearbit.com/${root}.com`)
+  const iconSlug = SIMPLE_ICON_SLUG_BY_TICKER[sym]
+  if (iconSlug) {
+    urls.push(`https://cdn.simpleicons.org/${encodeURIComponent(iconSlug)}`)
   }
   if (sym) {
     urls.push(`https://financialmodelingprep.com/image-stock/${encodeURIComponent(sym)}.png`)
     urls.push(`https://eodhistoricaldata.com/img/logos/US/${encodeURIComponent(sym)}.png`)
+  }
+  const mappedDomain = LOGO_DOMAIN_BY_TICKER[sym]
+  if (mappedDomain) {
+    urls.push(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(mappedDomain)}&sz=256`)
+  }
+  const root = normalizeCompanyRoot(companyName)
+  if (root && root.length >= 3) {
+    urls.push(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(`${root}.com`)}&sz=256`)
   }
   return Array.from(new Set(urls))
 }
@@ -746,6 +754,20 @@ function heatmapSummaryText(row) {
   return `${company} ${move}, with activity centered in ${industry}.`
 }
 
+function spotlightNarrativeText(row) {
+  const raw = String(row?.data?.description || '').trim()
+  if (raw) {
+    const compact = raw.replace(/\s+/g, ' ').trim()
+    if (compact.length <= 260) return compact
+    return `${compact.slice(0, 257).trimEnd()}...`
+  }
+  const company = String(row?.company || row?.ticker || 'This stock')
+  const sector = String(row?.industry || 'its sector')
+  const pct = Number(row?.change_percent)
+  const pctText = Number.isFinite(pct) ? `${pct >= 0 ? 'rose' : 'fell'} ${Math.abs(pct).toFixed(2)}%` : 'moved'
+  return `${company} ${pctText} today and is now one of the notable movers in ${sector}.`
+}
+
 function avgVolumeFromHistory(history = []) {
   const rows = Array.isArray(history) ? history : []
   const volumes = rows
@@ -771,13 +793,14 @@ function spotlightReason({
   return 'Cross-signal momentum'
 }
 
-function MiniChart({ values, kind, color, compact = true }) {
-  const width = compact ? 320 : 360
-  const height = compact ? 116 : 132
+function MiniChart({ values, kind, color, compact = true, widthOverride, heightOverride, className = '' }) {
+  const width = Number(widthOverride) > 0 ? Number(widthOverride) : compact ? 320 : 360
+  const height = Number(heightOverride) > 0 ? Number(heightOverride) : compact ? 116 : 132
+  const svgClass = `rl-stock-mini-svg ${compact ? '' : 'large'} ${className}`.trim()
 
   if (!Array.isArray(values) || values.length < 2) {
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} className={`rl-stock-mini-svg ${compact ? '' : 'large'}`} aria-hidden="true">
+      <svg viewBox={`0 0 ${width} ${height}`} className={svgClass} aria-hidden="true">
         <text x="8" y={compact ? '42' : '66'} className="rl-stock-mini-empty">No data</text>
       </svg>
     )
@@ -786,7 +809,7 @@ function MiniChart({ values, kind, color, compact = true }) {
   if (kind === 'bars') {
     const bars = barsGeometry(values, width, height, compact ? 10 : 14)
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} className={`rl-stock-mini-svg ${compact ? '' : 'large'}`} aria-hidden="true">
+      <svg viewBox={`0 0 ${width} ${height}`} className={svgClass} aria-hidden="true">
         {bars.bars.map((bar, idx) => (
           <rect key={`${idx}-${bar.x}`} x={bar.x} y={bar.y} width={bar.w} height={bar.h} rx="2" fill={color} opacity="0.86" />
         ))}
@@ -796,7 +819,7 @@ function MiniChart({ values, kind, color, compact = true }) {
 
   const line = lineGeometry(values, width, height, compact ? 10 : 14)
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className={`rl-stock-mini-svg ${compact ? '' : 'large'}`} aria-hidden="true">
+    <svg viewBox={`0 0 ${width} ${height}`} className={svgClass} aria-hidden="true">
       <path d={line.areaPath} fill={color} opacity="0.13" />
       <path d={line.path} fill="none" stroke={color} strokeWidth={compact ? '2.2' : '2.6'} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -2018,20 +2041,26 @@ export default function StockPage() {
                     </div>
                   </div>
 
-                  <div className="rl-stock-spotlight-stats rl-stock-spotlight-stats-market">
-                    <span><b>Highlight</b>{row.highlight_reason || 'Notable move'}</span>
-                    <span><b>Industry</b>{row.industry || 'Other'}</span>
-                    <span><b>Market Cap</b>{fmtCompact(row.market_cap)}</span>
-                    <span><b>Volume</b>{fmtCompact(row.volume)}</span>
+                  <div className="rl-stock-spotlight-body rl-stock-spotlight-body-rich">
+                    <div className="rl-stock-spotlight-chart rl-stock-spotlight-chart-large">
+                      <MiniChart
+                        values={Array.isArray(row.closes) ? row.closes : []}
+                        kind="line"
+                        compact={false}
+                        widthOverride={760}
+                        heightOverride={220}
+                        className="spotlight"
+                        color={chartColorFor(row.closes, '#22c55e', '#ef4444')}
+                      />
+                    </div>
+                    <div className="rl-stock-spotlight-stats rl-stock-spotlight-stats-rich">
+                      <span><b>Highlight</b>{row.highlight_reason || 'Notable move'}</span>
+                      <span><b>Industry</b>{row.industry || 'Other'}</span>
+                      <span><b>Volume</b>{fmtCompact(row.volume)}</span>
+                      <span><b>Market Cap</b>{fmtCompact(row.market_cap)}</span>
+                    </div>
                   </div>
-
-                  <div className="rl-stock-spotlight-chart">
-                    <MiniChart
-                      values={Array.isArray(row.closes) ? row.closes : []}
-                      kind="line"
-                      color={chartColorFor(row.closes, '#22c55e', '#ef4444')}
-                    />
-                  </div>
+                  <p className="rl-stock-spotlight-note">{spotlightNarrativeText(row)}</p>
                 </article>
               ))}
               {!spotlightRows.length ? <p className="rl-stock-muted">Spotlight is loading from your tracked company set.</p> : null}

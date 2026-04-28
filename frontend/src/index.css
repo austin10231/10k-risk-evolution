@@ -2818,9 +2818,9 @@ select.input {
   border-bottom: 1px solid rgba(198, 209, 226, 0.72);
   border-radius: 0;
   background: transparent;
-  padding: 10px 2px;
+  padding: 12px 2px 14px;
   display: grid;
-  gap: 7px;
+  gap: 9px;
 }
 
 .rl-stock-spotlight-item:last-child {
@@ -2872,7 +2872,9 @@ select.input {
 .rl-stock-logo-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  padding: 2px;
+  image-rendering: auto;
   display: block;
 }
 
@@ -2909,6 +2911,13 @@ select.input {
   align-items: center;
 }
 
+.rl-stock-spotlight-body-rich {
+  margin-top: 2px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.32fr);
+  align-items: stretch;
+  gap: 14px;
+}
+
 .rl-stock-mini-svg.large {
   min-height: 126px;
   max-height: 136px;
@@ -2922,6 +2931,13 @@ select.input {
 
 .rl-stock-spotlight-stats-market {
   margin-top: 1px;
+}
+
+.rl-stock-spotlight-stats-rich {
+  border-left: 1px solid rgba(198, 209, 226, 0.72);
+  padding-left: 14px;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 
 .rl-stock-spotlight-stats span {
@@ -2951,19 +2967,36 @@ select.input {
   padding-top: 6px;
 }
 
+.rl-stock-spotlight-chart-large {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0)),
+    radial-gradient(120% 110% at 0% 0%, rgba(34, 197, 94, 0.08), rgba(239, 68, 68, 0.04) 54%, rgba(248, 250, 252, 0) 100%);
+  border: 1px solid rgba(194, 209, 228, 0.72);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
 .rl-stock-spotlight-chart .rl-stock-mini-svg {
   margin-top: 0;
   height: 82px;
 }
 
+.rl-stock-spotlight-chart-large .rl-stock-mini-svg.spotlight {
+  margin-top: 0;
+  height: 204px;
+}
+
 .rl-stock-spotlight-note {
   margin: 0;
-  border-top: 1px solid rgba(196, 210, 229, 0.75);
-  padding-top: 9px;
+  border-top: 0;
+  padding-top: 2px;
   color: #334155;
-  font-size: 0.8rem;
-  line-height: 1.6;
-  font-weight: 600;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  font-weight: 560;
 }
 
 .rl-stock-company-list,
@@ -5610,6 +5643,13 @@ select.input {
     grid-template-columns: 1fr;
   }
 
+  .rl-stock-spotlight-stats-rich {
+    border-left: 0;
+    border-top: 1px solid rgba(198, 209, 226, 0.72);
+    padding-left: 0;
+    padding-top: 10px;
+  }
+
   .rl-stock-metrics-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -5744,6 +5784,10 @@ select.input {
 
   .rl-stock-spotlight-stats {
     grid-template-columns: 1fr;
+  }
+
+  .rl-stock-spotlight-chart-large .rl-stock-mini-svg.spotlight {
+    height: 168px;
   }
 
   .rl-stock-detail-title-row {
