@@ -1915,7 +1915,7 @@ select.input {
 .rl-stock-main-split {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(300px, 0.7fr);
-  gap: 14px;
+  gap: 36px;
   align-items: start;
 }
 
