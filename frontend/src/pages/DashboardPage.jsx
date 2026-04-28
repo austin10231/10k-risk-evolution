@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { get } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
+import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
 
 const TABS = [
   { key: 'overview', label: 'Risk Overview' },
@@ -147,21 +148,22 @@ export default function DashboardPage() {
   }, [filteredRecords, years])
 
   return (
-    <div className="rl-page-shell">
-      <section className="card p-5">
-        <div className="page-header">
-          <div className="page-header-left">
+    <div className="rl-page-shell rl-up-page">
+      <section className="rl-up-header">
+        <div className="page-header !mb-0">
+          <div className="page-header-left rl-up-title-block">
             <span className="page-icon">📈</span>
             <div>
               <p className="page-title">Dashboard</p>
               <p className="page-subtitle">Risk heatmap and category ranking across all filings</p>
             </div>
           </div>
-          <button className="btn-secondary" onClick={load} disabled={loading}>
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
+          <GlobalConfigInlineEditor />
         </div>
-        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+      </section>
+
+      <section className="card p-5">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
           <div />
           <div>
             <label className="section-title">Industry Group</label>
@@ -173,6 +175,9 @@ export default function DashboardPage() {
               ))}
             </select>
           </div>
+          <button className="btn-secondary" onClick={load} disabled={loading}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
         </div>
       </section>
 

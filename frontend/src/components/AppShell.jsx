@@ -188,7 +188,7 @@ export default function AppShell({ children }) {
   const isNewsRoute = location.pathname === '/news'
   const isStockRoute = String(location.pathname || '').startsWith('/stock')
   const isNewsStyleDockRoute = isNewsRoute || isStockRoute
-  const isFocusDockRoute = ['/upload', '/compare', '/tables'].includes(location.pathname)
+  const isFocusDockRoute = ['/upload', '/compare', '/dashboard', '/tables'].includes(location.pathname)
   const showLandingComposer = isAgentRoute && !isConversationStarted && !loading
   const dockExpanded = dockFocused || loading || Boolean(String(query || '').trim())
   const activeMenuThread = useMemo(
