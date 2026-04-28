@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { get } from '../lib/api'
+import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
 
@@ -24,9 +24,17 @@ function safeNumber(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback
 }
 
+function prettyPrice(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return `$${n.toFixed(2)}`
+}
+
 export default function DashboardPage() {
   const { config } = useGlobalConfig()
   const tabsRef = useRef(null)
+  const autoEnsuredRef = useRef(false)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [data, setData] = useState(null)
@@ -34,8 +42,10 @@ export default function DashboardPage() {
   const [industry, setIndustry] = useState('All Industries')
   const [selectedCategory, setSelectedCategory] = useState('')
   const [heatSearch, setHeatSearch] = useState('')
-  const [heatPageSize, setHeatPageSize] = useState(12)
+  const [heatPageSize, setHeatPageSize] = useState(10)
   const [heatPage, setHeatPage] = useState(1)
+  const [hoverCell, setHoverCell] = useState(null)
+  const [stockCache, setStockCache] = useState({})
 
   useSlidingTabIndicator(tabsRef, [activeTab])
 
@@ -102,6 +112,22 @@ export default function DashboardPage() {
     return rows.filter((r) => String(r.industry || '').trim() === industry)
   }, [data, industry])
 
+  useEffect(() => {
+    if (!data || autoEnsuredRef.current || loading) return
+    const total = safeNumber(metrics.records)
+    const withPriority = safeNumber(metrics.records_with_priority)
+    if (total <= 0 || withPriority >= total) return
+
+    autoEnsuredRef.current = true
+    post('/api/dashboard/ensure-priority', {})
+      .then((res) => {
+        if (safeNumber(res?.updated) > 0) load()
+      })
+      .catch(() => {
+        // keep UI usable if ensure-priority fails
+      })
+  }, [data, loading, metrics.records, metrics.records_with_priority])
+
   const heatCellMap = useMemo(() => {
     const m = new Map()
     ;(priorityHeatmap.cells || []).forEach((cell) => {
@@ -132,7 +158,7 @@ export default function DashboardPage() {
   }, [companiesOrdered, heatSearch])
 
   const totalHeatPages = useMemo(() => {
-    const size = Math.max(1, safeNumber(heatPageSize, 12))
+    const size = Math.max(1, safeNumber(heatPageSize, 10))
     return Math.max(1, Math.ceil(filteredCompanies.length / size))
   }, [filteredCompanies.length, heatPageSize])
 
@@ -145,14 +171,14 @@ export default function DashboardPage() {
   }, [heatPage, totalHeatPages])
 
   const pagedCompanies = useMemo(() => {
-    const size = Math.max(1, safeNumber(heatPageSize, 12))
+    const size = Math.max(1, safeNumber(heatPageSize, 10))
     const start = (Math.max(1, heatPage) - 1) * size
     return filteredCompanies.slice(start, start + size)
   }, [filteredCompanies, heatPage, heatPageSize])
 
   const heatRangeLabel = useMemo(() => {
     if (!filteredCompanies.length) return '0-0'
-    const size = Math.max(1, safeNumber(heatPageSize, 12))
+    const size = Math.max(1, safeNumber(heatPageSize, 10))
     const start = (Math.max(1, heatPage) - 1) * size
     const end = Math.min(start + size, filteredCompanies.length)
     return `${start + 1}-${end}`
@@ -182,7 +208,28 @@ export default function DashboardPage() {
     ['AGENT COVERAGE', `${safeNumber(metrics.agent_coverage_rate).toFixed(1)}%`, '#dc2626'],
   ]
 
-  const panelClass = 'rounded-2xl border border-slate-200/85 bg-white/68 shadow-sm backdrop-blur-[2px]'
+  const panelClass = 'rounded-2xl border border-slate-200/85 bg-white/62 shadow-sm backdrop-blur-[2px]'
+
+  useEffect(() => {
+    const ticker = String(hoverCell?.ticker || '').trim().toUpperCase()
+    if (!ticker) return
+    if (stockCache[ticker]?.done || stockCache[ticker]?.loading) return
+
+    setStockCache((prev) => ({ ...prev, [ticker]: { loading: true, done: false, data: null, error: '' } }))
+    get(`/api/stock/quote?ticker=${encodeURIComponent(ticker)}&lite=1`)
+      .then((res) => {
+        setStockCache((prev) => ({ ...prev, [ticker]: { loading: false, done: true, data: res?.data || null, error: '' } }))
+      })
+      .catch((e) => {
+        setStockCache((prev) => ({ ...prev, [ticker]: { loading: false, done: true, data: null, error: e.message || 'Stock unavailable' } }))
+      })
+  }, [hoverCell, stockCache])
+
+  const hoverStock = useMemo(() => {
+    const t = String(hoverCell?.ticker || '').trim().toUpperCase()
+    if (!t) return null
+    return stockCache[t] || null
+  }, [hoverCell, stockCache])
 
   return (
     <div className="rl-page-shell rl-up-page">
@@ -207,34 +254,18 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
-
-          <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200/80 bg-white/42 px-3 py-2">
-            <div>
-              <label className="section-title">Industry Group</label>
-              <select className="input mt-2 min-w-[220px]" value={industry} onChange={(e) => setIndustry(e.target.value)}>
-                {industryOptions.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button className="btn-secondary" onClick={load} disabled={loading}>
-              {loading ? 'Refreshing…' : 'Refresh'}
-            </button>
-          </div>
         </div>
       </section>
 
-      {error ? <div className={`${panelClass} border-red-200 bg-red-50/88 p-4 text-sm font-semibold text-red-700`}>{error}</div> : null}
+      {error ? <div className={`${panelClass} border-red-200 bg-red-50/88 p-3 text-sm font-semibold text-red-700`}>{error}</div> : null}
 
       {activeTab === 'pulse' ? (
         <>
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {metricTiles.map(([k, v, color]) => (
-              <div key={k} className="metric-card" style={{ backgroundColor: 'rgba(255,255,255,0.7)' }}>
+              <div key={k} className="metric-card" style={{ backgroundColor: 'rgba(255,255,255,0.62)', padding: '0.65rem 0.85rem' }}>
                 <p className="metric-label">{k}</p>
-                <p className="metric-value" style={{ color }}>
+                <p className="metric-value" style={{ color, fontSize: '2rem' }}>
                   {loading ? '…' : v}
                 </p>
               </div>
@@ -242,49 +273,56 @@ export default function DashboardPage() {
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[1.75fr_1fr]">
-            <div className={`${panelClass} p-5`}>
+            <div className={`${panelClass} p-4`}>
               <div className="section-headline">
                 <div className="section-rail" />
                 <div>
                   <p className="section-title-strong">Priority Heatmap</p>
-                  <p className="section-sub">Each cell shows High / Medium / Low counts and RPI for one company-year.</p>
+                  <p className="section-sub">Each card is one company-year. Only RPI is shown on-card; hover for full details.</p>
                 </div>
               </div>
 
-              <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 text-xs text-slate-600">
-                <p className="font-semibold text-slate-700">How to read:</p>
-                <p className="mt-1">`H/M/L` = number of high/medium/low priority risks in that filing snapshot.</p>
-                <p className="mt-1">`RPI` (0-100) = weighted pressure index; higher means risk pressure is more concentrated in high-priority items.</p>
+              <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
+                <p className="font-semibold text-slate-700">How to read quickly:</p>
+                <p className="mt-1">RPI (0-100) is weighted by H/M/L counts. Higher RPI means higher pressure from high-priority risks.</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
-                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#22c55e' }} />Low pressure</span>
-                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#f59e0b' }} />Medium pressure</span>
+                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#22c55e' }} />Lower pressure</span>
+                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#f59e0b' }} />Mid pressure</span>
                   <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#ef4444' }} />High pressure</span>
                 </div>
               </div>
 
-              <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto_auto] md:items-end">
+              <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_auto_auto_auto] md:items-end">
                 <div>
                   <label className="section-title">Company Search</label>
-                  <input
-                    className="input mt-2"
-                    placeholder="Filter companies..."
-                    value={heatSearch}
-                    onChange={(e) => setHeatSearch(e.target.value)}
-                  />
+                  <input className="input mt-2" placeholder="Filter companies..." value={heatSearch} onChange={(e) => setHeatSearch(e.target.value)} />
                 </div>
+
+                <div>
+                  <label className="section-title">Industry Group</label>
+                  <select className="input mt-2" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                    {industryOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div>
                   <label className="section-title">Rows / Page</label>
-                  <select className="input mt-2 min-w-[110px]" value={heatPageSize} onChange={(e) => setHeatPageSize(Number(e.target.value) || 12)}>
-                    {[8, 12, 16, 24].map((n) => (
+                  <select className="input mt-2 min-w-[110px]" value={heatPageSize} onChange={(e) => setHeatPageSize(Number(e.target.value) || 10)}>
+                    {[8, 10, 14, 20].map((n) => (
                       <option key={n} value={n}>
                         {n}
                       </option>
                     ))}
                   </select>
                 </div>
+
                 <div>
                   <label className="section-title">Page</label>
-                  <select className="input mt-2 min-w-[110px]" value={heatPage} onChange={(e) => setHeatPage(Number(e.target.value) || 1)}>
+                  <select className="input mt-2 min-w-[95px]" value={heatPage} onChange={(e) => setHeatPage(Number(e.target.value) || 1)}>
                     {Array.from({ length: totalHeatPages }, (_, i) => i + 1).map((p) => (
                       <option key={p} value={p}>
                         {p}
@@ -292,8 +330,13 @@ export default function DashboardPage() {
                     ))}
                   </select>
                 </div>
-                <p className="mb-2 text-xs font-semibold text-slate-600">Showing {heatRangeLabel} / {filteredCompanies.length}</p>
+
+                <button className="btn-secondary" onClick={load} disabled={loading}>
+                  {loading ? 'Refreshing…' : 'Refresh'}
+                </button>
               </div>
+
+              <p className="mt-2 text-xs font-semibold text-slate-600">Showing {heatRangeLabel} / {filteredCompanies.length}</p>
 
               {pagedCompanies.length === 0 || yearsOrdered.length === 0 ? (
                 <div className="mt-3 rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
@@ -318,32 +361,25 @@ export default function DashboardPage() {
                           <td className="py-2 pr-3 font-semibold text-slate-800">{c}</td>
                           {yearsOrdered.map((y) => {
                             const cell = heatCellMap.get(`${c}__${y}`)
-                            const high = safeNumber(cell?.high)
-                            const medium = safeNumber(cell?.medium)
-                            const low = safeNumber(cell?.low)
                             const total = safeNumber(cell?.total)
                             const rpi = safeNumber(cell?.rpi)
                             const bg = priorityHeatColor(rpi, total)
-                            const topHigh = (cell?.top_high || []).slice(0, 2).join(' | ')
-                            const title = total
-                              ? `${c} ${y}\nHigh: ${high}, Medium: ${medium}, Low: ${low}\nRPI: ${rpi.toFixed(1)}\nTop high: ${topHigh || 'n/a'}`
-                              : `${c} ${y}\nNo priority data`
+
                             return (
                               <td key={`${c}-${y}`} className="py-2 px-1">
-                                <div
-                                  className="mx-auto flex h-12 w-[78px] flex-col items-center justify-center rounded-lg border border-white/70 text-[10px] font-bold text-slate-800"
-                                  style={{ backgroundColor: bg }}
-                                  title={title}
-                                >
-                                  {total ? (
-                                    <>
-                                      <span className="text-[9px] font-black tracking-[0.03em]">H{high} M{medium} L{low}</span>
-                                      <span className="mt-[2px] text-[9px] font-semibold text-slate-700">RPI {rpi.toFixed(0)}</span>
-                                    </>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-400">—</span>
-                                  )}
-                                </div>
+                                {cell ? (
+                                  <a
+                                    href={`/library?record_id=${encodeURIComponent(cell.record_id || '')}`}
+                                    onMouseEnter={() => setHoverCell(cell)}
+                                    className="mx-auto flex h-11 w-[78px] flex-col items-center justify-center rounded-lg border border-white/70 text-[10px] font-bold text-slate-800 transition-transform hover:scale-[1.03]"
+                                    style={{ backgroundColor: bg }}
+                                  >
+                                    <span className="text-[9px] font-black tracking-[0.04em]">RPI</span>
+                                    <span className="mt-[2px] text-[13px] leading-none font-black">{rpi.toFixed(0)}</span>
+                                  </a>
+                                ) : (
+                                  <div className="mx-auto flex h-11 w-[78px] items-center justify-center rounded-lg border border-slate-200/70 bg-slate-100/70 text-[10px] font-semibold text-slate-400">—</div>
+                                )}
                               </td>
                             )
                           })}
@@ -355,36 +391,65 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className={`${panelClass} p-5`}>
-              <p className="section-title">Priority Mix</p>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-                <div className="rounded-xl border border-red-200/90 bg-red-50/70 p-3">
+            <div className={`${panelClass} p-4`}>
+              <p className="section-title">Hover Insight</p>
+              <div className="mt-2 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
+                {!hoverCell ? (
+                  <p className="text-sm text-slate-500">Hover a heatmap card to inspect details and latest price.</p>
+                ) : (
+                  <>
+                    <p className="text-sm font-bold text-slate-800">{hoverCell.company} · {hoverCell.year}</p>
+                    <p className="mt-1 text-xs text-slate-600">{hoverCell.industry || '—'} · {hoverCell.filing_type || '10-K'}</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-700">RPI: {safeNumber(hoverCell.rpi).toFixed(1)}</p>
+                    <p className="mt-1 text-sm text-slate-700">H/M/L: {safeNumber(hoverCell.high)} / {safeNumber(hoverCell.medium)} / {safeNumber(hoverCell.low)}</p>
+                    <p className="mt-1 text-sm text-slate-700">Risk items: {safeNumber(hoverCell.risk_items)}</p>
+                    <p className="mt-1 text-sm text-slate-700">Ticker: {hoverCell.ticker || '—'}</p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      Recent price:{' '}
+                      {hoverStock?.loading
+                        ? 'Loading...'
+                        : hoverStock?.data
+                          ? prettyPrice(hoverStock.data.price)
+                          : hoverStock?.error
+                            ? 'Unavailable'
+                            : '—'}
+                    </p>
+                    <a href={`/library?record_id=${encodeURIComponent(hoverCell.record_id || '')}`} className="mt-2 inline-flex text-xs font-semibold text-indigo-600 hover:text-indigo-700">
+                      Open this record →
+                    </a>
+                  </>
+                )}
+              </div>
+
+              <p className="section-title mt-4">Priority Mix</p>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center text-sm">
+                <div className="rounded-xl border border-red-200/90 bg-red-50/70 p-2.5">
                   <p className="font-extrabold text-red-600">High</p>
-                  <p className="mt-1 text-lg font-extrabold text-red-700">{loading ? '…' : safeNumber(priorityTotals.high)}</p>
+                  <p className="mt-0.5 text-base font-extrabold text-red-700">{loading ? '…' : safeNumber(priorityTotals.high)}</p>
                 </div>
-                <div className="rounded-xl border border-amber-200/90 bg-amber-50/70 p-3">
+                <div className="rounded-xl border border-amber-200/90 bg-amber-50/70 p-2.5">
                   <p className="font-extrabold text-amber-600">Medium</p>
-                  <p className="mt-1 text-lg font-extrabold text-amber-700">{loading ? '…' : safeNumber(priorityTotals.medium)}</p>
+                  <p className="mt-0.5 text-base font-extrabold text-amber-700">{loading ? '…' : safeNumber(priorityTotals.medium)}</p>
                 </div>
-                <div className="rounded-xl border border-emerald-200/90 bg-emerald-50/70 p-3">
+                <div className="rounded-xl border border-emerald-200/90 bg-emerald-50/70 p-2.5">
                   <p className="font-extrabold text-emerald-600">Low</p>
-                  <p className="mt-1 text-lg font-extrabold text-emerald-700">{loading ? '…' : safeNumber(priorityTotals.low)}</p>
+                  <p className="mt-0.5 text-base font-extrabold text-emerald-700">{loading ? '…' : safeNumber(priorityTotals.low)}</p>
                 </div>
               </div>
 
-              <div className="mt-4 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
+              <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Scope Snapshot</p>
-                <p className="mt-2 text-sm font-semibold text-slate-700">Average RPI: {safeNumber(priorityHeatmap.avg_rpi).toFixed(1)}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-700">Average RPI: {safeNumber(priorityHeatmap.avg_rpi).toFixed(1)}</p>
                 <p className="mt-1 text-sm text-slate-600">Rows with priority data: {safeNumber(metrics.records_with_priority)} / {safeNumber(metrics.records)}</p>
               </div>
 
-              <div className="mt-4">
+              <div className="mt-3">
                 <p className="section-title">Recent Filings</p>
-                <div className="mt-2 space-y-2">
+                <div className="mt-1.5 space-y-1.5">
                   {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
                   {!loading && recent.length === 0 ? <p className="text-sm text-slate-500">No records in this scope.</p> : null}
                   {!loading &&
-                    recent.slice(0, 6).map((r) => (
+                    recent.slice(0, 5).map((r) => (
                       <div key={r.record_id} className="rounded-xl border border-slate-200/80 bg-white/52 px-3 py-2">
                         <p className="text-sm font-semibold text-slate-800">{r.company} · {r.year}</p>
                         <p className="mt-1 text-xs text-slate-500">{r.industry || '—'} · {safeNumber(r.risk_items)} risk items</p>
@@ -399,13 +464,29 @@ export default function DashboardPage() {
 
       {activeTab === 'category' ? (
         <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className={`${panelClass} p-5`}>
+          <div className={`${panelClass} p-4`}>
             <div className="section-headline">
               <div className="section-rail" />
               <div>
                 <p className="section-title-strong">Category Ranking</p>
                 <p className="section-sub">Most frequent extracted risk categories within the selected industry scope.</p>
               </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <div className="min-w-[240px]">
+                <label className="section-title">Industry Group</label>
+                <select className="input mt-2" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                  {industryOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button className="btn-secondary" onClick={load} disabled={loading}>
+                {loading ? 'Refreshing…' : 'Refresh'}
+              </button>
             </div>
 
             <div className="mt-3 space-y-2">
@@ -430,7 +511,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className={`${panelClass} p-5`}>
+          <div className={`${panelClass} p-4`}>
             <p className="section-title">Category Trend</p>
             <p className="mt-1 text-xs text-slate-500">Track one category across filing years in the current scope.</p>
 

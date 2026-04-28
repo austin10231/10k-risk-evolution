@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { get } from '../lib/api'
 import { companyOverview, groupedRiskTitles, riskCategoryCount, riskItemCount } from '../lib/records'
 
@@ -97,6 +97,7 @@ function RecordDetailPanel({ rec, result }) {
 }
 
 export default function LibraryPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -138,6 +139,12 @@ export default function LibraryPage() {
     const off = load()
     return off
   }, [])
+
+  useEffect(() => {
+    const rid = String(searchParams.get('record_id') || '').trim()
+    if (!rid) return
+    setSelectedId(rid)
+  }, [searchParams])
 
   useEffect(() => {
     if (!selectedId) return
@@ -302,7 +309,15 @@ export default function LibraryPage() {
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button
                     className={active ? 'btn-primary w-full' : 'btn-secondary w-full'}
-                    onClick={() => setSelectedId(String(r.record_id))}
+                    onClick={() => {
+                      const rid = String(r.record_id || '')
+                      setSelectedId(rid)
+                      setSearchParams((prev) => {
+                        const next = new URLSearchParams(prev)
+                        next.set('record_id', rid)
+                        return next
+                      })
+                    }}
                   >
                     {active ? '✓ Loaded' : 'Load'}
                   </button>

@@ -517,6 +517,126 @@ def _extract_sub_risks(result: dict) -> List[dict]:
     return out
 
 
+def _generate_agent_priority_report(company: str, year: int, risks: list) -> tuple[Optional[dict], str]:
+    try:
+        run_agent = _get_run_agent()
+    except Exception as exc:
+        return None, f"Agent runtime unavailable: {type(exc).__name__}: {exc}"
+
+    try:
+        report = run_agent(
+            user_query="Prioritize all risks and identify the top 5 most critical threats",
+            company=str(company or "").strip(),
+            year=int(year or 0),
+            risks=risks if isinstance(risks, list) else [],
+            compare_data=None,
+        )
+    except Exception as exc:
+        return None, f"Agent run failed: {type(exc).__name__}: {exc}"
+
+    if not isinstance(report, dict):
+        return None, "Agent report format is invalid."
+    return report, ""
+
+
+def _append_agent_report_file(record: dict, report: dict) -> None:
+    if not isinstance(record, dict) or not isinstance(report, dict):
+        return
+    company = str(record.get("company", "") or "").strip()
+    filing_type = str(record.get("filing_type", "10-K") or "10-K").strip() or "10-K"
+    year = _to_int_safe(record.get("year"), 0)
+    record_id = str(record.get("record_id", "") or "").strip()
+    if not company or year <= 0 or not record_id:
+        return
+    payload = {
+        **report,
+        "company": report.get("company") or company,
+        "year": _to_int_safe(report.get("year"), year),
+        "filing_type": report.get("filing_type") or filing_type,
+        "record_id": record_id,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    key = (
+        f"{AGENT_PREFIX}/"
+        f"{_sanitize_company(company)}_{year}_{_sanitize_filing_type(filing_type)}_{record_id}_{uuid.uuid4().hex[:6]}.json"
+    )
+    _write_s3_bytes(key, json.dumps(payload, indent=2, default=str, ensure_ascii=False).encode("utf-8"))
+
+
+def _ensure_record_priority(rec: dict, force: bool = False) -> tuple[bool, str]:
+    if not isinstance(rec, dict):
+        return False, "Invalid record payload."
+    record_id = str(rec.get("record_id", "") or "").strip()
+    if not record_id:
+        return False, "Missing record_id."
+
+    result = _load_result(record_id)
+    if not isinstance(result, dict):
+        return False, "Result JSON not found."
+
+    existing_counts = _extract_priority_counts_from_result(result)
+    if not force and int(existing_counts.get("total", 0) or 0) > 0:
+        return False, "Priority already exists."
+
+    risks = result.get("risks", []) if isinstance(result.get("risks"), list) else []
+    if not risks:
+        return False, "No risks available to score."
+
+    company = str(rec.get("company", "") or "").strip() or str((result.get("company_overview") or {}).get("company", "") or "")
+    year = _to_int_safe(rec.get("year"), 0) or _to_int_safe((result.get("company_overview") or {}).get("year"), 0)
+    if not company or year <= 0:
+        return False, "Missing company/year context."
+
+    report, err = _generate_agent_priority_report(company=company, year=year, risks=risks)
+    if not report:
+        return False, err or "Agent scoring failed."
+
+    result["agent_report"] = report
+    _write_s3_bytes(
+        f"{RESULTS_PREFIX}/{record_id}.json",
+        json.dumps(result, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
+    )
+    try:
+        _append_agent_report_file(rec, report)
+    except Exception:
+        pass
+    return True, ""
+
+
+def _ensure_priority_for_all_records(force: bool = False, limit: int = 0) -> dict:
+    index = _load_index()
+    if not index:
+        return {"ok": True, "processed": 0, "updated": 0, "skipped": 0, "errors": []}
+
+    records = sorted(index, key=lambda r: str(r.get("created_at", "")), reverse=True)
+    max_n = int(limit or 0)
+    if max_n > 0:
+        records = records[:max_n]
+
+    updated = 0
+    skipped = 0
+    errors: List[dict] = []
+    for rec in records:
+        success, reason = _ensure_record_priority(rec, force=force)
+        if success:
+            updated += 1
+            continue
+        # classify soft skips vs hard errors
+        low = str(reason or "").lower()
+        if any(k in low for k in ("already exists", "no risks", "not found")):
+            skipped += 1
+        else:
+            errors.append({"record_id": str(rec.get("record_id", "") or ""), "reason": reason or "Unknown error"})
+
+    return {
+        "ok": True,
+        "processed": len(records),
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors[:30],
+    }
+
+
 def _manual_extract_result(
     *,
     file_bytes: bytes,
@@ -617,6 +737,14 @@ def _auto_fetch_and_extract(
             skipped.append({"year": yy, "reason": extract_err or "Extraction failed."})
             continue
 
+        risks_for_agent = result.get("risks", []) if isinstance(result.get("risks"), list) else []
+        if risks_for_agent:
+            agent_report, agent_err = _generate_agent_priority_report(company=comp, year=yy, risks=risks_for_agent)
+            if isinstance(agent_report, dict):
+                result["agent_report"] = agent_report
+            elif agent_err:
+                result["agent_report_error"] = agent_err
+
         result["source"] = "sec_edgar_auto_fetch"
         result["sec_meta"] = {
             **(sec_meta if isinstance(sec_meta, dict) else {}),
@@ -638,6 +766,11 @@ def _auto_fetch_and_extract(
             )
             if tk:
                 _upsert_company_ticker(comp, tk)
+            if isinstance(result.get("agent_report"), dict):
+                try:
+                    _append_agent_report_file(rec, result.get("agent_report"))
+                except Exception:
+                    pass
             successes.append({"year": yy, "record": _record_summary(rec, include_result=True), "result": result})
         except Exception as exc:
             skipped.append({"year": yy, "reason": f"Save failed: {type(exc).__name__}: {exc}"})
@@ -801,6 +934,7 @@ def _dashboard_summary() -> dict:
     )
 
     scoped: Dict[str, dict] = {}
+    ticker_lookup = _build_ticker_lookup()
 
     def _ensure_scope(key: str) -> dict:
         if key in scoped:
@@ -867,8 +1001,14 @@ def _dashboard_summary() -> dict:
                 cell_key = f"{company}__{year}"
                 # records are sorted newest first; keep latest for a company-year cell.
                 if cell_key not in scope["heat_cells_map"]:
+                    ticker = _resolve_record_ticker(rec, ticker_lookup=ticker_lookup)
                     scope["heat_cells_map"][cell_key] = {
+                        "record_id": rid,
                         "company": company,
+                        "industry": industry,
+                        "ticker": ticker,
+                        "filing_type": str(rec.get("filing_type", "") or ""),
+                        "risk_items": int(risk_items),
                         "year": year,
                         "high": int(priority["high"]),
                         "medium": int(priority["medium"]),
@@ -944,7 +1084,6 @@ def _dashboard_summary() -> dict:
             "category_yearly": category_yearly,
         }
 
-    ticker_lookup = _build_ticker_lookup()
     recent_records = [_record_summary(r, include_result=True, ticker_lookup=ticker_lookup) for r in records[:12]]
     all_scope = scopes_payload.get("__all__", {})
     industry_options = sorted([k for k in scopes_payload.keys() if k != "__all__"], key=lambda x: x.lower())
@@ -2854,6 +2993,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "/api/records",
                             "/api/records/{record_id}",
                             "/api/dashboard/summary",
+                            "/api/dashboard/ensure-priority (POST)",
                             "/api/stock/quote?ticker=AAPL",
                             "/api/news?company=Apple&ticker=AAPL",
                             "/api/upload/manual (POST)",
@@ -3023,6 +3163,14 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"ok": False, "error": err or "Extraction failed."})
                     return
 
+                risks_for_agent = result.get("risks", []) if isinstance(result.get("risks"), list) else []
+                if risks_for_agent:
+                    agent_report, agent_err = _generate_agent_priority_report(company=company, year=year, risks=risks_for_agent)
+                    if isinstance(agent_report, dict):
+                        result["agent_report"] = agent_report
+                    elif agent_err:
+                        result["agent_report_error"] = agent_err
+
                 ext = "pdf" if file_name.lower().endswith(".pdf") else "html"
                 record = _add_record(
                     company=company,
@@ -3036,6 +3184,11 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 )
                 if ticker:
                     _upsert_company_ticker(company, ticker)
+                if isinstance(result.get("agent_report"), dict):
+                    try:
+                        _append_agent_report_file(record, result.get("agent_report"))
+                    except Exception:
+                        pass
                 self._send_json(
                     200,
                     {
@@ -3063,6 +3216,14 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 if not payload.get("ok"):
                     self._send_json(400, payload)
                     return
+                self._send_json(200, payload)
+                return
+
+            if path == "/api/dashboard/ensure-priority":
+                body = self._read_json_body()
+                force = bool(body.get("force", False))
+                limit = _to_int(body.get("limit", 0), 0)
+                payload = _ensure_priority_for_all_records(force=force, limit=limit)
                 self._send_json(200, payload)
                 return
 
