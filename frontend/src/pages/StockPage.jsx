@@ -426,14 +426,25 @@ function barsGeometry(values, width, height, padding = 12) {
 
 function buildUploadedCompanies(items) {
   const rows = Array.isArray(items) ? items : []
+  const tickerByCompanyKey = {}
+  rows.forEach((r) => {
+    const company = String(r?.company || '').trim()
+    const ticker = normalizeTicker(r?.ticker)
+    if (!company || !ticker) return
+    const key = sanitizeCompanyName(company)
+    if (!key || tickerByCompanyKey[key]) return
+    tickerByCompanyKey[key] = ticker
+  })
+
   const sorted = [...rows].sort((a, b) => String(b?.created_at || '').localeCompare(String(a?.created_at || '')))
   const seen = new Set()
   const out = []
   sorted.forEach((r) => {
     const company = String(r?.company || '').trim()
-    const ticker = normalizeTicker(r?.ticker)
+    const companyKey = sanitizeCompanyName(company)
+    const ticker = normalizeTicker(r?.ticker || tickerByCompanyKey[companyKey] || '')
     if (!company || !ticker) return
-    const key = `${sanitizeCompanyName(company)}::${ticker}`
+    const key = `${companyKey}::${ticker}`
     if (seen.has(key)) return
     seen.add(key)
     out.push({
@@ -828,6 +839,7 @@ export default function StockPage() {
   const [filingSummaryMap, setFilingSummaryMap] = useState({})
   const [filingLoading, setFilingLoading] = useState(false)
   const [uploadedCompanies, setUploadedCompanies] = useState([])
+  const [featuredCompanies, setFeaturedCompanies] = useState([])
   const [recordsLoading, setRecordsLoading] = useState(true)
   const [boardTab, setBoardTab] = useState('gainers')
   const [summaryOpenIdx, setSummaryOpenIdx] = useState(0)
@@ -978,6 +990,21 @@ export default function StockPage() {
       setSelectedTicker(uploadedTickers[0])
     }
   }, [uploadedCompanies, selectedTicker])
+
+  useEffect(() => {
+    if (!uploadedCompanies.length) {
+      setFeaturedCompanies([])
+      return
+    }
+    const shuffled = [...uploadedCompanies]
+    for (let i = shuffled.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1))
+      const tmp = shuffled[i]
+      shuffled[i] = shuffled[j]
+      shuffled[j] = tmp
+    }
+    setFeaturedCompanies(shuffled.slice(0, 9))
+  }, [uploadedCompanies])
 
   useEffect(() => {
     if (!selectedTicker) return
@@ -1455,7 +1482,11 @@ export default function StockPage() {
         <div className="rl-stock-command-head">
           <div>
             <p className="rl-stock-command-title">Tracked Companies</p>
-            <span>{recordsLoading ? 'Loading uploaded company universe…' : `${uploadedCompanies.length} companies from uploaded filings`}</span>
+            <span>
+              {recordsLoading
+                ? 'Loading uploaded company universe…'
+                : `${uploadedCompanies.length} companies from uploaded filings · showing ${featuredCompanies.length} random cards`}
+            </span>
           </div>
           <button className="btn-secondary" onClick={() => setShowAddTicker((v) => !v)}>
             {showAddTicker ? 'Cancel' : '+ Add Ticker'}
@@ -1463,7 +1494,7 @@ export default function StockPage() {
         </div>
 
         <div className="rl-stock-chip-row">
-          {uploadedCompanies.slice(0, 14).map((c) => {
+          {featuredCompanies.map((c) => {
             const payload = bundleMap[c.ticker]?.data
             const pct = Number(payload?.change_percent)
             return (

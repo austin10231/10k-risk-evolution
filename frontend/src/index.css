@@ -1818,8 +1818,8 @@ select.input {
 }
 
 .rl-stock-chip-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1830,7 +1830,10 @@ select.input {
   color: #1e293b;
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
   padding: 5px 10px;
   font-size: 0.74rem;
   font-weight: 700;
@@ -2288,7 +2291,8 @@ select.input {
 }
 
 .rl-stock-command-v2 .rl-stock-chip span {
-  max-width: 220px;
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5411,6 +5415,10 @@ select.input {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
+  .rl-stock-chip-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .rl-stock-metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5537,6 +5545,10 @@ select.input {
   }
 
   .rl-stock-input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .rl-stock-chip-row {
     grid-template-columns: 1fr;
   }
 

@@ -197,6 +197,56 @@ def _load_company_ticker_map() -> Dict[str, str]:
     return out
 
 
+def _normalize_ticker(raw: Any) -> str:
+    return re.sub(r"[^A-Z0-9.\-]", "", str(raw or "").strip().upper())
+
+
+def _company_lookup_key(raw: Any) -> str:
+    s = str(raw or "").strip().lower()
+    if not s:
+        return ""
+    s = re.sub(r"[.,()'’]", " ", s)
+    s = re.sub(r"\b(inc|incorporated|corp|corporation|company|co|ltd|limited|plc|holdings?|group|class [ab])\b", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _build_ticker_lookup() -> tuple[Dict[str, str], Dict[str, str]]:
+    raw = _load_company_ticker_map()
+    exact: Dict[str, str] = {}
+    canonical: Dict[str, str] = {}
+    for company, ticker in raw.items():
+        c = str(company or "").strip()
+        t = _normalize_ticker(ticker)
+        if not c or not t:
+            continue
+        exact[c] = t
+        key = _company_lookup_key(c)
+        if key and key not in canonical:
+            canonical[key] = t
+    return exact, canonical
+
+
+def _resolve_record_ticker(rec: dict, ticker_lookup: Optional[tuple[Dict[str, str], Dict[str, str]]] = None) -> str:
+    direct = _normalize_ticker(rec.get("ticker"))
+    if direct:
+        return direct
+
+    company = str(rec.get("company", "") or "").strip()
+    if not company:
+        return ""
+
+    exact_map, canonical_map = ticker_lookup if ticker_lookup else _build_ticker_lookup()
+    from_exact = _normalize_ticker(exact_map.get(company))
+    if from_exact:
+        return from_exact
+
+    key = _company_lookup_key(company)
+    if not key:
+        return ""
+    return _normalize_ticker(canonical_map.get(key))
+
+
 def _save_index(index: List[dict]) -> None:
     payload = json.dumps(index, indent=2, default=str, ensure_ascii=False).encode("utf-8")
     _write_s3_bytes(INDEX_KEY, payload)
@@ -365,6 +415,7 @@ def _add_record(
     industry: str,
     year: int,
     filing_type: str,
+    ticker: str,
     file_bytes: bytes,
     file_ext: str,
     result_json: dict,
@@ -372,6 +423,7 @@ def _add_record(
     company = str(company or "").strip()
     industry = str(industry or "Other").strip() or "Other"
     filing_type = str(filing_type or "10-K").strip() or "10-K"
+    ticker = _normalize_ticker(ticker)
     year = int(year or 0)
     ext = "pdf" if str(file_ext or "").strip().lower() == "pdf" else "html"
 
@@ -416,6 +468,7 @@ def _add_record(
     record = {
         "record_id": rid,
         "company": company,
+        "ticker": ticker,
         "industry": industry,
         "year": year,
         "filing_type": filing_type,
@@ -577,6 +630,7 @@ def _auto_fetch_and_extract(
                 industry=ind,
                 year=yy,
                 filing_type="10-K",
+                ticker=tk,
                 file_bytes=html_bytes,
                 file_ext="html",
                 result_json=result,
@@ -616,12 +670,18 @@ def _find_record(company: str, year: int) -> Optional[dict]:
     return candidates[0]
 
 
-def _record_summary(rec: dict, include_result: bool = False) -> dict:
+def _record_summary(
+    rec: dict,
+    include_result: bool = False,
+    ticker_lookup: Optional[tuple[Dict[str, str], Dict[str, str]]] = None,
+) -> dict:
     if not isinstance(rec, dict):
         rec = {}
+    ticker = _resolve_record_ticker(rec, ticker_lookup=ticker_lookup)
     base = {
         "record_id": rec.get("record_id"),
         "company": rec.get("company"),
+        "ticker": ticker,
         "industry": rec.get("industry"),
         "year": rec.get("year"),
         "filing_type": rec.get("filing_type"),
@@ -687,7 +747,8 @@ def _dashboard_summary() -> dict:
         rating_counts[rating] += 1
 
     top_categories = sorted(category_counts.items(), key=lambda kv: kv[1], reverse=True)[:8]
-    recent_records = [_record_summary(r, include_result=True) for r in records[:12]]
+    ticker_lookup = _build_ticker_lookup()
+    recent_records = [_record_summary(r, include_result=True, ticker_lookup=ticker_lookup) for r in records[:12]]
 
     return {
         "metrics": {
@@ -2309,7 +2370,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     out.append(r)
 
                 out.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
-                items = [_record_summary(r, include_result=include_result) for r in out]
+                ticker_lookup = _build_ticker_lookup()
+                items = [_record_summary(r, include_result=include_result, ticker_lookup=ticker_lookup) for r in out]
                 self._send_json(200, {"ok": True, "count": len(items), "items": items})
                 return
 
@@ -2319,6 +2381,11 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"ok": False, "error": "record_id is required."})
                     return
                 rec = next((r for r in _load_index() if str(r.get("record_id", "")) == record_id), None)
+                if isinstance(rec, dict):
+                    rec = {
+                        **rec,
+                        "ticker": _resolve_record_ticker(rec, ticker_lookup=_build_ticker_lookup()),
+                    }
                 result = _load_result(record_id)
                 if not rec and not result:
                     self._send_json(404, {"ok": False, "error": "Record not found."})
@@ -2442,6 +2509,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     industry=industry,
                     year=year,
                     filing_type=filing_type,
+                    ticker=ticker,
                     file_bytes=file_bytes,
                     file_ext=ext,
                     result_json=result,
