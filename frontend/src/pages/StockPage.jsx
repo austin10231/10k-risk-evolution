@@ -1824,10 +1824,9 @@ export default function StockPage() {
           <section className="rl-stock-side-card rl-stock-summary-card">
             <div className="rl-stock-side-head">
               <p>Market Summary</p>
-              <span>{marketSummaryUpdatedAt ? `Updated ${timeAgoFrom(marketSummaryUpdatedAt)}` : 'Major market snapshot'}</span>
+              <span>{marketSummaryUpdatedAt ? `Updated ${timeAgoFrom(marketSummaryUpdatedAt)}` : ''}</span>
             </div>
             <div className="rl-stock-market-news">
-              <p className="rl-stock-market-news-title">Headline Intelligence</p>
               {marketIntelLoading ? <span className="rl-stock-market-news-empty">Loading market headlines…</span> : null}
               {!marketIntelLoading && !marketIntelItems.length ? <span className="rl-stock-market-news-empty">No market headlines available right now.</span> : null}
               {!marketIntelLoading && marketIntelItems.map((item, idx) => {
