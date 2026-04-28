@@ -151,11 +151,6 @@ function getHistoryMenuPosition(rect) {
   return { top: Math.round(top), left: Math.round(left) }
 }
 
-function isImeComposing(event) {
-  const nativeEvent = event?.nativeEvent || {}
-  return Boolean(nativeEvent.isComposing || event?.isComposing || nativeEvent.keyCode === 229)
-}
-
 export default function AppShell({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -173,6 +168,8 @@ export default function AppShell({ children }) {
 
   const workspaceAppRef = useRef(null)
   const dockRef = useRef(null)
+  const isComposingRef = useRef(false)
+  const lastCompositionEndAtRef = useRef(0)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [threadQuery, setThreadQuery] = useState('')
   const [activeMenuThreadId, setActiveMenuThreadId] = useState('')
@@ -212,6 +209,22 @@ export default function AppShell({ children }) {
     () => filteredHistoryItems.find((t) => t.id === activeMenuThreadId) || null,
     [filteredHistoryItems, activeMenuThreadId],
   )
+
+  const markCompositionStart = () => {
+    isComposingRef.current = true
+  }
+
+  const markCompositionEnd = () => {
+    isComposingRef.current = false
+    lastCompositionEndAtRef.current = Date.now()
+  }
+
+  const shouldIgnoreEnterSubmit = (event) => {
+    const nativeEvent = event?.nativeEvent || {}
+    if (isComposingRef.current) return true
+    if (nativeEvent.isComposing || event?.isComposing || nativeEvent.keyCode === 229) return true
+    return Date.now() - Number(lastCompositionEndAtRef.current || 0) < 120
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -603,9 +616,11 @@ export default function AppShell({ children }) {
                       if (error) clearError()
                       setQuery(e.target.value)
                     }}
+                    onCompositionStart={markCompositionStart}
+                    onCompositionEnd={markCompositionEnd}
                     placeholder="Ask about any company, filing, comparison, stock, or news signal…"
                     onKeyDown={(e) => {
-                      if (isImeComposing(e)) return
+                      if (shouldIgnoreEnterSubmit(e)) return
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault()
                         submitQuery()
@@ -659,11 +674,13 @@ export default function AppShell({ children }) {
                   if (error) clearError()
                   setQuery(e.target.value)
                 }}
+                onCompositionStart={markCompositionStart}
+                onCompositionEnd={markCompositionEnd}
                 onFocus={() => setDockFocused(true)}
                 onBlur={() => setDockFocused(false)}
                 placeholder={dockPlaceholder(location.pathname)}
                 onKeyDown={(e) => {
-                  if (isImeComposing(e)) return
+                  if (shouldIgnoreEnterSubmit(e)) return
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
                     submitQuery()

@@ -47,11 +47,6 @@ function buildAgentHref(search = '') {
   return `/agent${query ? `?${query}` : ''}`
 }
 
-function isImeComposing(event) {
-  const nativeEvent = event?.nativeEvent || {}
-  return Boolean(nativeEvent.isComposing || event?.isComposing || nativeEvent.keyCode === 229)
-}
-
 function SendArrowIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -100,6 +95,8 @@ export default function FloatingChatWidget() {
   const bottomRef = useRef(null)
   const fabDragRef = useRef(null)
   const panelDragRef = useRef(null)
+  const isComposingRef = useRef(false)
+  const lastCompositionEndAtRef = useRef(0)
 
   const threadMessages = currentThread?.messages || []
   const messages = threadMessages.length ? threadMessages.slice(-MAX_MESSAGES) : [defaultMessage()]
@@ -145,6 +142,22 @@ export default function FloatingChatWidget() {
   }, [open, fabPos])
 
   const canSend = query.trim().length > 0 && !loading
+
+  const markCompositionStart = () => {
+    isComposingRef.current = true
+  }
+
+  const markCompositionEnd = () => {
+    isComposingRef.current = false
+    lastCompositionEndAtRef.current = Date.now()
+  }
+
+  const shouldIgnoreEnterSubmit = (event) => {
+    const nativeEvent = event?.nativeEvent || {}
+    if (isComposingRef.current) return true
+    if (nativeEvent.isComposing || event?.isComposing || nativeEvent.keyCode === 229) return true
+    return Date.now() - Number(lastCompositionEndAtRef.current || 0) < 120
+  }
 
   const clearChat = () => {
     startNewThread()
@@ -284,8 +297,10 @@ export default function FloatingChatWidget() {
                 if (error) clearError()
                 setQuery(e.target.value)
               }}
+              onCompositionStart={markCompositionStart}
+              onCompositionEnd={markCompositionEnd}
               onKeyDown={(e) => {
-                if (isImeComposing(e)) return
+                if (shouldIgnoreEnterSubmit(e)) return
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   sendFromWidget()
