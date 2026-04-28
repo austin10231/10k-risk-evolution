@@ -30,6 +30,18 @@ function prettyPrice(v) {
   return `$${n.toFixed(2)}`
 }
 
+function tooltipPosition(x, y) {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1280
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 720
+  const w = 320
+  const h = 220
+  let left = x + 14
+  let top = y + 14
+  if (left + w > vw - 8) left = Math.max(8, x - w - 14)
+  if (top + h > vh - 8) top = Math.max(8, y - h - 14)
+  return { left, top }
+}
+
 export default function DashboardPage() {
   const { config } = useGlobalConfig()
   const tabsRef = useRef(null)
@@ -44,7 +56,7 @@ export default function DashboardPage() {
   const [heatSearch, setHeatSearch] = useState('')
   const [heatPageSize, setHeatPageSize] = useState(10)
   const [heatPage, setHeatPage] = useState(1)
-  const [hoverCell, setHoverCell] = useState(null)
+  const [hoverPopup, setHoverPopup] = useState(null)
   const [stockCache, setStockCache] = useState({})
 
   useSlidingTabIndicator(tabsRef, [activeTab])
@@ -106,6 +118,7 @@ export default function DashboardPage() {
   const topCategories = scopeData?.top_categories || []
   const categoryYearly = scopeData?.category_yearly || []
   const yearlyRecords = scopeData?.yearly_records || []
+
   const recent = useMemo(() => {
     const rows = Array.isArray(data?.recent_records) ? data.recent_records : []
     if (industry === 'All Industries') return rows
@@ -210,8 +223,10 @@ export default function DashboardPage() {
 
   const panelClass = 'rounded-2xl border border-slate-200/85 bg-white/62 shadow-sm backdrop-blur-[2px]'
 
+  const hoveredCell = hoverPopup?.cell || null
+
   useEffect(() => {
-    const ticker = String(hoverCell?.ticker || '').trim().toUpperCase()
+    const ticker = String(hoveredCell?.ticker || '').trim().toUpperCase()
     if (!ticker) return
     if (stockCache[ticker]?.done || stockCache[ticker]?.loading) return
 
@@ -223,13 +238,15 @@ export default function DashboardPage() {
       .catch((e) => {
         setStockCache((prev) => ({ ...prev, [ticker]: { loading: false, done: true, data: null, error: e.message || 'Stock unavailable' } }))
       })
-  }, [hoverCell, stockCache])
+  }, [hoveredCell, stockCache])
 
   const hoverStock = useMemo(() => {
-    const t = String(hoverCell?.ticker || '').trim().toUpperCase()
+    const t = String(hoveredCell?.ticker || '').trim().toUpperCase()
     if (!t) return null
     return stockCache[t] || null
-  }, [hoverCell, stockCache])
+  }, [hoveredCell, stockCache])
+
+  const metricCardStyle = { backgroundColor: 'rgba(255,255,255,0.62)', padding: '0.62rem 0.82rem' }
 
   return (
     <div className="rl-page-shell rl-up-page">
@@ -263,7 +280,7 @@ export default function DashboardPage() {
         <>
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {metricTiles.map(([k, v, color]) => (
-              <div key={k} className="metric-card" style={{ backgroundColor: 'rgba(255,255,255,0.62)', padding: '0.65rem 0.85rem' }}>
+              <div key={k} className="metric-card" style={metricCardStyle}>
                 <p className="metric-label">{k}</p>
                 <p className="metric-value" style={{ color, fontSize: '2rem' }}>
                   {loading ? '…' : v}
@@ -278,7 +295,7 @@ export default function DashboardPage() {
                 <div className="section-rail" />
                 <div>
                   <p className="section-title-strong">Priority Heatmap</p>
-                  <p className="section-sub">Each card is one company-year. Only RPI is shown on-card; hover for full details.</p>
+                  <p className="section-sub">Cards display RPI only. Hover a card for company/year risk detail and stock info.</p>
                 </div>
               </div>
 
@@ -370,7 +387,9 @@ export default function DashboardPage() {
                                 {cell ? (
                                   <a
                                     href={`/library?record_id=${encodeURIComponent(cell.record_id || '')}`}
-                                    onMouseEnter={() => setHoverCell(cell)}
+                                    onMouseEnter={(e) => setHoverPopup({ cell, x: e.clientX, y: e.clientY })}
+                                    onMouseMove={(e) => setHoverPopup((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev))}
+                                    onMouseLeave={() => setHoverPopup(null)}
                                     className="mx-auto flex h-11 w-[78px] flex-col items-center justify-center rounded-lg border border-white/70 text-[10px] font-bold text-slate-800 transition-transform hover:scale-[1.03]"
                                     style={{ backgroundColor: bg }}
                                   >
@@ -392,36 +411,7 @@ export default function DashboardPage() {
             </div>
 
             <div className={`${panelClass} p-4`}>
-              <p className="section-title">Hover Insight</p>
-              <div className="mt-2 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
-                {!hoverCell ? (
-                  <p className="text-sm text-slate-500">Hover a heatmap card to inspect details and latest price.</p>
-                ) : (
-                  <>
-                    <p className="text-sm font-bold text-slate-800">{hoverCell.company} · {hoverCell.year}</p>
-                    <p className="mt-1 text-xs text-slate-600">{hoverCell.industry || '—'} · {hoverCell.filing_type || '10-K'}</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-700">RPI: {safeNumber(hoverCell.rpi).toFixed(1)}</p>
-                    <p className="mt-1 text-sm text-slate-700">H/M/L: {safeNumber(hoverCell.high)} / {safeNumber(hoverCell.medium)} / {safeNumber(hoverCell.low)}</p>
-                    <p className="mt-1 text-sm text-slate-700">Risk items: {safeNumber(hoverCell.risk_items)}</p>
-                    <p className="mt-1 text-sm text-slate-700">Ticker: {hoverCell.ticker || '—'}</p>
-                    <p className="mt-1 text-sm text-slate-700">
-                      Recent price:{' '}
-                      {hoverStock?.loading
-                        ? 'Loading...'
-                        : hoverStock?.data
-                          ? prettyPrice(hoverStock.data.price)
-                          : hoverStock?.error
-                            ? 'Unavailable'
-                            : '—'}
-                    </p>
-                    <a href={`/library?record_id=${encodeURIComponent(hoverCell.record_id || '')}`} className="mt-2 inline-flex text-xs font-semibold text-indigo-600 hover:text-indigo-700">
-                      Open this record →
-                    </a>
-                  </>
-                )}
-              </div>
-
-              <p className="section-title mt-4">Priority Mix</p>
+              <p className="section-title">Priority Mix</p>
               <div className="mt-2 grid grid-cols-3 gap-2 text-center text-sm">
                 <div className="rounded-xl border border-red-200/90 bg-red-50/70 p-2.5">
                   <p className="font-extrabold text-red-600">High</p>
@@ -567,6 +557,34 @@ export default function DashboardPage() {
           </div>
         </section>
       ) : null}
+
+      {hoverPopup?.cell ? (() => {
+        const pos = tooltipPosition(safeNumber(hoverPopup.x), safeNumber(hoverPopup.y))
+        return (
+          <div
+            className="fixed z-[80] w-[320px] rounded-xl border border-slate-200 bg-white/96 p-3 shadow-2xl backdrop-blur-sm"
+            style={{ left: `${pos.left}px`, top: `${pos.top}px`, pointerEvents: 'none' }}
+          >
+            <p className="text-sm font-bold text-slate-800">{hoverPopup.cell.company} · {hoverPopup.cell.year}</p>
+            <p className="mt-1 text-xs text-slate-600">{hoverPopup.cell.industry || '—'} · {hoverPopup.cell.filing_type || '10-K'}</p>
+            <p className="mt-2 text-sm font-semibold text-slate-700">RPI: {safeNumber(hoverPopup.cell.rpi).toFixed(1)}</p>
+            <p className="mt-1 text-sm text-slate-700">H/M/L: {safeNumber(hoverPopup.cell.high)} / {safeNumber(hoverPopup.cell.medium)} / {safeNumber(hoverPopup.cell.low)}</p>
+            <p className="mt-1 text-sm text-slate-700">Risk items: {safeNumber(hoverPopup.cell.risk_items)}</p>
+            <p className="mt-1 text-sm text-slate-700">Ticker: {hoverPopup.cell.ticker || '—'}</p>
+            <p className="mt-1 text-sm text-slate-700">
+              Recent price:{' '}
+              {hoverStock?.loading
+                ? 'Loading...'
+                : hoverStock?.data
+                  ? prettyPrice(hoverStock.data.price)
+                  : hoverStock?.error
+                    ? 'Unavailable'
+                    : '—'}
+            </p>
+            <p className="mt-2 text-xs font-semibold text-indigo-600">Click card to open this record →</p>
+          </div>
+        )
+      })() : null}
     </div>
   )
 }
