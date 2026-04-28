@@ -32,6 +32,7 @@ export default function App() {
               <Route path="/tables" element={<TablesPage />} />
               <Route path="/news" element={<NewsPage />} />
               <Route path="/stock" element={<StockPage />} />
+              <Route path="/stock/:ticker" element={<StockPage />} />
               <Route path="/agent" element={<AgentPage />} />
               <Route path="*" element={<Navigate to="/agent" replace />} />
             </Routes>

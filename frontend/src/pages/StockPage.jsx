@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { get } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 
@@ -691,7 +691,7 @@ function makeSpotlightSummary(row, sectorText) {
 export default function StockPage() {
   const { config } = useGlobalConfig()
   const navigate = useNavigate()
-  const location = useLocation()
+  const { ticker: routeTicker = '' } = useParams()
 
   const [selectedTicker, setSelectedTicker] = useState('AAPL')
   const [watchlist, setWatchlist] = useState(DEFAULT_TICKERS)
@@ -709,8 +709,6 @@ export default function StockPage() {
   const [summaryOpenIdx, setSummaryOpenIdx] = useState(0)
   const [showAddTicker, setShowAddTicker] = useState(false)
   const [addTickerInput, setAddTickerInput] = useState('')
-  const [viewMode, setViewMode] = useState('overview')
-  const [detailTicker, setDetailTicker] = useState('')
 
   const initializedRef = useRef(false)
 
@@ -1125,6 +1123,8 @@ export default function StockPage() {
   const activeDef = chartDefs.find((def) => def.key === activeChart) || chartDefs[0]
 
   const selectedFromUpload = companyMapByTicker[selectedTicker] || null
+  const routeSymbol = normalizeTicker(routeTicker || '')
+  const isCompanyView = Boolean(routeSymbol)
   const trackedRowByTicker = useMemo(() => {
     const map = {}
     trackedRows.forEach((row) => {
@@ -1138,26 +1138,16 @@ export default function StockPage() {
       const sym = normalizeTicker(rawTicker || selectedTicker)
       if (!sym) return
       setSelectedTicker(sym)
-      setDetailTicker(sym)
-      setViewMode('detail')
-      const params = new URLSearchParams(location.search || '')
-      params.set('view', 'company')
-      params.set('ticker', sym)
-      navigate({ pathname: '/stock', search: `?${params.toString()}` })
+      navigate(`/stock/${encodeURIComponent(sym)}`)
     },
-    [selectedTicker, location.search, navigate],
+    [selectedTicker, navigate],
   )
 
   const closeDetail = useCallback(() => {
-    setViewMode('overview')
-    const params = new URLSearchParams(location.search || '')
-    params.delete('view')
-    params.delete('ticker')
-    const next = params.toString()
-    navigate({ pathname: '/stock', search: next ? `?${next}` : '' })
-  }, [location.search, navigate])
+    navigate('/stock')
+  }, [navigate])
 
-  const detailSymbol = normalizeTicker(detailTicker || selectedTicker)
+  const detailSymbol = routeSymbol || selectedTicker
   const detailRow = trackedRowByTicker[detailSymbol] || null
   const detailData = detailRow?.data || data
   const detailCompany = detailRow?.company || detailData?.name || detailSymbol
@@ -1176,22 +1166,9 @@ export default function StockPage() {
   }, [loadedRows, detailSymbol, detailIndustry])
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search || '')
-    const qView = String(params.get('view') || '').trim().toLowerCase()
-    const qTicker = normalizeTicker(params.get('ticker') || '')
-    const isCompanyView = qView === 'company'
-
-    if (isCompanyView) {
-      if (viewMode !== 'detail') setViewMode('detail')
-      if (qTicker) {
-        if (selectedTicker !== qTicker) setSelectedTicker(qTicker)
-        if (detailTicker !== qTicker) setDetailTicker(qTicker)
-      }
-      return
-    }
-
-    if (viewMode !== 'overview') setViewMode('overview')
-  }, [location.search, viewMode, selectedTicker, detailTicker])
+    if (!routeSymbol) return
+    if (selectedTicker !== routeSymbol) setSelectedTicker(routeSymbol)
+  }, [routeSymbol, selectedTicker])
 
   const addTicker = () => {
     const next = normalizeTicker(addTickerInput)
@@ -1210,21 +1187,39 @@ export default function StockPage() {
   return (
     <div className="rl-page-shell rl-up-page rl-stock-page">
       <section className="rl-up-header">
-        <div className="page-header !mb-0">
-          <div className="page-header-left rl-up-title-block">
-            <span className="page-icon">💹</span>
-            <div>
-              <p className="page-title">Stock</p>
-              <p className="page-subtitle">Perplexity-style market board powered by uploaded 10-K companies</p>
+        {!isCompanyView ? (
+          <div className="page-header !mb-0">
+            <div className="page-header-left rl-up-title-block">
+              <span className="page-icon">💹</span>
+              <div>
+                <p className="page-title">Stock</p>
+                <p className="page-subtitle">Perplexity-style market board powered by uploaded 10-K companies</p>
+              </div>
+            </div>
+            <button className="btn-secondary" onClick={refreshSelected} disabled={loadingTicker === selectedTicker}>
+              {loadingTicker === selectedTicker ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+        ) : (
+          <div className="page-header !mb-0">
+            <div className="page-header-left rl-up-title-block">
+              <CompanyLogo ticker={detailSymbol} company={detailCompany} />
+              <div>
+                <p className="page-title">{detailCompany || detailSymbol}</p>
+                <p className="page-subtitle">{detailSymbol} · {detailData?.exchange || detailIndustry || 'US Equities'}</p>
+              </div>
+            </div>
+            <div className="rl-stock-detail-topline">
+              <button className="btn-secondary rl-stock-back-btn" onClick={closeDetail}>Back</button>
+              <button className="btn-secondary" onClick={refreshSelected} disabled={loadingTicker === selectedTicker}>
+                {loadingTicker === selectedTicker ? 'Refreshing…' : 'Refresh'}
+              </button>
             </div>
           </div>
-          <button className="btn-secondary" onClick={refreshSelected} disabled={loadingTicker === selectedTicker}>
-            {loadingTicker === selectedTicker ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
+        )}
       </section>
 
-      {viewMode === 'overview' ? (
+      {!isCompanyView ? (
       <>
       <section className="rl-stock-command rl-stock-command-v2">
         <div className="rl-stock-command-head">
@@ -1300,9 +1295,9 @@ export default function StockPage() {
       </>
       ) : null}
 
-      {viewMode === 'detail' && error ? <div className="rl-up-inline-error">{error}</div> : null}
+      {isCompanyView && error ? <div className="rl-up-inline-error">{error}</div> : null}
 
-      {viewMode === 'overview' ? (
+      {!isCompanyView ? (
       <section className="rl-stock-workbench rl-stock-workbench-v2">
         <div className="rl-stock-left">
           <div className="rl-stock-range-row">
@@ -1544,25 +1539,6 @@ export default function StockPage() {
       ) : (
       <section className="rl-stock-workbench rl-stock-workbench-v2 rl-stock-detail-layout">
         <div className="rl-stock-left">
-          <section className="rl-stock-side-card rl-stock-detail-head">
-            <div className="rl-stock-detail-topline">
-              <button className="btn-secondary rl-stock-back-btn" onClick={closeDetail}>← Back</button>
-            </div>
-            <div className="rl-stock-detail-title-row">
-              <div className="rl-stock-company-mini">
-                <CompanyLogo ticker={detailSymbol} company={detailCompany} />
-                <div>
-                  <p>{detailCompany}</p>
-                  <span>{detailSymbol} · {detailData?.exchange || detailIndustry || 'US'}</span>
-                </div>
-              </div>
-              <div className="rl-stock-company-price">
-                <strong>{fmtPrice(detailData?.price)}</strong>
-                <em className={toneClass(detailData?.change_percent)}>{fmtPct(detailData?.change_percent)}</em>
-              </div>
-            </div>
-          </section>
-
           <div className="rl-stock-range-row">
             <label className="section-title">Time Range</label>
             <div className="rl-segment">
@@ -1596,55 +1572,6 @@ export default function StockPage() {
               rangeKey={rangeKey}
             />
           </div>
-
-          <section className="rl-stock-side-card rl-stock-summary-card">
-            <div className="rl-stock-side-head">
-              <p>Market Summary</p>
-              <span>{loadedRows.length ? `Updated from ${loadedRows.length} tracked stocks` : 'Waiting for quotes'}</span>
-            </div>
-            <div className="rl-stock-accordion-list">
-              {summaryItems.map((item, idx) => {
-                const open = idx === summaryOpenIdx
-                return (
-                  <div key={`${item.title}-${idx}`} className={`rl-stock-accordion-item ${open ? 'open' : ''}`}>
-                    <button className="rl-stock-accordion-head" onClick={() => setSummaryOpenIdx(open ? -1 : idx)}>
-                      <span>{item.title}</span>
-                      <strong>{open ? '−' : '+'}</strong>
-                    </button>
-                    {open ? <p className="rl-stock-accordion-body">{item.body}</p> : null}
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-
-          <section className="rl-stock-side-card rl-stock-spotlight-card">
-            <div className="rl-stock-side-head">
-              <p>Spotlight Stocks</p>
-              <span>Perplexity-style highlights from your tracked universe</span>
-            </div>
-            <div className="rl-stock-spotlight-list">
-              {spotlightRows.map((row) => (
-                <article key={`spot-detail-${row.ticker}`} className="rl-stock-spotlight-item">
-                  <div className="rl-stock-spotlight-head">
-                    <div className="rl-stock-company-mini" onClick={() => openDetail(row.ticker)}>
-                      <CompanyLogo ticker={row.ticker} company={row.company} />
-                      <div>
-                        <p>{row.company}</p>
-                        <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
-                      </div>
-                    </div>
-                    <div className="rl-stock-company-price">
-                      <strong>{fmtPrice(row.data?.price)}</strong>
-                      <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
-                    </div>
-                  </div>
-                  <p className="rl-stock-spotlight-note">{row.narrative}</p>
-                </article>
-              ))}
-              {!spotlightRows.length ? <p className="rl-stock-muted">No spotlight yet.</p> : null}
-            </div>
-          </section>
         </div>
 
         <aside className="rl-stock-side">
