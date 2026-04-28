@@ -89,6 +89,11 @@ const LOGO_FORCE_DOMAIN_BY_TICKER = {
   LMT: 'lockheedmartin.com',
 }
 
+const LOGO_STATIC_BY_TICKER = {
+  UBER: 'https://upload.wikimedia.org/wikipedia/commons/7/79/Uber_App_Icon.svg',
+  LMT: 'https://upload.wikimedia.org/wikipedia/commons/4/44/Lockheed_Martin_logo_%282011%E2%80%932022%29.svg',
+}
+
 const SECTOR_BY_TICKER = {
   AAPL: 'Technology',
   MSFT: 'Technology',
@@ -609,6 +614,10 @@ function normalizeCompanyRoot(raw) {
 function logoCandidates(ticker, companyName) {
   const sym = normalizeTicker(ticker)
   const urls = []
+  const staticUrl = LOGO_STATIC_BY_TICKER[sym]
+  if (staticUrl) {
+    urls.push(staticUrl)
+  }
   const forceDomain = LOGO_FORCE_DOMAIN_BY_TICKER[sym]
   if (forceDomain) {
     urls.push(`https://api.faviconkit.com/${encodeURIComponent(forceDomain)}/128`)
