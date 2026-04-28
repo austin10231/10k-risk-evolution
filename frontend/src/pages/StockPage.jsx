@@ -90,8 +90,9 @@ const LOGO_FORCE_DOMAIN_BY_TICKER = {
 }
 
 const LOGO_STATIC_BY_TICKER = {
-  UBER: 'https://upload.wikimedia.org/wikipedia/commons/7/79/Uber_App_Icon.svg',
-  LMT: 'https://upload.wikimedia.org/wikipedia/commons/4/44/Lockheed_Martin_logo_%282011%E2%80%932022%29.svg',
+  AMZN: 'https://commons.wikimedia.org/wiki/Special:FilePath/Amazon%20icon.svg',
+  UBER: 'https://commons.wikimedia.org/wiki/Special:FilePath/Uber%20logo%202018.svg',
+  LMT: 'https://commons.wikimedia.org/wiki/Special:FilePath/Lockheed%20Martin%20logo%20%282011%E2%80%932022%29.svg',
 }
 
 const SECTOR_BY_TICKER = {
