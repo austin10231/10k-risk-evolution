@@ -826,6 +826,97 @@ function MiniChart({ values, kind, color, compact = true, widthOverride, heightO
   )
 }
 
+function SpotlightHoverChart({ rows, values, color, onOpenDetail }) {
+  const [hoverIdx, setHoverIdx] = useState(-1)
+  const width = 760
+  const height = 220
+  const chartRows = Array.isArray(rows) ? rows : []
+  const series = Array.isArray(values) && values.length ? values : numericSeries(chartRows, 'close')
+
+  if (!Array.isArray(series) || series.length < 2) {
+    return (
+      <MiniChart
+        values={series}
+        kind="line"
+        compact={false}
+        widthOverride={width}
+        heightOverride={height}
+        className="spotlight"
+        color={color}
+      />
+    )
+  }
+
+  const line = lineGeometry(series, width, height, 12)
+  const hasHover = hoverIdx >= 0
+  const resolvedHoverIdx = hasHover ? Math.max(0, Math.min(hoverIdx, line.points.length - 1)) : -1
+  const hoveredPoint = resolvedHoverIdx >= 0 ? line.points[resolvedHoverIdx] : null
+  const hoveredRow = resolvedHoverIdx >= 0 ? (chartRows[resolvedHoverIdx] || null) : null
+  const hoveredClose = Number(hoveredPoint?.v)
+  const prevClose = resolvedHoverIdx > 0 ? Number(line.points[resolvedHoverIdx - 1]?.v) : Number.NaN
+  const pointDelta = Number.isFinite(hoveredClose) && Number.isFinite(prevClose) ? hoveredClose - prevClose : Number.NaN
+  const pointDeltaPct = Number.isFinite(pointDelta) && Number.isFinite(prevClose) && prevClose !== 0
+    ? (pointDelta / prevClose) * 100
+    : Number.NaN
+
+  const onPointerMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const xNorm = Math.max(0, Math.min(1, x / Math.max(1, rect.width)))
+    const idx = Math.round(xNorm * (line.points.length - 1))
+    setHoverIdx(Math.max(0, Math.min(idx, line.points.length - 1)))
+  }
+
+  const leftPct = hoveredPoint ? (hoveredPoint.x / width) * 100 : 50
+  const topPct = hoveredPoint ? (hoveredPoint.y / height) * 100 : 24
+
+  return (
+    <div className="rl-stock-spotlight-hover-wrap">
+      {hasHover && hoveredPoint && hoveredRow ? (
+        <div
+          className="rl-stock-spotlight-tooltip"
+          style={{
+            left: `clamp(124px, ${leftPct}%, calc(100% - 124px))`,
+            top: `clamp(24px, ${topPct}%, calc(100% - 90px))`,
+          }}
+        >
+          <strong>{hoveredRow.date || '—'}</strong>
+          <span>Close {fmtPrice(hoveredClose)}</span>
+          <em className={toneClass(pointDelta)}>{Number.isFinite(pointDelta) ? `${fmtSigned(pointDelta)} (${fmtPctPlain(pointDeltaPct)})` : '—'}</em>
+          <em>Vol {fmtCompact(hoveredRow.volume)}</em>
+        </div>
+      ) : null}
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="rl-stock-mini-svg spotlight interactive"
+        aria-label="spotlight chart"
+        onMouseMove={onPointerMove}
+        onMouseLeave={() => setHoverIdx(-1)}
+        onClick={onOpenDetail}
+        role="img"
+      >
+        <path d={line.areaPath} fill={color} opacity="0.13" />
+        <path d={line.path} fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        {hasHover && hoveredPoint ? (
+          <>
+            <line
+              x1={hoveredPoint.x}
+              x2={hoveredPoint.x}
+              y1="8"
+              y2={height - 8}
+              stroke={color}
+              strokeOpacity="0.3"
+              strokeWidth="1.1"
+              strokeDasharray="4 4"
+            />
+            <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="4.8" fill="#ffffff" stroke={color} strokeWidth="2.3" />
+          </>
+        ) : null}
+      </svg>
+    </div>
+  )
+}
+
 function FocusChart({
   title,
   subtitle,
@@ -1525,6 +1616,7 @@ export default function StockPage() {
   const spotlightRows = useMemo(() => {
     const scored = loadedRows.map((row) => {
       const price = Number(resolvePrice(row?.data))
+      const spotlightHistory = clipHistory(row?.data?.history || [], '1M')
       const absChangePct = Math.abs(Number(row?.change_percent || 0))
       const volNow = Number(row?.volume || 0)
       const volAvg = Number(avgVolumeFromHistory(row?.data?.history || []))
@@ -1550,7 +1642,8 @@ export default function StockPage() {
       return {
         ...row,
         price: Number.isFinite(price) ? price : null,
-        closes: numericSeries(clipHistory(row?.data?.history || [], '1M'), 'close'),
+        spotlight_history: spotlightHistory,
+        closes: numericSeries(spotlightHistory, 'close'),
         volume_surge: volumeSurge,
         dist_to_high_pct: distToHighPct,
         dist_to_low_pct: distToLowPct,
@@ -2043,14 +2136,11 @@ export default function StockPage() {
 
                   <div className="rl-stock-spotlight-body rl-stock-spotlight-body-rich">
                     <div className="rl-stock-spotlight-chart rl-stock-spotlight-chart-large">
-                      <MiniChart
+                      <SpotlightHoverChart
+                        rows={Array.isArray(row.spotlight_history) ? row.spotlight_history : []}
                         values={Array.isArray(row.closes) ? row.closes : []}
-                        kind="line"
-                        compact={false}
-                        widthOverride={760}
-                        heightOverride={220}
-                        className="spotlight"
                         color={chartColorFor(row.closes, '#22c55e', '#ef4444')}
+                        onOpenDetail={() => openDetail(row.ticker)}
                       />
                     </div>
                     <div className="rl-stock-spotlight-stats rl-stock-spotlight-stats-rich">
