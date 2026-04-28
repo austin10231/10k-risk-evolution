@@ -901,7 +901,7 @@ select.input {
 }
 
 .rl-global-dock.news .rl-global-dock-inner {
-  max-width: min(1100px, calc(100% - 300px));
+  max-width: min(1056px, calc(100% - 404px));
   margin-left: 0;
   margin-right: auto;
 }
