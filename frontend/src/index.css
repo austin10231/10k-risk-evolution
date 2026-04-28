@@ -2997,6 +2997,27 @@ select.input {
   cursor: crosshair;
 }
 
+.rl-stock-spotlight-axis-line {
+  stroke: rgba(148, 163, 184, 0.52);
+  stroke-width: 1;
+}
+
+.rl-stock-spotlight-axis-grid {
+  stroke: rgba(148, 163, 184, 0.32);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.rl-stock-spotlight-axis-label {
+  fill: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.rl-stock-spotlight-axis-label.axis-x {
+  font-size: 10.5px;
+}
+
 .rl-stock-spotlight-tooltip {
   position: absolute;
   z-index: 3;

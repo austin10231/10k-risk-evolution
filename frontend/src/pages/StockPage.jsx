@@ -348,6 +348,20 @@ function fmtDateOnly(value) {
   return raw
 }
 
+function fmtDateAxis(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return '—'
+  const direct = new Date(raw)
+  if (!Number.isNaN(direct.getTime())) return `${direct.getMonth() + 1}/${direct.getDate()}`
+  const numeric = Number(value)
+  if (Number.isFinite(numeric) && numeric > 0) {
+    const ms = numeric > 1e12 ? numeric : numeric * 1000
+    const d = new Date(ms)
+    if (!Number.isNaN(d.getTime())) return `${d.getMonth() + 1}/${d.getDate()}`
+  }
+  return raw
+}
+
 function fmtDateTime(value) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric) || numeric <= 0) return '—'
@@ -895,6 +909,13 @@ function SpotlightHoverChart({ rows, values, color, onOpenDetail }) {
 
   const leftPct = hoveredPoint ? (hoveredPoint.x / width) * 100 : 50
   const topPct = hoveredPoint ? (hoveredPoint.y / height) * 100 : 24
+  const midIndex = Math.floor((line.points.length - 1) / 2)
+  const xLeft = chartRows[0]?.date || ''
+  const xMid = chartRows[midIndex]?.date || ''
+  const xRight = chartRows[chartRows.length - 1]?.date || ''
+  const yTop = line.max
+  const yMid = (line.max + line.min) / 2
+  const yBottom = line.min
 
   return (
     <div className="rl-stock-spotlight-hover-wrap">
@@ -921,6 +942,15 @@ function SpotlightHoverChart({ rows, values, color, onOpenDetail }) {
         onClick={onOpenDetail}
         role="img"
       >
+        <line x1="12" x2={width - 12} y1="12" y2="12" className="rl-stock-spotlight-axis-grid" />
+        <line x1="12" x2={width - 12} y1={height / 2} y2={height / 2} className="rl-stock-spotlight-axis-grid" />
+        <line x1="12" x2={width - 12} y1={height - 12} y2={height - 12} className="rl-stock-spotlight-axis-line" />
+        <line x1="12" x2="12" y1="12" y2={height - 12} className="rl-stock-spotlight-axis-line" />
+
+        <text x="16" y="22" className="rl-stock-spotlight-axis-label">{fmtPrice(yTop)}</text>
+        <text x="16" y={(height / 2) + 4} className="rl-stock-spotlight-axis-label">{fmtPrice(yMid)}</text>
+        <text x="16" y={height - 18} className="rl-stock-spotlight-axis-label">{fmtPrice(yBottom)}</text>
+
         <path d={line.areaPath} fill={color} opacity="0.13" />
         <path d={line.path} fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
         {hasHover && hoveredPoint ? (
@@ -938,6 +968,9 @@ function SpotlightHoverChart({ rows, values, color, onOpenDetail }) {
             <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="4.8" fill="#ffffff" stroke={color} strokeWidth="2.3" />
           </>
         ) : null}
+        <text x="12" y={height - 1} className="rl-stock-spotlight-axis-label axis-x" textAnchor="start">{fmtDateAxis(xLeft)}</text>
+        <text x={width / 2} y={height - 1} className="rl-stock-spotlight-axis-label axis-x" textAnchor="middle">{fmtDateAxis(xMid)}</text>
+        <text x={width - 12} y={height - 1} className="rl-stock-spotlight-axis-label axis-x" textAnchor="end">{fmtDateAxis(xRight)}</text>
       </svg>
     </div>
   )
