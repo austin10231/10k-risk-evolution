@@ -706,6 +706,8 @@ export default function StockPage() {
   const [summaryOpenIdx, setSummaryOpenIdx] = useState(0)
   const [showAddTicker, setShowAddTicker] = useState(false)
   const [addTickerInput, setAddTickerInput] = useState('')
+  const [viewMode, setViewMode] = useState('overview')
+  const [detailTicker, setDetailTicker] = useState('')
 
   const initializedRef = useRef(false)
 
@@ -1120,6 +1122,46 @@ export default function StockPage() {
   const activeDef = chartDefs.find((def) => def.key === activeChart) || chartDefs[0]
 
   const selectedFromUpload = companyMapByTicker[selectedTicker] || null
+  const trackedRowByTicker = useMemo(() => {
+    const map = {}
+    trackedRows.forEach((row) => {
+      map[row.ticker] = row
+    })
+    return map
+  }, [trackedRows])
+
+  const openDetail = useCallback(
+    (rawTicker) => {
+      const sym = normalizeTicker(rawTicker || selectedTicker)
+      if (!sym) return
+      setSelectedTicker(sym)
+      setDetailTicker(sym)
+      setViewMode('detail')
+    },
+    [selectedTicker],
+  )
+
+  const closeDetail = useCallback(() => {
+    setViewMode('overview')
+  }, [])
+
+  const detailSymbol = normalizeTicker(detailTicker || selectedTicker)
+  const detailRow = trackedRowByTicker[detailSymbol] || null
+  const detailData = detailRow?.data || data
+  const detailCompany = detailRow?.company || detailData?.name || detailSymbol
+  const detailIndustry = detailRow?.industry || 'Other'
+  const detailPeers = useMemo(() => {
+    const sameSector = loadedRows
+      .filter((row) => row.ticker !== detailSymbol && row.industry === detailIndustry)
+      .sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0))
+      .slice(0, 5)
+    if (sameSector.length >= 3) return sameSector
+    const fallback = loadedRows
+      .filter((row) => row.ticker !== detailSymbol)
+      .sort((a, b) => Number(Math.abs(b.change_percent || 0)) - Number(Math.abs(a.change_percent || 0)))
+      .slice(0, 5)
+    return sameSector.length ? [...sameSector, ...fallback.filter((r) => !sameSector.some((s) => s.ticker === r.ticker))].slice(0, 5) : fallback
+  }, [loadedRows, detailSymbol, detailIndustry])
 
   const addTicker = () => {
     const next = normalizeTicker(addTickerInput)
@@ -1171,7 +1213,7 @@ export default function StockPage() {
               <button
                 key={`${c.ticker}-${c.company}`}
                 className={`rl-stock-chip ${selectedTicker === c.ticker ? 'active' : ''}`}
-                onClick={() => setSelectedTicker(c.ticker)}
+                onClick={() => openDetail(c.ticker)}
                 title={`${c.company} · ${c.industry}`}
               >
                 <span>{c.company}</span>
@@ -1224,6 +1266,7 @@ export default function StockPage() {
         </div>
       </section>
 
+      {viewMode === 'overview' ? (
       <section className="rl-stock-workbench rl-stock-workbench-v2">
         <div className="rl-stock-left">
           <div className="rl-stock-range-row">
@@ -1292,7 +1335,7 @@ export default function StockPage() {
                   key={`heat-${row.ticker}`}
                   className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)}`}
                   style={{ gridColumn: `span ${row.span}` }}
-                  onClick={() => setSelectedTicker(row.ticker)}
+                  onClick={() => openDetail(row.ticker)}
                   title={`${row.company} · ${fmtPct(row.change_percent)}`}
                 >
                   <span>{row.ticker}</span>
@@ -1312,7 +1355,7 @@ export default function StockPage() {
               {spotlightRows.map((row) => (
                 <article key={`spot-${row.ticker}`} className="rl-stock-spotlight-item">
                   <div className="rl-stock-spotlight-head">
-                    <div className="rl-stock-company-mini" onClick={() => setSelectedTicker(row.ticker)}>
+                    <div className="rl-stock-company-mini" onClick={() => openDetail(row.ticker)}>
                       <CompanyLogo ticker={row.ticker} company={row.company} />
                       <div>
                         <p>{row.company}</p>
@@ -1353,7 +1396,7 @@ export default function StockPage() {
               {popularRows.map((row) => {
                 const pct = Number(row.data?.change_percent)
                 return (
-                  <button key={`popular-${row.ticker}`} className="rl-stock-company-item" onClick={() => setSelectedTicker(row.ticker)}>
+                  <button key={`popular-${row.ticker}`} className="rl-stock-company-item" onClick={() => openDetail(row.ticker)}>
                     <div className="rl-stock-company-mini">
                       <CompanyLogo ticker={row.ticker} company={row.company} />
                       <div>
@@ -1387,7 +1430,7 @@ export default function StockPage() {
             </div>
             <div className="rl-stock-board-list">
               {boardRows.map((row) => (
-                <div key={`board-${row.ticker}`} className="rl-stock-board-item">
+                <button key={`board-${row.ticker}`} className="rl-stock-board-item" onClick={() => openDetail(row.ticker)}>
                   <div className="rl-stock-company-mini">
                     <CompanyLogo ticker={row.ticker} company={row.company} />
                     <div>
@@ -1399,7 +1442,7 @@ export default function StockPage() {
                     <strong>{fmtPrice(row.data?.price)}</strong>
                     <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
                   </div>
-                </div>
+                </button>
               ))}
               {!boardRows.length ? <p className="rl-stock-muted">Load tracked quotes to populate board.</p> : null}
             </div>
@@ -1462,6 +1505,215 @@ export default function StockPage() {
           </section>
         </aside>
       </section>
+      ) : (
+      <section className="rl-stock-workbench rl-stock-workbench-v2 rl-stock-detail-layout">
+        <div className="rl-stock-left">
+          <section className="rl-stock-side-card rl-stock-detail-head">
+            <div className="rl-stock-detail-topline">
+              <button className="btn-secondary rl-stock-back-btn" onClick={closeDetail}>← Back</button>
+              <span className="rl-stock-detail-tag">Stock Detail</span>
+            </div>
+            <div className="rl-stock-detail-title-row">
+              <div className="rl-stock-company-mini">
+                <CompanyLogo ticker={detailSymbol} company={detailCompany} />
+                <div>
+                  <p>{detailCompany}</p>
+                  <span>{detailSymbol} · {detailData?.exchange || detailIndustry || 'US'}</span>
+                </div>
+              </div>
+              <div className="rl-stock-company-price">
+                <strong>{fmtPrice(detailData?.price)}</strong>
+                <em className={toneClass(detailData?.change_percent)}>{fmtPct(detailData?.change_percent)}</em>
+              </div>
+            </div>
+          </section>
+
+          <div className="rl-stock-range-row">
+            <label className="section-title">Time Range</label>
+            <div className="rl-segment">
+              {RANGE_OPTIONS.map((key) => (
+                <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => setRangeKey(key)}>{key}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rl-stock-chart-grid">
+            {chartDefs.map((def) => (
+              <button key={def.key} className={`rl-stock-chart-tile ${activeChart === def.key ? 'active' : ''}`} onClick={() => setActiveChart(def.key)}>
+                <div className="rl-stock-chart-tile-top">
+                  <p>{def.title}</p>
+                  <span>{def.value}</span>
+                </div>
+                <small>{def.subtitle}</small>
+                <MiniChart values={def.series} kind={def.kind} color={def.color} />
+              </button>
+            ))}
+          </div>
+
+          <div className="rl-stock-focus-card">
+            <FocusChart
+              title={`${activeDef?.title || 'Chart'} · ${detailSymbol}`}
+              subtitle={`${detailCompany || detailSymbol} (${rangeKey})`}
+              values={activeDef?.series || []}
+              kind={activeDef?.kind || 'line'}
+              color={activeDef?.color || '#2563eb'}
+              dateRange={dateRange}
+              rangeKey={rangeKey}
+            />
+          </div>
+
+          <section className="rl-stock-side-card rl-stock-summary-card">
+            <div className="rl-stock-side-head">
+              <p>Market Summary</p>
+              <span>{loadedRows.length ? `Updated from ${loadedRows.length} tracked stocks` : 'Waiting for quotes'}</span>
+            </div>
+            <div className="rl-stock-accordion-list">
+              {summaryItems.map((item, idx) => {
+                const open = idx === summaryOpenIdx
+                return (
+                  <div key={`${item.title}-${idx}`} className={`rl-stock-accordion-item ${open ? 'open' : ''}`}>
+                    <button className="rl-stock-accordion-head" onClick={() => setSummaryOpenIdx(open ? -1 : idx)}>
+                      <span>{item.title}</span>
+                      <strong>{open ? '−' : '+'}</strong>
+                    </button>
+                    {open ? <p className="rl-stock-accordion-body">{item.body}</p> : null}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card rl-stock-spotlight-card">
+            <div className="rl-stock-side-head">
+              <p>Spotlight Stocks</p>
+              <span>Perplexity-style highlights from your tracked universe</span>
+            </div>
+            <div className="rl-stock-spotlight-list">
+              {spotlightRows.map((row) => (
+                <article key={`spot-detail-${row.ticker}`} className="rl-stock-spotlight-item">
+                  <div className="rl-stock-spotlight-head">
+                    <div className="rl-stock-company-mini" onClick={() => openDetail(row.ticker)}>
+                      <CompanyLogo ticker={row.ticker} company={row.company} />
+                      <div>
+                        <p>{row.company}</p>
+                        <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
+                      </div>
+                    </div>
+                    <div className="rl-stock-company-price">
+                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
+                    </div>
+                  </div>
+                  <p className="rl-stock-spotlight-note">{row.narrative}</p>
+                </article>
+              ))}
+              {!spotlightRows.length ? <p className="rl-stock-muted">No spotlight yet.</p> : null}
+            </div>
+          </section>
+        </div>
+
+        <aside className="rl-stock-side">
+          <section className="rl-stock-side-card rl-stock-profile-card">
+            <div className="rl-stock-side-head">
+              <p>Company Profile</p>
+            </div>
+            <div className="rl-stock-profile-list">
+              <div><span>Symbol</span><strong>{detailSymbol || '—'}</strong></div>
+              <div><span>Exchange</span><strong>{detailData?.exchange || 'US'}</strong></div>
+              <div><span>Sector</span><strong>{detailIndustry || '—'}</strong></div>
+              <div><span>Market Cap</span><strong>{fmtCompact(detailData?.market_cap)}</strong></div>
+              <div><span>PE</span><strong>{detailData?.pe_ratio ? Number(detailData.pe_ratio).toFixed(2) : '—'}</strong></div>
+              <div><span>52W Range</span><strong>{fmtPrice(detailData?.low_52)} - {fmtPrice(detailData?.high_52)}</strong></div>
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card">
+            <div className="rl-stock-side-head">
+              <p>Peers</p>
+              <span>{detailPeers.length} names</span>
+            </div>
+            <div className="rl-stock-company-list">
+              {detailPeers.map((row) => (
+                <button key={`peer-${row.ticker}`} className="rl-stock-company-item" onClick={() => openDetail(row.ticker)}>
+                  <div className="rl-stock-company-mini">
+                    <CompanyLogo ticker={row.ticker} company={row.company} />
+                    <div>
+                      <p>{row.company}</p>
+                      <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
+                    </div>
+                  </div>
+                  <div className="rl-stock-company-price">
+                    <strong>{fmtPrice(row.data?.price)}</strong>
+                    <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card">
+            <div className="rl-stock-side-head">
+              <p>Popular Companies</p>
+              <span>{popularRows.length} names</span>
+            </div>
+            <div className="rl-stock-company-list">
+              {popularRows.map((row) => {
+                const pct = Number(row.data?.change_percent)
+                return (
+                  <button key={`popular-detail-${row.ticker}`} className="rl-stock-company-item" onClick={() => openDetail(row.ticker)}>
+                    <div className="rl-stock-company-mini">
+                      <CompanyLogo ticker={row.ticker} company={row.company} />
+                      <div>
+                        <p>{row.company}</p>
+                        <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
+                      </div>
+                    </div>
+                    <div className="rl-stock-company-price">
+                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : '—'}</em>
+                    </div>
+                  </button>
+                )
+              })}
+              {!popularRows.length ? <p className="rl-stock-muted">No uploaded companies yet.</p> : null}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card">
+            <div className="rl-stock-side-head">
+              <p>Leaders Board</p>
+            </div>
+            <div className="rl-stock-board-tabs">
+              {[
+                { key: 'gainers', label: 'Gainers' },
+                { key: 'losers', label: 'Losers' },
+                { key: 'active', label: 'Active' },
+              ].map((tab) => (
+                <button key={tab.key} className={boardTab === tab.key ? 'active' : ''} onClick={() => setBoardTab(tab.key)}>{tab.label}</button>
+              ))}
+            </div>
+            <div className="rl-stock-board-list">
+              {boardRows.map((row) => (
+                <button key={`board-detail-${row.ticker}`} className="rl-stock-board-item" onClick={() => openDetail(row.ticker)}>
+                  <div className="rl-stock-company-mini">
+                    <CompanyLogo ticker={row.ticker} company={row.company} />
+                    <div>
+                      <p>{row.company}</p>
+                      <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
+                    </div>
+                  </div>
+                  <div className="rl-stock-company-price">
+                    <strong>{fmtPrice(row.data?.price)}</strong>
+                    <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
+                  </div>
+                </button>
+              ))}
+              {!boardRows.length ? <p className="rl-stock-muted">Load tracked quotes to populate board.</p> : null}
+            </div>
+          </section>
+        </aside>
+      </section>
+      )}
     </div>
   )
 }

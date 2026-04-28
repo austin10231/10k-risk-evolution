@@ -2529,6 +2529,86 @@ select.input {
   text-align: left;
 }
 
+.rl-stock-board-item {
+  width: 100%;
+  text-align: left;
+}
+
+.rl-stock-detail-layout {
+  align-items: start;
+}
+
+.rl-stock-detail-head {
+  padding: 11px;
+}
+
+.rl-stock-detail-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rl-stock-back-btn {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+}
+
+.rl-stock-detail-tag {
+  font-size: 0.66rem;
+  color: #64748b;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rl-stock-detail-title-row {
+  margin-top: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rl-stock-profile-card {
+  padding: 10px;
+}
+
+.rl-stock-profile-list {
+  margin-top: 8px;
+  border: 1px solid rgba(195, 208, 227, 0.82);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.rl-stock-profile-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 9px;
+  background: rgba(252, 254, 255, 0.75);
+  border-top: 1px solid rgba(203, 213, 225, 0.68);
+}
+
+.rl-stock-profile-list > div:first-child {
+  border-top: 0;
+}
+
+.rl-stock-profile-list span {
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.rl-stock-profile-list strong {
+  color: #0f172a;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-align: right;
+}
+
 .rl-stock-board-tabs {
   margin-top: 9px;
   border: 1px solid rgba(186, 202, 226, 0.8);
@@ -4953,6 +5033,11 @@ select.input {
   .rl-stock-spotlight-stats {
     grid-template-columns: 1fr;
   }
+
+  .rl-stock-detail-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 640px) {
@@ -5050,6 +5135,20 @@ select.input {
 
   .rl-stock-company-price {
     width: 100%;
+    text-align: left;
+  }
+
+  .rl-stock-detail-topline {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .rl-stock-profile-list > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .rl-stock-profile-list strong {
     text-align: left;
   }
 
