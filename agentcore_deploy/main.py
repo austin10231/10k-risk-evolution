@@ -708,62 +708,262 @@ def _record_summary(
     return base
 
 
+def _to_int_safe(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _risk_pressure_index(high: int, medium: int, low: int) -> float:
+    total = int(high or 0) + int(medium or 0) + int(low or 0)
+    if total <= 0:
+        return 0.0
+    weighted = (3 * int(high or 0)) + (2 * int(medium or 0)) + int(low or 0)
+    # Scale 1.0~3.0 to 0~100.
+    return round(((weighted / total) - 1.0) / 2.0 * 100.0, 2)
+
+
+def _extract_priority_counts_from_result(result: dict) -> dict:
+    out = {
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "total": 0,
+        "top_high": [],
+    }
+    if not isinstance(result, dict):
+        return out
+
+    agent_report = result.get("agent_report", {}) if isinstance(result.get("agent_report"), dict) else {}
+    pm = agent_report.get("priority_matrix", {}) if isinstance(agent_report.get("priority_matrix"), dict) else {}
+    high = _to_int_safe((pm.get("high", {}) or {}).get("count", 0), 0) if isinstance(pm.get("high"), dict) else 0
+    medium = _to_int_safe((pm.get("medium", {}) or {}).get("count", 0), 0) if isinstance(pm.get("medium"), dict) else 0
+    low = _to_int_safe((pm.get("low", {}) or {}).get("count", 0), 0) if isinstance(pm.get("low"), dict) else 0
+
+    top_high: List[str] = []
+    if isinstance(pm.get("high"), dict):
+        for item in (pm.get("high", {}) or {}).get("top", []) or []:
+            if isinstance(item, dict):
+                title = str(item.get("title", "") or "").strip()
+                if title:
+                    top_high.append(title)
+            else:
+                title = str(item or "").strip()
+                if title:
+                    top_high.append(title)
+    top_high = top_high[:3]
+
+    if high + medium + low <= 0:
+        enriched_blocks = []
+        if isinstance(agent_report.get("enriched_risks"), list):
+            enriched_blocks = agent_report.get("enriched_risks") or []
+        elif isinstance(result.get("risks"), list):
+            enriched_blocks = result.get("risks") or []
+
+        fallback_high_titles: List[str] = []
+        for cat_block in enriched_blocks:
+            if not isinstance(cat_block, dict):
+                continue
+            for sr in cat_block.get("sub_risks", []) or []:
+                if not isinstance(sr, dict):
+                    continue
+                priority = str(sr.get("priority", "Medium") or "Medium").strip().lower()
+                title = str(sr.get("title", "") or "").strip()
+                if priority == "high":
+                    high += 1
+                    if title and len(fallback_high_titles) < 3:
+                        fallback_high_titles.append(title)
+                elif priority == "low":
+                    low += 1
+                else:
+                    medium += 1
+        if not top_high:
+            top_high = fallback_high_titles[:3]
+
+    out["high"] = int(high)
+    out["medium"] = int(medium)
+    out["low"] = int(low)
+    out["total"] = int(high + medium + low)
+    out["top_high"] = top_high[:3]
+    return out
+
+
 def _dashboard_summary() -> dict:
     index = _load_index()
     records = sorted(index, key=lambda r: str(r.get("created_at", "")), reverse=True)
-    companies = sorted({str(r.get("company", "") or "").strip() for r in records if str(r.get("company", "") or "").strip()})
+    companies = sorted(
+        {
+            str(r.get("company", "") or "").strip()
+            for r in records
+            if str(r.get("company", "") or "").strip()
+        }
+    )
 
-    category_counts: Dict[str, int] = {}
-    total_risk_items = 0
-    yearly_counts: Dict[str, int] = {}
+    scoped: Dict[str, dict] = {}
+
+    def _ensure_scope(key: str) -> dict:
+        if key in scoped:
+            return scoped[key]
+        scoped[key] = {
+            "records": 0,
+            "risk_items": 0,
+            "records_with_priority": 0,
+            "companies_set": set(),
+            "years_set": set(),
+            "yearly_records_map": {},
+            "priority_totals": {"high": 0, "medium": 0, "low": 0},
+            "category_counts_map": {},
+            "category_yearly_map": {},
+            "heat_cells_map": {},
+            "rpi_values": [],
+        }
+        return scoped[key]
+
     for rec in records:
-        year_key = str(rec.get("year", ""))
-        if year_key:
-            yearly_counts[year_key] = yearly_counts.get(year_key, 0) + 1
+        rid = str(rec.get("record_id", "") or "").strip()
+        company = str(rec.get("company", "") or "").strip()
+        industry = str(rec.get("industry", "") or "").strip() or "Other"
+        year = _to_int_safe(rec.get("year"), 0)
+        created_at = str(rec.get("created_at", "") or "")
+        result = _load_result(rid) if rid else None
+        risks = _extract_sub_risks(result) if isinstance(result, dict) else []
+        risk_items = len(risks)
+        priority = _extract_priority_counts_from_result(result if isinstance(result, dict) else {})
+        rpi = _risk_pressure_index(priority["high"], priority["medium"], priority["low"])
 
-        result = _load_result(str(rec.get("record_id", "") or ""))
-        if not isinstance(result, dict):
-            continue
-        risks = _extract_sub_risks(result)
-        total_risk_items += len(risks)
+        category_counts_local: Dict[str, int] = {}
         for item in risks:
-            c = str(item.get("category", "Unknown") or "Unknown")
-            category_counts[c] = category_counts.get(c, 0) + 1
+            cat = str(item.get("category", "Unknown") or "Unknown").strip() or "Unknown"
+            category_counts_local[cat] = category_counts_local.get(cat, 0) + 1
 
-    reports = _load_agent_reports()
-    latest_rating_by_company_year: Dict[str, str] = {}
-    rating_counts: Dict[str, int] = {"High": 0, "Medium-High": 0, "Medium": 0, "Medium-Low": 0, "Low": 0, "Unknown": 0}
-    for rp in reports:
-        company = str(rp.get("company", "") or "").strip()
-        year = str(rp.get("year", "") or "").strip()
-        rating = str(rp.get("overall_risk_rating", "Unknown") or "Unknown").strip()
-        if not company or not year:
-            continue
-        key = f"{company}__{year}"
-        latest_rating_by_company_year[key] = rating
+        for scope_key in ("__all__", industry):
+            scope = _ensure_scope(scope_key)
+            scope["records"] += 1
+            scope["risk_items"] += risk_items
+            if company:
+                scope["companies_set"].add(company)
+            if year > 0:
+                scope["years_set"].add(year)
+                yk = str(year)
+                scope["yearly_records_map"][yk] = scope["yearly_records_map"].get(yk, 0) + 1
 
-    for rating in latest_rating_by_company_year.values():
-        if rating not in rating_counts:
-            rating = "Unknown"
-        rating_counts[rating] += 1
+            if priority["total"] > 0:
+                scope["records_with_priority"] += 1
+            scope["priority_totals"]["high"] += int(priority["high"])
+            scope["priority_totals"]["medium"] += int(priority["medium"])
+            scope["priority_totals"]["low"] += int(priority["low"])
+            if rpi > 0:
+                scope["rpi_values"].append(float(rpi))
 
-    top_categories = sorted(category_counts.items(), key=lambda kv: kv[1], reverse=True)[:8]
+            for cat, cnt in category_counts_local.items():
+                scope["category_counts_map"][cat] = scope["category_counts_map"].get(cat, 0) + int(cnt)
+                by_cat = scope["category_yearly_map"].setdefault(cat, {})
+                if year > 0:
+                    yk = str(year)
+                    by_cat[yk] = by_cat.get(yk, 0) + int(cnt)
+
+            if company and year > 0:
+                cell_key = f"{company}__{year}"
+                # records are sorted newest first; keep latest for a company-year cell.
+                if cell_key not in scope["heat_cells_map"]:
+                    scope["heat_cells_map"][cell_key] = {
+                        "company": company,
+                        "year": year,
+                        "high": int(priority["high"]),
+                        "medium": int(priority["medium"]),
+                        "low": int(priority["low"]),
+                        "total": int(priority["total"]),
+                        "rpi": float(rpi),
+                        "top_high": list(priority["top_high"])[:3],
+                        "created_at": created_at,
+                    }
+
+    scopes_payload: Dict[str, dict] = {}
+    for scope_key, scope in scoped.items():
+        heat_cells = list(scope["heat_cells_map"].values())
+        years_sorted = sorted(scope["years_set"])
+        max_rpi_by_company: Dict[str, float] = {}
+        for cell in heat_cells:
+            comp = str(cell.get("company", "") or "")
+            rpi = float(cell.get("rpi", 0.0) or 0.0)
+            max_rpi_by_company[comp] = max(max_rpi_by_company.get(comp, 0.0), rpi)
+        companies_sorted = sorted(
+            list(scope["companies_set"]),
+            key=lambda c: (-max_rpi_by_company.get(c, 0.0), c.lower()),
+        )
+        heat_cells.sort(key=lambda row: (str(row.get("company", "")).lower(), int(row.get("year", 0))))
+
+        category_counts_sorted = sorted(
+            scope["category_counts_map"].items(),
+            key=lambda kv: (-kv[1], str(kv[0]).lower()),
+        )
+        category_yearly = []
+        for cat, ymap in scope["category_yearly_map"].items():
+            yearly = [{"year": y, "count": int(c)} for y, c in sorted(ymap.items(), key=lambda kv: int(kv[0]))]
+            category_yearly.append(
+                {
+                    "category": cat,
+                    "total": int(scope["category_counts_map"].get(cat, 0)),
+                    "yearly": yearly,
+                }
+            )
+        category_yearly.sort(key=lambda row: (-int(row.get("total", 0)), str(row.get("category", "")).lower()))
+
+        records_count = int(scope["records"])
+        with_priority = int(scope["records_with_priority"])
+        coverage_rate = round((with_priority / records_count) * 100.0, 1) if records_count > 0 else 0.0
+
+        scopes_payload[scope_key] = {
+            "metrics": {
+                "records": records_count,
+                "companies": len(scope["companies_set"]),
+                "years_covered": len(scope["years_set"]),
+                "risk_items": int(scope["risk_items"]),
+                "records_with_priority": with_priority,
+                "agent_coverage_rate": coverage_rate,
+            },
+            "yearly_records": [
+                {"year": y, "count": int(c)}
+                for y, c in sorted(scope["yearly_records_map"].items(), key=lambda kv: int(kv[0]))
+            ],
+            "priority_totals": {
+                "high": int(scope["priority_totals"]["high"]),
+                "medium": int(scope["priority_totals"]["medium"]),
+                "low": int(scope["priority_totals"]["low"]),
+            },
+            "priority_heatmap": {
+                "years": years_sorted,
+                "companies": companies_sorted,
+                "cells": heat_cells,
+                "max_rpi": round(max(scope["rpi_values"]), 2) if scope["rpi_values"] else 0.0,
+                "avg_rpi": round(sum(scope["rpi_values"]) / len(scope["rpi_values"]), 2) if scope["rpi_values"] else 0.0,
+            },
+            "top_categories": [{"category": k, "count": int(v)} for k, v in category_counts_sorted[:12]],
+            "category_counts": [{"category": k, "count": int(v)} for k, v in category_counts_sorted],
+            "category_yearly": category_yearly,
+        }
+
     ticker_lookup = _build_ticker_lookup()
     recent_records = [_record_summary(r, include_result=True, ticker_lookup=ticker_lookup) for r in records[:12]]
+    all_scope = scopes_payload.get("__all__", {})
+    industry_options = sorted([k for k in scopes_payload.keys() if k != "__all__"], key=lambda x: x.lower())
 
     return {
-        "metrics": {
+        "metrics": all_scope.get("metrics", {
             "records": len(records),
             "companies": len(companies),
-            "years_covered": len(yearly_counts),
-            "risk_items": total_risk_items,
-            "agent_reports": len(reports),
-        },
-        "rating_breakdown": rating_counts,
-        "top_categories": [{"category": k, "count": v} for k, v in top_categories],
-        "yearly_records": [{"year": y, "count": c} for y, c in sorted(yearly_counts.items())],
+            "years_covered": 0,
+            "risk_items": 0,
+            "records_with_priority": 0,
+            "agent_coverage_rate": 0.0,
+        }),
+        "top_categories": all_scope.get("top_categories", []),
+        "yearly_records": all_scope.get("yearly_records", []),
         "recent_records": recent_records,
         "companies": companies,
+        "industry_options": industry_options,
+        "scopes": scopes_payload,
     }
 
 
