@@ -1171,6 +1171,25 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
     high_52 = None
     low_52 = None
     exchange = ""
+    previous_close = None
+    open_price = None
+    day_high = None
+    day_low = None
+    volume = None
+    eps = None
+    dividend_yield = None
+    sector = ""
+    industry = ""
+    country = ""
+    full_time_employees = None
+    ceo = ""
+    long_description = ""
+    ipo_date = ""
+    post_market_price = None
+    post_market_change = None
+    post_market_change_percent = None
+    regular_market_time = None
+    post_market_time = None
     history: List[dict] = []
     errors: List[str] = []
     quote_source = ""
@@ -1178,6 +1197,9 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
 
     def _apply_quote_fields(provider: str, data: dict) -> None:
         nonlocal name, price, change, change_percent, market_cap, pe_ratio, high_52, low_52, exchange, quote_source
+        nonlocal previous_close, open_price, day_high, day_low, volume, eps, dividend_yield
+        nonlocal sector, industry, country, full_time_employees, ceo, long_description, ipo_date
+        nonlocal post_market_price, post_market_change, post_market_change_percent, regular_market_time, post_market_time
         if not isinstance(data, dict):
             return
 
@@ -1205,6 +1227,44 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
             low_52 = _to_float(data.get("low_52"))
         if not exchange:
             exchange = str(data.get("exchange", "") or "").strip()
+        if previous_close is None:
+            previous_close = _to_float(data.get("previous_close"))
+        if open_price is None:
+            open_price = _to_float(data.get("open"))
+        if day_high is None:
+            day_high = _to_float(data.get("day_high"))
+        if day_low is None:
+            day_low = _to_float(data.get("day_low"))
+        if volume is None:
+            volume = _to_float(data.get("volume"))
+        if eps is None:
+            eps = _to_float(data.get("eps"))
+        if dividend_yield is None:
+            dividend_yield = _to_float(data.get("dividend_yield"))
+        if not sector:
+            sector = str(data.get("sector", "") or "").strip()
+        if not industry:
+            industry = str(data.get("industry", "") or "").strip()
+        if not country:
+            country = str(data.get("country", "") or "").strip()
+        if full_time_employees is None:
+            full_time_employees = _to_float(data.get("full_time_employees"))
+        if not ceo:
+            ceo = str(data.get("ceo", "") or "").strip()
+        if not long_description:
+            long_description = str(data.get("description", "") or "").strip()
+        if not ipo_date:
+            ipo_date = str(data.get("ipo_date", "") or "").strip()
+        if post_market_price is None:
+            post_market_price = _to_float(data.get("post_market_price"))
+        if post_market_change is None:
+            post_market_change = _to_float(data.get("post_market_change"))
+        if post_market_change_percent is None:
+            post_market_change_percent = _to_float(data.get("post_market_change_percent"))
+        if regular_market_time is None:
+            regular_market_time = _to_float(data.get("regular_market_time"))
+        if post_market_time is None:
+            post_market_time = _to_float(data.get("post_market_time"))
 
     def _need_quote_fields() -> bool:
         return any(v is None for v in [price, change, change_percent, market_cap, pe_ratio, high_52, low_52]) or not exchange
@@ -1282,8 +1342,85 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
                     "high_52": _to_float(row.get("fiftyTwoWeekHigh")),
                     "low_52": _to_float(row.get("fiftyTwoWeekLow")),
                     "exchange": row.get("fullExchangeName") or row.get("exchange") or "",
+                    "previous_close": _to_float(row.get("regularMarketPreviousClose")),
+                    "open": _to_float(row.get("regularMarketOpen")),
+                    "day_high": _to_float(row.get("regularMarketDayHigh")),
+                    "day_low": _to_float(row.get("regularMarketDayLow")),
+                    "volume": _to_float(row.get("regularMarketVolume")),
+                    "eps": _to_float(row.get("epsTrailingTwelveMonths")),
+                    "dividend_yield": _to_float(row.get("trailingAnnualDividendYield")),
+                    "sector": row.get("sectorDisp") or "",
+                    "industry": row.get("industryDisp") or "",
+                    "country": row.get("region") or "",
+                    "ipo_date": row.get("firstTradeDateMilliseconds") or "",
+                    "post_market_price": _to_float(row.get("postMarketPrice")),
+                    "post_market_change": _to_float(row.get("postMarketChange")),
+                    "post_market_change_percent": _to_float(row.get("postMarketChangePercent")),
+                    "regular_market_time": _to_float(row.get("regularMarketTime")),
+                    "post_market_time": _to_float(row.get("postMarketTime")),
                 },
             )
+
+            if _provider_available("yahoo"):
+                summary_url = (
+                    f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{sym}"
+                    "?modules=assetProfile,summaryDetail,defaultKeyStatistics"
+                )
+                try:
+                    summary_payload = _yahoo_json(summary_url)
+                    result_items = (
+                        summary_payload.get("quoteSummary", {}).get("result", [])
+                        if isinstance(summary_payload, dict) else []
+                    )
+                    summary = result_items[0] if result_items else {}
+                    asset = summary.get("assetProfile", {}) if isinstance(summary, dict) else {}
+                    detail = summary.get("summaryDetail", {}) if isinstance(summary, dict) else {}
+                    stats = summary.get("defaultKeyStatistics", {}) if isinstance(summary, dict) else {}
+
+                    officers = asset.get("companyOfficers", []) if isinstance(asset, dict) else []
+                    ceo_name = ""
+                    if isinstance(officers, list):
+                        for officer in officers:
+                            if not isinstance(officer, dict):
+                                continue
+                            title = str(officer.get("title", "") or "").lower()
+                            if "chief executive officer" in title or title.startswith("ceo"):
+                                ceo_name = str(officer.get("name", "") or "").strip()
+                                if ceo_name:
+                                    break
+
+                    first_trade_raw = row.get("firstTradeDateMilliseconds")
+                    ipo_text = ""
+                    try:
+                        if first_trade_raw is not None:
+                            ms = float(first_trade_raw)
+                            if ms > 0:
+                                ipo_text = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d")
+                    except Exception:
+                        ipo_text = ""
+
+                    _apply_quote_fields(
+                        "yahoo",
+                        {
+                            "sector": asset.get("sector") or asset.get("sectorDisp") or "",
+                            "industry": asset.get("industry") or asset.get("industryDisp") or "",
+                            "country": asset.get("country") or "",
+                            "full_time_employees": _to_float(asset.get("fullTimeEmployees")),
+                            "ceo": ceo_name,
+                            "description": asset.get("longBusinessSummary") or "",
+                            "dividend_yield": _to_float(detail.get("dividendYield", {}).get("raw"))
+                            if isinstance(detail.get("dividendYield"), dict)
+                            else _to_float(detail.get("dividendYield")),
+                            "eps": _to_float(stats.get("trailingEps", {}).get("raw"))
+                            if isinstance(stats.get("trailingEps"), dict)
+                            else _to_float(stats.get("trailingEps")),
+                            "ipo_date": ipo_text,
+                        },
+                    )
+                    _provider_mark_success("yahoo")
+                except Exception as e:
+                    _provider_mark_failure("yahoo", e)
+                    errors.append(f"yahoo summary: {type(e).__name__}: {e}")
 
         if need_yahoo_chart and _provider_available("yahoo"):
             try:
@@ -1353,6 +1490,25 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
         "high_52": high_52,
         "low_52": low_52,
         "exchange": exchange,
+        "previous_close": previous_close,
+        "open": open_price,
+        "day_high": day_high,
+        "day_low": day_low,
+        "volume": volume,
+        "eps": eps,
+        "dividend_yield": dividend_yield,
+        "sector": sector,
+        "industry": industry,
+        "country": country,
+        "full_time_employees": full_time_employees,
+        "ceo": ceo,
+        "description": long_description,
+        "ipo_date": ipo_date,
+        "post_market_price": post_market_price,
+        "post_market_change": post_market_change,
+        "post_market_change_percent": post_market_change_percent,
+        "regular_market_time": regular_market_time,
+        "post_market_time": post_market_time,
         "history": history,
         "quote_source": quote_source or "",
         "history_source": history_source or "",

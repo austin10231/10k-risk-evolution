@@ -260,6 +260,49 @@ function fmtCompact(v) {
   return n.toLocaleString()
 }
 
+function fmtWhole(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return Math.round(n).toLocaleString()
+}
+
+function fmtYield(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  const pct = Math.abs(n) <= 1 ? n * 100 : n
+  return `${pct.toFixed(2)}%`
+}
+
+function fmtRange(a, b, formatter = fmtPrice) {
+  const left = formatter(a)
+  const right = formatter(b)
+  if (left === '—' && right === '—') return '—'
+  return `${left} - ${right}`
+}
+
+function fmtDateOnly(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return '—'
+  const direct = new Date(raw)
+  if (!Number.isNaN(direct.getTime())) return direct.toLocaleDateString()
+  const numeric = Number(value)
+  if (Number.isFinite(numeric) && numeric > 0) {
+    const ms = numeric > 1e12 ? numeric : numeric * 1000
+    const d = new Date(ms)
+    if (!Number.isNaN(d.getTime())) return d.toLocaleDateString()
+  }
+  return raw
+}
+
+function fmtDateTime(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return '—'
+  const ms = numeric > 1e12 ? numeric : numeric * 1000
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString()
+}
+
 function providerLabel(raw) {
   const key = String(raw || '').trim().toLowerCase()
   if (!key) return 'N/A'
@@ -1152,6 +1195,15 @@ export default function StockPage() {
   const detailData = detailRow?.data || data
   const detailCompany = detailRow?.company || detailData?.name || detailSymbol
   const detailIndustry = detailRow?.industry || 'Other'
+  const detailHistory = Array.isArray(detailData?.history) ? detailData.history : []
+  const lastHistory = detailHistory.length ? detailHistory[detailHistory.length - 1] : null
+  const prevHistory = detailHistory.length > 1 ? detailHistory[detailHistory.length - 2] : null
+  const prevClose = Number.isFinite(Number(detailData?.previous_close)) ? Number(detailData?.previous_close) : Number(prevHistory?.close)
+  const openPrice = Number.isFinite(Number(detailData?.open)) ? Number(detailData?.open) : null
+  const dayHigh = Number.isFinite(Number(detailData?.day_high)) ? Number(detailData?.day_high) : null
+  const dayLow = Number.isFinite(Number(detailData?.day_low)) ? Number(detailData?.day_low) : null
+  const volumeNow = Number.isFinite(Number(detailData?.volume)) ? Number(detailData?.volume) : Number(lastHistory?.volume)
+  const fullTimeEmployees = Number(detailData?.full_time_employees)
   const detailPeers = useMemo(() => {
     const sameSector = loadedRows
       .filter((row) => row.ticker !== detailSymbol && row.industry === detailIndustry)
@@ -1211,9 +1263,6 @@ export default function StockPage() {
             </div>
             <div className="rl-stock-detail-topline">
               <button className="btn-secondary rl-stock-back-btn" onClick={closeDetail}>Back</button>
-              <button className="btn-secondary" onClick={refreshSelected} disabled={loadingTicker === selectedTicker}>
-                {loadingTicker === selectedTicker ? 'Refreshing…' : 'Refresh'}
-              </button>
             </div>
           </div>
         )}
@@ -1539,6 +1588,24 @@ export default function StockPage() {
       ) : (
       <section className="rl-stock-workbench rl-stock-workbench-v2 rl-stock-detail-layout">
         <div className="rl-stock-left">
+          <section className="rl-stock-side-card rl-stock-quote-strip">
+            <div className="rl-stock-quote-cell">
+              <p className="rl-stock-quote-price">
+                {fmtPrice(detailData?.price)} <span className={toneClass(detailData?.change_percent)}>{fmtSigned(detailData?.change)} {fmtPct(detailData?.change_percent)}</span>
+              </p>
+              <span>Regular close · {fmtDateTime(detailData?.regular_market_time)}</span>
+            </div>
+            <div className="rl-stock-quote-cell">
+              <p className="rl-stock-quote-price">
+                {fmtPrice(detailData?.post_market_price)}{' '}
+                <span className={toneClass(detailData?.post_market_change_percent)}>
+                  {fmtSigned(detailData?.post_market_change)} {fmtPct(detailData?.post_market_change_percent)}
+                </span>
+              </p>
+              <span>After hours · {fmtDateTime(detailData?.post_market_time)}</span>
+            </div>
+          </section>
+
           <div className="rl-stock-range-row">
             <label className="section-title">Time Range</label>
             <div className="rl-segment">
@@ -1548,30 +1615,31 @@ export default function StockPage() {
             </div>
           </div>
 
-          <div className="rl-stock-chart-grid">
-            {chartDefs.map((def) => (
-              <button key={def.key} className={`rl-stock-chart-tile ${activeChart === def.key ? 'active' : ''}`} onClick={() => setActiveChart(def.key)}>
-                <div className="rl-stock-chart-tile-top">
-                  <p>{def.title}</p>
-                  <span>{def.value}</span>
-                </div>
-                <small>{def.subtitle}</small>
-                <MiniChart values={def.series} kind={def.kind} color={def.color} />
-              </button>
-            ))}
-          </div>
-
           <div className="rl-stock-focus-card">
             <FocusChart
-              title={`${activeDef?.title || 'Chart'} · ${detailSymbol}`}
+              title={`Price Trend · ${detailSymbol}`}
               subtitle={`${detailCompany || detailSymbol} (${rangeKey})`}
-              values={activeDef?.series || []}
-              kind={activeDef?.kind || 'line'}
-              color={activeDef?.color || '#2563eb'}
+              values={closeValues || []}
+              kind="line"
+              color={chartColorFor(closeValues, '#22c55e', '#ef4444')}
               dateRange={dateRange}
               rangeKey={rangeKey}
             />
           </div>
+
+          <section className="rl-stock-side-card rl-stock-kpi-table-card">
+            <div className="rl-stock-kpi-table">
+              <div><span>Previous Close</span><strong>{fmtPrice(prevClose)}</strong></div>
+              <div><span>Market Cap</span><strong>{fmtCompact(detailData?.market_cap)}</strong></div>
+              <div><span>Open</span><strong>{fmtPrice(openPrice)}</strong></div>
+              <div><span>PE Ratio</span><strong>{detailData?.pe_ratio ? Number(detailData.pe_ratio).toFixed(2) : '—'}</strong></div>
+              <div><span>Day Range</span><strong>{fmtRange(dayLow, dayHigh)}</strong></div>
+              <div><span>Dividend Yield</span><strong>{fmtYield(detailData?.dividend_yield)}</strong></div>
+              <div><span>52W Range</span><strong>{fmtRange(detailData?.low_52, detailData?.high_52)}</strong></div>
+              <div><span>EPS (TTM)</span><strong>{fmtPrice(detailData?.eps)}</strong></div>
+              <div><span>Volume</span><strong>{fmtCompact(volumeNow)}</strong></div>
+            </div>
+          </section>
         </div>
 
         <aside className="rl-stock-side">
@@ -1581,12 +1649,15 @@ export default function StockPage() {
             </div>
             <div className="rl-stock-profile-list">
               <div><span>Symbol</span><strong>{detailSymbol || '—'}</strong></div>
+              <div><span>IPO Date</span><strong>{fmtDateOnly(detailData?.ipo_date)}</strong></div>
+              <div><span>CEO</span><strong>{detailData?.ceo || '—'}</strong></div>
+              <div><span>Full-time Employees</span><strong>{Number.isFinite(fullTimeEmployees) ? fmtWhole(fullTimeEmployees) : '—'}</strong></div>
+              <div><span>Sector</span><strong>{detailData?.sector || detailIndustry || '—'}</strong></div>
+              <div><span>Industry</span><strong>{detailData?.industry || '—'}</strong></div>
+              <div><span>Country/Region</span><strong>{detailData?.country || '—'}</strong></div>
               <div><span>Exchange</span><strong>{detailData?.exchange || 'US'}</strong></div>
-              <div><span>Sector</span><strong>{detailIndustry || '—'}</strong></div>
-              <div><span>Market Cap</span><strong>{fmtCompact(detailData?.market_cap)}</strong></div>
-              <div><span>PE</span><strong>{detailData?.pe_ratio ? Number(detailData.pe_ratio).toFixed(2) : '—'}</strong></div>
-              <div><span>52W Range</span><strong>{fmtPrice(detailData?.low_52)} - {fmtPrice(detailData?.high_52)}</strong></div>
             </div>
+            {detailData?.description ? <p className="rl-stock-profile-desc">{detailData.description}</p> : null}
           </section>
 
           <section className="rl-stock-side-card">
