@@ -18,6 +18,7 @@ const TABLE_SECTIONS = [
 const STOCK_LAST_TICKER_KEY = 'rl_stock_last_ticker_v1'
 const STOCK_RECENT_TICKERS_KEY = 'rl_stock_recent_tickers_v1'
 const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v2_'
+const STOCK_BUNDLE_LEGACY_PREFIXES = ['rl_stock_bundle_v1_']
 const STOCK_BUNDLE_TTL_MS = 1000 * 60 * 60 * 12
 
 const LOGO_DOMAIN_BY_TICKER = {
@@ -249,13 +250,18 @@ function cacheKeyForTicker(ticker) {
 }
 
 function readBundleCache(ticker) {
-  const key = cacheKeyForTicker(ticker)
-  const payload = readLocalJson(key, null)
-  if (!payload || typeof payload !== 'object') return null
-  const savedAt = Number(payload.saved_at || 0)
-  const data = payload.data && typeof payload.data === 'object' ? payload.data : null
-  if (!data) return null
-  return { savedAt: Number.isFinite(savedAt) ? savedAt : 0, data }
+  const sym = normalizeTicker(ticker)
+  if (!sym) return null
+  const keys = [cacheKeyForTicker(sym), ...STOCK_BUNDLE_LEGACY_PREFIXES.map((prefix) => `${prefix}${sym}`)]
+  for (const key of keys) {
+    const payload = readLocalJson(key, null)
+    if (!payload || typeof payload !== 'object') continue
+    const savedAt = Number(payload.saved_at || 0)
+    const data = payload.data && typeof payload.data === 'object' ? payload.data : null
+    if (!data) continue
+    return { savedAt: Number.isFinite(savedAt) ? savedAt : 0, data }
+  }
+  return null
 }
 
 function writeBundleCache(ticker, data) {
@@ -1381,19 +1387,38 @@ export default function StockPage() {
   )
 
   useEffect(() => {
-    if (!supportedUploadedCompanies.length) {
-      setFeaturedCompanies([])
+    if (supportedUploadedCompanies.length) {
+      const shuffled = [...supportedUploadedCompanies]
+      for (let i = shuffled.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1))
+        const tmp = shuffled[i]
+        shuffled[i] = shuffled[j]
+        shuffled[j] = tmp
+      }
+      setFeaturedCompanies(shuffled.slice(0, 9))
       return
     }
-    const shuffled = [...supportedUploadedCompanies]
-    for (let i = shuffled.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1))
-      const tmp = shuffled[i]
-      shuffled[i] = shuffled[j]
-      shuffled[j] = tmp
-    }
-    setFeaturedCompanies(shuffled.slice(0, 9))
-  }, [supportedUploadedCompanies])
+
+    const fallback = mergeTickers(watchlist, DEFAULT_TICKERS)
+      .filter((tk) => !unsupportedTickerSet.has(tk))
+      .slice(0, 9)
+      .map((tk) => {
+        const payload = bundleMap[tk]?.data || null
+        const company = String(payload?.name || tk).trim() || tk
+        return {
+          company,
+          ticker: tk,
+          industry: resolveEquitySector({
+            filingIndustry: '',
+            quoteSector: payload?.sector,
+            ticker: tk,
+            company,
+          }),
+          year: null,
+        }
+      })
+    setFeaturedCompanies(fallback)
+  }, [supportedUploadedCompanies, watchlist, unsupportedTickerSet, bundleMap])
 
   useEffect(() => {
     if (!selectedTicker) return
@@ -1411,9 +1436,11 @@ export default function StockPage() {
     const candidates = mergeTickers(
       [selectedTicker],
       featuredCompanies.map((c) => c.ticker),
+      watchlist,
+      DEFAULT_TICKERS,
     )
       .filter((tk) => !unsupportedTickerSet.has(tk))
-      .slice(0, 10)
+      .slice(0, 12)
 
     if (!candidates.length) return
 
@@ -1436,7 +1463,7 @@ export default function StockPage() {
     return () => {
       timers.forEach((id) => window.clearTimeout(id))
     }
-  }, [selectedTicker, featuredCompanies, fetchBundle, unsupportedTickerSet])
+  }, [selectedTicker, featuredCompanies, watchlist, fetchBundle, unsupportedTickerSet])
 
   useEffect(() => {
     const sectorTickers = mergeTickers(
