@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { get } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
-import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
 
 const TABS = [
   { key: 'overview', label: 'Risk Overview' },
@@ -158,7 +157,6 @@ export default function DashboardPage() {
               <p className="page-subtitle">Risk heatmap and category ranking across all filings</p>
             </div>
           </div>
-          <GlobalConfigInlineEditor />
         </div>
       </section>
 
