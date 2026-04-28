@@ -500,6 +500,188 @@ def _normalize_title(value: Any) -> str:
     return " ".join(txt.lower().split())
 
 
+FIXED_RISK_CATEGORIES: List[str] = [
+    "Strategy & Market",
+    "Operations & Supply Chain",
+    "Financial & Liquidity",
+    "Legal & Regulatory",
+    "Technology & Cybersecurity",
+    "People & Governance",
+    "ESG & Sustainability",
+    "Capital Markets",
+    "General & Other",
+]
+
+_RISK_CATEGORY_KEYWORDS: Dict[str, List[str]] = {
+    "Capital Markets": [
+        "common stock",
+        "stockholder",
+        "shareholder",
+        "market price",
+        "securities",
+        "dividend",
+        "equity offering",
+        "dilution",
+        "ownership of our stock",
+        "capital market",
+    ],
+    "Financial & Liquidity": [
+        "financial risk",
+        "financial condition",
+        "financial statements",
+        "liquidity",
+        "cash flow",
+        "debt",
+        "credit",
+        "interest rate",
+        "refinancing",
+        "impairment",
+        "profitability",
+        "revenue",
+        "inflation",
+        "foreign exchange",
+        "currency",
+        "solvency",
+        "capital resources",
+    ],
+    "Legal & Regulatory": [
+        "legal",
+        "regulatory",
+        "regulation",
+        "compliance",
+        "litigation",
+        "laws",
+        "government",
+        "policy",
+        "policies",
+        "antitrust",
+        "sanction",
+        "fines",
+        "bribery",
+        "corruption",
+        "intellectual property",
+        "tax-related",
+        "reit",
+        "status as a reit",
+    ],
+    "Technology & Cybersecurity": [
+        "technology",
+        "cyber",
+        "cybersecurity",
+        "information security",
+        "data breach",
+        "data privacy",
+        "privacy",
+        "it system",
+        "system outage",
+        "software",
+        "cloud",
+        "artificial intelligence",
+        "machine learning",
+        "generative ai",
+        "digital",
+        "ransomware",
+    ],
+    "Operations & Supply Chain": [
+        "operations",
+        "operational",
+        "business operations",
+        "supply chain",
+        "supplier",
+        "procurement",
+        "manufacturing",
+        "production",
+        "logistics",
+        "distribution",
+        "inventory",
+        "quality",
+        "safety",
+        "business continuity",
+        "disruption",
+    ],
+    "People & Governance": [
+        "employment",
+        "workforce",
+        "labor",
+        "union",
+        "human capital",
+        "talent",
+        "hiring",
+        "retention",
+        "management",
+        "leadership",
+        "executive",
+        "board",
+        "governance",
+        "internal control",
+        "culture",
+    ],
+    "ESG & Sustainability": [
+        "esg",
+        "environment",
+        "environmental",
+        "sustainability",
+        "climate",
+        "climate change",
+        "carbon",
+        "emissions",
+        "greenhouse gas",
+        "social responsibility",
+    ],
+    "Strategy & Market": [
+        "strategy",
+        "strategic",
+        "market",
+        "industry",
+        "competition",
+        "competitive",
+        "customer",
+        "demand",
+        "pricing",
+        "growth",
+        "reputation",
+        "brand",
+        "macro",
+        "geopolitical",
+        "business risk",
+        "general risk",
+        "risk factors",
+        "risks specific to our company",
+    ],
+}
+
+
+def _normalize_risk_category(category: Any, title: Any = "", labels: Optional[List[Any]] = None) -> str:
+    cat_text = str(category or "").strip()
+    title_text = str(title or "").strip()
+    label_text = " ".join([str(x or "").strip() for x in (labels or []) if str(x or "").strip()])
+    full_text = " ".join([cat_text, title_text, label_text]).strip().lower()
+    if not full_text:
+        return "General & Other"
+
+    scores: Dict[str, int] = {k: 0 for k in FIXED_RISK_CATEGORIES}
+
+    def _add_match_points(target: str, phrase: str) -> None:
+        if phrase in full_text:
+            scores[target] = scores.get(target, 0) + 1
+        if phrase in cat_text.lower():
+            scores[target] = scores.get(target, 0) + 2
+
+    for target, phrases in _RISK_CATEGORY_KEYWORDS.items():
+        for phrase in phrases:
+            _add_match_points(target, phrase)
+
+    # Prefer non-"General & Other" when any specific signal exists.
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    best_cat, best_score = ranked[0]
+    if best_score > 0:
+        return best_cat
+
+    if cat_text or title_text:
+        return "Strategy & Market"
+    return "General & Other"
+
+
 def _extract_sub_risks(result: dict) -> List[dict]:
     out: List[dict] = []
     for cat_block in result.get("risks", []) if isinstance(result, dict) else []:
@@ -513,7 +695,8 @@ def _extract_sub_risks(result: dict) -> List[dict]:
                 labels = []
             if not title:
                 continue
-            out.append({"category": category, "title": title, "labels": labels})
+            mapped_category = _normalize_risk_category(category, title, labels if isinstance(labels, list) else [])
+            out.append({"category": mapped_category, "title": title, "labels": labels})
     return out
 
 
@@ -828,7 +1011,13 @@ def _record_summary(
             if isinstance(result, dict):
                 risks = _extract_sub_risks(result)
                 base["risk_items"] = len(risks)
-                base["risk_categories"] = len(result.get("risks", [])) if isinstance(result.get("risks"), list) else 0
+                base["risk_categories"] = len(
+                    {
+                        str(r.get("category", "") or "").strip()
+                        for r in risks
+                        if str(r.get("category", "") or "").strip()
+                    }
+                )
                 base["has_ai_summary"] = bool(result.get("ai_summary"))
             else:
                 base["risk_items"] = 0
@@ -947,7 +1136,7 @@ def _dashboard_summary() -> dict:
             "years_set": set(),
             "yearly_records_map": {},
             "priority_totals": {"high": 0, "medium": 0, "low": 0},
-            "category_counts_map": {},
+            "category_counts_map": {cat: 0 for cat in FIXED_RISK_CATEGORIES},
             "category_yearly_map": {},
             "heat_cells_map": {},
             "rpi_values": [],
@@ -991,8 +1180,11 @@ def _dashboard_summary() -> dict:
                 scope["rpi_values"].append(float(rpi))
 
             for cat, cnt in category_counts_local.items():
-                scope["category_counts_map"][cat] = scope["category_counts_map"].get(cat, 0) + int(cnt)
-                by_cat = scope["category_yearly_map"].setdefault(cat, {})
+                normalized_cat = cat if cat in FIXED_RISK_CATEGORIES else "General & Other"
+                if normalized_cat not in scope["category_counts_map"]:
+                    scope["category_counts_map"][normalized_cat] = 0
+                scope["category_counts_map"][normalized_cat] = scope["category_counts_map"].get(normalized_cat, 0) + int(cnt)
+                by_cat = scope["category_yearly_map"].setdefault(normalized_cat, {})
                 if year > 0:
                     yk = str(year)
                     by_cat[yk] = by_cat.get(yk, 0) + int(cnt)
@@ -1034,12 +1226,10 @@ def _dashboard_summary() -> dict:
         )
         heat_cells.sort(key=lambda row: (str(row.get("company", "")).lower(), int(row.get("year", 0))))
 
-        category_counts_sorted = sorted(
-            scope["category_counts_map"].items(),
-            key=lambda kv: (-kv[1], str(kv[0]).lower()),
-        )
+        category_counts_sorted = [(cat, int(scope["category_counts_map"].get(cat, 0))) for cat in FIXED_RISK_CATEGORIES]
         category_yearly = []
-        for cat, ymap in scope["category_yearly_map"].items():
+        for cat in FIXED_RISK_CATEGORIES:
+            ymap = scope["category_yearly_map"].get(cat, {})
             yearly = [{"year": y, "count": int(c)} for y, c in sorted(ymap.items(), key=lambda kv: int(kv[0]))]
             category_yearly.append(
                 {
@@ -1048,7 +1238,7 @@ def _dashboard_summary() -> dict:
                     "yearly": yearly,
                 }
             )
-        category_yearly.sort(key=lambda row: (-int(row.get("total", 0)), str(row.get("category", "")).lower()))
+        category_yearly.sort(key=lambda row: (-int(row.get("total", 0)), FIXED_RISK_CATEGORIES.index(str(row.get("category", "General & Other")) if str(row.get("category", "")) in FIXED_RISK_CATEGORIES else "General & Other")))
 
         records_count = int(scope["records"])
         with_priority = int(scope["records_with_priority"])
@@ -1079,7 +1269,7 @@ def _dashboard_summary() -> dict:
                 "max_rpi": round(max(scope["rpi_values"]), 2) if scope["rpi_values"] else 0.0,
                 "avg_rpi": round(sum(scope["rpi_values"]) / len(scope["rpi_values"]), 2) if scope["rpi_values"] else 0.0,
             },
-            "top_categories": [{"category": k, "count": int(v)} for k, v in category_counts_sorted[:12]],
+            "top_categories": [{"category": k, "count": int(v)} for k, v in sorted(category_counts_sorted, key=lambda kv: (-kv[1], FIXED_RISK_CATEGORIES.index(kv[0])))[:9]],
             "category_counts": [{"category": k, "count": int(v)} for k, v in category_counts_sorted],
             "category_yearly": category_yearly,
         }

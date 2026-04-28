@@ -3,10 +3,10 @@ import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
 import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
+import { normalizeRiskCategory } from '../lib/records'
 
 function normalizeCategory(value) {
-  const text = String(value || '').trim()
-  return text || 'Unknown'
+  return normalizeRiskCategory(value)
 }
 
 function groupRisks(risks, categoryFilter, keywordFilter) {
