@@ -1221,9 +1221,11 @@ export default function StockPage() {
   const [marketIntelItems, setMarketIntelItems] = useState([])
   const [marketIntelLoading, setMarketIntelLoading] = useState(false)
   const [marketSummaryOpenIdx, setMarketSummaryOpenIdx] = useState(0)
+  const [tickerOverrides, setTickerOverrides] = useState({})
 
   const initializedRef = useRef(false)
   const heatmapWrapRef = useRef(null)
+  const tickerResolveTriedRef = useRef(new Set())
   const unsupportedTickerSet = useMemo(
     () => new Set((Array.isArray(unsupportedTickers) ? unsupportedTickers : []).map((t) => normalizeTicker(t)).filter(Boolean)),
     [unsupportedTickers],
@@ -1238,17 +1240,16 @@ export default function StockPage() {
     }))
   }, [])
 
-  const rememberTicker = useCallback(
-    (ticker) => {
-      const sym = normalizeTicker(ticker)
-      if (!sym) return
-      writeLastTicker(sym)
-      const next = mergeTickers([sym], readRecentTickers(), watchlist, DEFAULT_TICKERS).slice(0, 14)
+  const rememberTicker = useCallback((ticker) => {
+    const sym = normalizeTicker(ticker)
+    if (!sym) return
+    writeLastTicker(sym)
+    setWatchlist((prev) => {
+      const next = mergeTickers([sym], readRecentTickers(), prev, DEFAULT_TICKERS).slice(0, 14)
       writeRecentTickers(next)
-      setWatchlist(next)
-    },
-    [watchlist],
-  )
+      return next
+    })
+  }, [])
 
   const fetchBundle = useCallback(
     async (rawTicker, options = {}) => {
@@ -1373,29 +1374,37 @@ export default function StockPage() {
   }, [config.ticker, upsertBundle])
 
   useEffect(() => {
-    if (!uploadedCompanies.length) return
-    const uploadedTickers = uploadedCompanies.map((c) => c.ticker).filter((tk) => !unsupportedTickerSet.has(tk))
+    if (!effectiveUploadedCompanies.length) return
+    const uploadedTickers = effectiveUploadedCompanies.map((c) => c.ticker).filter((tk) => !unsupportedTickerSet.has(tk))
     setWatchlist((prev) => mergeTickers(uploadedTickers, prev, DEFAULT_TICKERS).slice(0, 14))
     if (!normalizeTicker(selectedTicker)) {
       setSelectedTicker(uploadedTickers[0])
     }
-  }, [uploadedCompanies, selectedTicker, unsupportedTickerSet])
+  }, [effectiveUploadedCompanies, selectedTicker, unsupportedTickerSet])
+
+  const effectiveUploadedCompanies = useMemo(
+    () =>
+      uploadedCompanies.map((c) => {
+        const key = sanitizeCompanyName(c?.company || '')
+        const overrideTicker = normalizeTicker(tickerOverrides[key] || '')
+        if (!overrideTicker || overrideTicker === normalizeTicker(c?.ticker || '')) return c
+        return { ...c, ticker: overrideTicker }
+      }),
+    [uploadedCompanies, tickerOverrides],
+  )
+
+  useEffect(() => {
+    tickerResolveTriedRef.current = new Set()
+  }, [uploadedCompanies])
 
   const supportedUploadedCompanies = useMemo(
-    () => uploadedCompanies.filter((c) => !unsupportedTickerSet.has(c.ticker)),
-    [uploadedCompanies, unsupportedTickerSet],
+    () => effectiveUploadedCompanies.filter((c) => !unsupportedTickerSet.has(c.ticker)),
+    [effectiveUploadedCompanies, unsupportedTickerSet],
   )
 
   useEffect(() => {
     if (supportedUploadedCompanies.length) {
-      const shuffled = [...supportedUploadedCompanies]
-      for (let i = shuffled.length - 1; i > 0; i -= 1) {
-        const j = Math.floor(Math.random() * (i + 1))
-        const tmp = shuffled[i]
-        shuffled[i] = shuffled[j]
-        shuffled[j] = tmp
-      }
-      setFeaturedCompanies(shuffled.slice(0, 9))
+      setFeaturedCompanies(supportedUploadedCompanies.slice(0, 9))
       return
     }
 
@@ -1403,14 +1412,13 @@ export default function StockPage() {
       .filter((tk) => !unsupportedTickerSet.has(tk))
       .slice(0, 9)
       .map((tk) => {
-        const payload = bundleMap[tk]?.data || null
-        const company = String(payload?.name || tk).trim() || tk
+        const company = tk
         return {
           company,
           ticker: tk,
           industry: resolveEquitySector({
             filingIndustry: '',
-            quoteSector: payload?.sector,
+            quoteSector: '',
             ticker: tk,
             company,
           }),
@@ -1418,7 +1426,7 @@ export default function StockPage() {
         }
       })
     setFeaturedCompanies(fallback)
-  }, [supportedUploadedCompanies, watchlist, unsupportedTickerSet, bundleMap])
+  }, [supportedUploadedCompanies, watchlist, unsupportedTickerSet])
 
   useEffect(() => {
     if (!selectedTicker) return
@@ -1431,6 +1439,65 @@ export default function StockPage() {
     const fallback = supportedUploadedCompanies[0]?.ticker || DEFAULT_TICKERS.find((tk) => !unsupportedTickerSet.has(normalizeTicker(tk))) || ''
     if (fallback && fallback !== selected) setSelectedTicker(fallback)
   }, [selectedTicker, unsupportedTickerSet, supportedUploadedCompanies])
+
+  useEffect(() => {
+    const candidates = supportedUploadedCompanies
+      .map((c) => {
+        const company = String(c?.company || '').trim()
+        const companyKey = sanitizeCompanyName(company)
+        const ticker = normalizeTicker(c?.ticker || '')
+        const payload = bundleMap[ticker]?.data || null
+        const pct = resolveChangePercent(payload)
+        const unsupported = ticker ? unsupportedTickerSet.has(ticker) : true
+        const shouldResolve = Boolean(companyKey)
+          && !tickerResolveTriedRef.current.has(companyKey)
+          && (unsupported || (payload && !Number.isFinite(Number(pct))))
+        return shouldResolve ? { company, companyKey, ticker } : null
+      })
+      .filter(Boolean)
+      .slice(0, 2)
+
+    if (!candidates.length) return
+
+    let cancelled = false
+    ;(async () => {
+      for (const item of candidates) {
+        if (!item || cancelled) break
+        tickerResolveTriedRef.current.add(item.companyKey)
+        try {
+          const q = new URLSearchParams({
+            company: item.company,
+            ticker: item.ticker || '',
+          })
+          const res = await get(`/api/stock/resolve-ticker?${q.toString()}`)
+          const nextTicker = normalizeTicker(res?.ticker || '')
+          if (!nextTicker || cancelled) continue
+          if (nextTicker === item.ticker) {
+            fetchBundle(nextTicker, { preferCache: true, silent: true, force: true, remember: false, muteError: true, muteStatus: true })
+            continue
+          }
+
+          setTickerOverrides((prev) => ({ ...prev, [item.companyKey]: nextTicker }))
+          setWatchlist((prev) => mergeTickers([nextTicker], prev.filter((tk) => normalizeTicker(tk) !== item.ticker), DEFAULT_TICKERS).slice(0, 14))
+          setUnsupportedTickers((prev) => {
+            const next = new Set((Array.isArray(prev) ? prev : []).map((tk) => normalizeTicker(tk)).filter(Boolean))
+            next.delete(nextTicker)
+            return Array.from(next)
+          })
+          if (normalizeTicker(selectedTicker) === item.ticker) {
+            setSelectedTicker(nextTicker)
+          }
+          fetchBundle(nextTicker, { preferCache: true, silent: true, force: true, remember: false, muteError: true, muteStatus: true })
+        } catch {
+          // keep original ticker if resolve endpoint fails
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [supportedUploadedCompanies, bundleMap, unsupportedTickerSet, fetchBundle, selectedTicker])
 
   useEffect(() => {
     const candidates = mergeTickers(
@@ -1626,14 +1693,14 @@ export default function StockPage() {
 
   const companyMapByTicker = useMemo(() => {
     const map = {}
-    uploadedCompanies.forEach((c) => {
+    effectiveUploadedCompanies.forEach((c) => {
       map[c.ticker] = c
     })
     return map
-  }, [uploadedCompanies])
+  }, [effectiveUploadedCompanies])
 
   const trackedRows = useMemo(() => {
-    const tickers = mergeTickers(uploadedCompanies.map((c) => c.ticker), watchlist)
+    const tickers = mergeTickers(effectiveUploadedCompanies.map((c) => c.ticker), watchlist)
       .filter((tk) => !unsupportedTickerSet.has(tk))
       .slice(0, 18)
     return tickers.map((tk) => {
@@ -1662,7 +1729,7 @@ export default function StockPage() {
         riskItems: Number(filingSummary?.latest?.risk_items || 0),
       }
     })
-  }, [uploadedCompanies, watchlist, companyMapByTicker, bundleMap, filingSummary?.latest?.risk_items, unsupportedTickerSet])
+  }, [effectiveUploadedCompanies, watchlist, companyMapByTicker, bundleMap, filingSummary?.latest?.risk_items, unsupportedTickerSet])
 
   const loadedRows = useMemo(() => trackedRows.filter((r) => r.data), [trackedRows])
 

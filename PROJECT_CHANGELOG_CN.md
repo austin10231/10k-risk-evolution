@@ -159,6 +159,23 @@
 
 ---
 
+## 2026-04-28 最近已完成改动（Dashboard）
+
+提交：`cf54979` `b44b85f` `ec220b4` `9033f52` `4b6b23c` `4eccca2` `9a820b4` `29d0d81`
+
+- 统一了 Dashboard 页头与整体间距：去掉突兀白底块，和 `upload/compare` 视觉风格对齐。  
+- 去掉 `Current Configuration` 模块，首页信息更聚焦。  
+- 完成 Dashboard Phase1 重设计：保留 `Risk Pulse + Category Intelligence`，移除市场表现模块。  
+- Heatmap 重做为分页+搜索+行业筛选，不再一次渲染全部公司；卡片只显示 `RPI`，hover 显示详情，点击可跳转到 `records` 对应记录。  
+- Priority 数据链路打通：上传后自动生成优先级；历史记录支持自动补齐；Dashboard 支持自动汇总。  
+- 交互与性能优化：悬浮卡改为实时跟随的非透明卡片；Recent Filings 改为轻背景样式；Dashboard summary 增加缓存，跨页面返回不再每次强制等待刷新。  
+- 分类体系收敛为固定 9 类（全站统一口径），避免分类无限膨胀，Dashboard 下拉和统计更可控。
+
+备注（已知问题）：
+- 当前“未命中强规则”的风险会优先落到 `Strategy & Market`（为了避免大量进入 `General & Other`），因此短期内该类占比会偏高；后续可继续微调关键词权重来拉平分布。
+
+---
+
 ## 当前已知现象（便于后续排查）
 
 - `Tracked Companies` 可能显示 0：通常是 records 里没有可用 ticker。  

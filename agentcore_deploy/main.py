@@ -248,6 +248,191 @@ def _resolve_record_ticker(rec: dict, ticker_lookup: Optional[tuple[Dict[str, st
     return _normalize_ticker(canonical_map.get(key))
 
 
+def _token_set(text: str) -> Set[str]:
+    return {t for t in str(text or "").split() if t}
+
+
+def _similarity_token_score(a: str, b: str) -> int:
+    ta = _token_set(_company_lookup_key(a))
+    tb = _token_set(_company_lookup_key(b))
+    if not ta or not tb:
+        return 0
+    overlap = len(ta.intersection(tb))
+    if overlap <= 0:
+        return 0
+    return overlap * 8
+
+
+def _is_us_equity_exchange(raw: Any) -> bool:
+    text = str(raw or "").strip().upper()
+    if not text:
+        return False
+    markers = [
+        "NMS",
+        "NCM",
+        "NGM",
+        "NYQ",
+        "ASE",
+        "PCX",
+        "BATS",
+        "NASDAQ",
+        "NYSE",
+        "AMEX",
+        "NYSEARCA",
+        "NASDAQGS",
+        "NASDAQGM",
+    ]
+    return any(m in text for m in markers)
+
+
+def _search_yahoo_ticker_by_company(company: str, ticker_hint: str = "") -> Optional[dict]:
+    comp = str(company or "").strip()
+    if not comp:
+        return None
+
+    params = {
+        "q": comp,
+        "quotesCount": 12,
+        "newsCount": 0,
+        "enableFuzzyQuery": "true",
+        "lang": "en-US",
+        "region": "US",
+    }
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?{urlencode(params)}"
+    payload = _yahoo_json(url)
+    rows = payload.get("quotes", []) if isinstance(payload, dict) else []
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    hint = _normalize_ticker(ticker_hint)
+    comp_key = _company_lookup_key(comp)
+    comp_tokens = _token_set(comp_key)
+    best: Optional[dict] = None
+    best_score = -1
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        symbol = _normalize_ticker(row.get("symbol"))
+        if not symbol:
+            continue
+
+        qtype = str(row.get("quoteType") or row.get("typeDisp") or "").strip().upper()
+        if qtype and ("EQUITY" not in qtype and "ETF" not in qtype):
+            continue
+
+        name = str(row.get("shortname") or row.get("longname") or "").strip()
+        exchange = str(row.get("exchange") or row.get("exchDisp") or "").strip()
+        name_key = _company_lookup_key(name)
+        name_tokens = _token_set(name_key)
+
+        score = 0
+        if comp_key and name_key and comp_key == name_key:
+            score += 120
+        elif comp_key and name_key and (comp_key in name_key or name_key in comp_key):
+            score += 75
+        else:
+            overlap = len(comp_tokens.intersection(name_tokens))
+            if overlap > 0:
+                score += overlap * 15
+
+        score += _similarity_token_score(comp, name)
+        if _is_us_equity_exchange(exchange):
+            score += 24
+        if qtype == "EQUITY":
+            score += 16
+        elif "ETF" in qtype:
+            score += 6
+        if hint:
+            if symbol == hint:
+                score += 10
+            elif symbol.split(".")[0] == hint.split(".")[0]:
+                score += 6
+        if "." not in symbol and "-" not in symbol:
+            score += 4
+        if len(symbol) <= 5:
+            score += 3
+
+        if score > best_score:
+            best_score = score
+            best = {
+                "ticker": symbol,
+                "name": name,
+                "exchange": exchange,
+                "quote_type": qtype,
+                "score": score,
+            }
+
+    return best
+
+
+def _resolve_ticker_for_company(company: str, ticker_hint: str = "") -> dict:
+    comp = str(company or "").strip()
+    hint = _normalize_ticker(ticker_hint)
+    if not comp:
+        return {"ok": False, "error": "company is required"}
+
+    exact_map, canonical_map = _build_ticker_lookup()
+    mapped = _normalize_ticker(exact_map.get(comp))
+    if not mapped:
+        mapped = _normalize_ticker(canonical_map.get(_company_lookup_key(comp)))
+
+    candidates: List[str] = []
+    if hint:
+        candidates.append(hint)
+    if mapped and mapped not in candidates:
+        candidates.append(mapped)
+
+    search_hit = None
+    try:
+        search_hit = _search_yahoo_ticker_by_company(comp, ticker_hint=hint)
+    except Exception:
+        search_hit = None
+    if search_hit and _normalize_ticker(search_hit.get("ticker")) not in candidates:
+        candidates.append(_normalize_ticker(search_hit.get("ticker")))
+
+    checked: List[str] = []
+    for candidate in candidates:
+        if not candidate:
+            continue
+        checked.append(candidate)
+        try:
+            payload = _stock_quote(candidate, lite=False)
+        except Exception:
+            continue
+        if not isinstance(payload, dict) or payload.get("error"):
+            continue
+        if _to_float(payload.get("change_percent")) is None and _to_float(payload.get("change")) is None:
+            continue
+        return {
+            "ok": True,
+            "company": comp,
+            "ticker": candidate,
+            "source": "search" if search_hit and candidate == _normalize_ticker(search_hit.get("ticker")) else "mapping",
+            "checked": checked,
+            "search": search_hit or {},
+        }
+
+    if search_hit and _normalize_ticker(search_hit.get("ticker")):
+        found = _normalize_ticker(search_hit.get("ticker"))
+        return {
+            "ok": True,
+            "company": comp,
+            "ticker": found,
+            "source": "search_unverified",
+            "checked": checked,
+            "search": search_hit,
+        }
+
+    return {
+        "ok": False,
+        "company": comp,
+        "error": "No usable ticker found from mapping/search.",
+        "checked": checked,
+        "search": search_hit or {},
+    }
+
+
 def _save_index(index: List[dict]) -> None:
     payload = json.dumps(index, indent=2, default=str, ensure_ascii=False).encode("utf-8")
     _write_s3_bytes(INDEX_KEY, payload)
@@ -3185,6 +3370,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "/api/dashboard/summary",
                             "/api/dashboard/ensure-priority (POST)",
                             "/api/stock/quote?ticker=AAPL",
+                            "/api/stock/resolve-ticker?company=Apple&ticker=AAPL",
                             "/api/news?company=Apple&ticker=AAPL",
                             "/api/upload/manual (POST)",
                             "/api/upload/auto-fetch (POST)",
@@ -3265,6 +3451,27 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"ok": False, **payload})
                     return
                 self._send_json(200, {"ok": True, "data": payload})
+                return
+
+            if path == "/api/stock/resolve-ticker":
+                company = str((query.get("company", [""]) or [""])[0]).strip()
+                ticker = str((query.get("ticker", [""]) or [""])[0]).strip().upper()
+                if not company:
+                    self._send_json(400, {"ok": False, "error": "company is required."})
+                    return
+
+                payload = _resolve_ticker_for_company(company=company, ticker_hint=ticker)
+                if not payload.get("ok"):
+                    self._send_json(404, {"ok": False, **payload})
+                    return
+
+                resolved = _normalize_ticker(payload.get("ticker"))
+                if resolved:
+                    try:
+                        _upsert_company_ticker(company, resolved)
+                    except Exception:
+                        pass
+                self._send_json(200, {"ok": True, **payload})
                 return
 
             if path == "/api/news":
