@@ -3319,6 +3319,17 @@ def _resolve_agent_ticker(
     return ""
 
 
+def _strip_markdown_artifacts(text: str) -> str:
+    s = str(text or "")
+    s = s.replace("**", "")
+    s = s.replace("__", "")
+    s = s.replace("`", "")
+    s = s.replace("### ", "")
+    s = s.replace("## ", "")
+    s = s.replace("# ", "")
+    return s.strip()
+
+
 def _agent_query(payload: dict) -> dict:
     user_query = str(payload.get("user_query", "") or "").strip()
     company = str(payload.get("company", "") or "").strip()
@@ -3388,10 +3399,10 @@ Return plain text only."""
         try:
             polished = str(llm_invoke(prompt, 700) or "").strip()
             if polished:
-                return polished
+                return _strip_markdown_artifacts(polished)
         except Exception:
             pass
-        return text
+        return _strip_markdown_artifacts(text)
 
     def tool_risk_analysis(*, query: str, history: List[dict], context: dict) -> dict:
         if not risks:

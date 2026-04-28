@@ -42,6 +42,18 @@ def _clean_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _strip_markdown_artifacts(text: str) -> str:
+    s = str(text or "")
+    # remove common markdown emphasis markers while keeping content
+    s = s.replace("**", "")
+    s = s.replace("__", "")
+    s = s.replace("`", "")
+    s = s.replace("### ", "")
+    s = s.replace("## ", "")
+    s = s.replace("# ", "")
+    return s.strip()
+
+
 def _is_chinese_text(text: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", str(text or "")))
 
@@ -295,7 +307,7 @@ def _normalize_response(response: Any) -> dict:
             action = _clean_text(response.get("action") or "navigate") or "navigate"
             target = _clean_text(response.get("target") or "")
             params = response.get("params") if isinstance(response.get("params"), dict) else {}
-            message = _clean_text(response.get("message") or "")
+            message = _strip_markdown_artifacts(_clean_text(response.get("message") or ""))
             return {
                 "type": "action",
                 "action": action,
@@ -304,11 +316,11 @@ def _normalize_response(response: Any) -> dict:
                 "message": message or "I found a relevant business module.",
             }
         if typ == "text":
-            content = _clean_text(response.get("content") or "")
+            content = _strip_markdown_artifacts(_clean_text(response.get("content") or ""))
             return {"type": "text", "content": content or "No content returned."}
 
     if isinstance(response, str):
-        content = _clean_text(response)
+        content = _strip_markdown_artifacts(_clean_text(response))
         return {"type": "text", "content": content or "No content returned."}
 
     return {"type": "text", "content": "No content returned."}
