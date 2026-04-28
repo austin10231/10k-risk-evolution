@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { get } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
+import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
 
 const TABS = [
   { key: 'pulse', label: 'Risk Pulse' },
@@ -10,7 +11,7 @@ const TABS = [
 function priorityHeatColor(rpi, total) {
   const score = Number(rpi || 0)
   const cnt = Number(total || 0)
-  if (!cnt) return '#f8fafc'
+  if (!cnt) return '#f1f5f9'
   if (score >= 78) return '#ef4444'
   if (score >= 60) return '#f97316'
   if (score >= 42) return '#f59e0b'
@@ -25,12 +26,18 @@ function safeNumber(v, fallback = 0) {
 
 export default function DashboardPage() {
   const { config } = useGlobalConfig()
+  const tabsRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [data, setData] = useState(null)
   const [activeTab, setActiveTab] = useState('pulse')
   const [industry, setIndustry] = useState('All Industries')
   const [selectedCategory, setSelectedCategory] = useState('')
+  const [heatSearch, setHeatSearch] = useState('')
+  const [heatPageSize, setHeatPageSize] = useState(12)
+  const [heatPage, setHeatPage] = useState(1)
+
+  useSlidingTabIndicator(tabsRef, [activeTab])
 
   const load = () => {
     let mounted = true
@@ -85,6 +92,7 @@ export default function DashboardPage() {
   const metrics = scopeData?.metrics || data?.metrics || {}
   const priorityHeatmap = scopeData?.priority_heatmap || { years: [], companies: [], cells: [], max_rpi: 0, avg_rpi: 0 }
   const priorityTotals = scopeData?.priority_totals || { high: 0, medium: 0, low: 0 }
+  const categoryCounts = scopeData?.category_counts || scopeData?.top_categories || []
   const topCategories = scopeData?.top_categories || []
   const categoryYearly = scopeData?.category_yearly || []
   const yearlyRecords = scopeData?.yearly_records || []
@@ -114,13 +122,44 @@ export default function DashboardPage() {
   const yearsOrdered = useMemo(() => {
     const list = Array.isArray(priorityHeatmap.years) ? priorityHeatmap.years : []
     if (list.length > 0) return list
-    return Array.from(
-      new Set((priorityHeatmap.cells || []).map((row) => Number(row.year)).filter(Number.isFinite)),
-    ).sort((a, b) => a - b)
+    return Array.from(new Set((priorityHeatmap.cells || []).map((row) => Number(row.year)).filter(Number.isFinite))).sort((a, b) => a - b)
   }, [priorityHeatmap.years, priorityHeatmap.cells])
 
+  const filteredCompanies = useMemo(() => {
+    const q = String(heatSearch || '').trim().toLowerCase()
+    if (!q) return companiesOrdered
+    return companiesOrdered.filter((c) => c.toLowerCase().includes(q))
+  }, [companiesOrdered, heatSearch])
+
+  const totalHeatPages = useMemo(() => {
+    const size = Math.max(1, safeNumber(heatPageSize, 12))
+    return Math.max(1, Math.ceil(filteredCompanies.length / size))
+  }, [filteredCompanies.length, heatPageSize])
+
   useEffect(() => {
-    const options = topCategories.map((x) => String(x.category || '').trim()).filter(Boolean)
+    setHeatPage(1)
+  }, [heatSearch, heatPageSize, industry])
+
+  useEffect(() => {
+    if (heatPage > totalHeatPages) setHeatPage(totalHeatPages)
+  }, [heatPage, totalHeatPages])
+
+  const pagedCompanies = useMemo(() => {
+    const size = Math.max(1, safeNumber(heatPageSize, 12))
+    const start = (Math.max(1, heatPage) - 1) * size
+    return filteredCompanies.slice(start, start + size)
+  }, [filteredCompanies, heatPage, heatPageSize])
+
+  const heatRangeLabel = useMemo(() => {
+    if (!filteredCompanies.length) return '0-0'
+    const size = Math.max(1, safeNumber(heatPageSize, 12))
+    const start = (Math.max(1, heatPage) - 1) * size
+    const end = Math.min(start + size, filteredCompanies.length)
+    return `${start + 1}-${end}`
+  }, [filteredCompanies.length, heatPage, heatPageSize])
+
+  useEffect(() => {
+    const options = categoryCounts.map((x) => String(x.category || '').trim()).filter(Boolean)
     if (!options.length) {
       setSelectedCategory('')
       return
@@ -128,7 +167,7 @@ export default function DashboardPage() {
     if (!selectedCategory || !options.includes(selectedCategory)) {
       setSelectedCategory(options[0])
     }
-  }, [topCategories, selectedCategory])
+  }, [categoryCounts, selectedCategory])
 
   const selectedCategoryTrend = useMemo(() => {
     if (!selectedCategory) return []
@@ -142,6 +181,8 @@ export default function DashboardPage() {
     ['RISK ITEMS', safeNumber(metrics.risk_items), '#7c3aed'],
     ['AGENT COVERAGE', `${safeNumber(metrics.agent_coverage_rate).toFixed(1)}%`, '#dc2626'],
   ]
+
+  const panelClass = 'rounded-2xl border border-slate-200/85 bg-white/68 shadow-sm backdrop-blur-[2px]'
 
   return (
     <div className="rl-page-shell rl-up-page">
@@ -157,40 +198,41 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="card p-5">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
-          <div />
-          <div>
-            <label className="section-title">Industry Group</label>
-            <select className="input mt-2 min-w-[260px]" value={industry} onChange={(e) => setIndustry(e.target.value)}>
-              {industryOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
+      <section className="rl-up-nav-stack">
+        <div className="rl-up-nav-head">
+          <div className="rl-up-pill-nav rl-tab-motion" ref={tabsRef}>
+            {TABS.map((t) => (
+              <button key={t.key} className={`rl-strip-tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
+                {t.label}
+              </button>
+            ))}
           </div>
-          <button className="btn-secondary" onClick={load} disabled={loading}>
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
+
+          <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200/80 bg-white/42 px-3 py-2">
+            <div>
+              <label className="section-title">Industry Group</label>
+              <select className="input mt-2 min-w-[220px]" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                {industryOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button className="btn-secondary" onClick={load} disabled={loading}>
+              {loading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
         </div>
       </section>
 
-      {error ? <div className="card border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
-
-      <div className="rl-tabs">
-        {TABS.map((t) => (
-          <button key={t.key} className={`rl-tab-btn ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {error ? <div className={`${panelClass} border-red-200 bg-red-50/88 p-4 text-sm font-semibold text-red-700`}>{error}</div> : null}
 
       {activeTab === 'pulse' ? (
         <>
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {metricTiles.map(([k, v, color]) => (
-              <div key={k} className="metric-card">
+              <div key={k} className="metric-card" style={{ backgroundColor: 'rgba(255,255,255,0.7)' }}>
                 <p className="metric-label">{k}</p>
                 <p className="metric-value" style={{ color }}>
                   {loading ? '…' : v}
@@ -199,18 +241,62 @@ export default function DashboardPage() {
             ))}
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
-            <div className="card p-5">
+          <section className="grid gap-4 xl:grid-cols-[1.75fr_1fr]">
+            <div className={`${panelClass} p-5`}>
               <div className="section-headline">
                 <div className="section-rail" />
                 <div>
                   <p className="section-title-strong">Priority Heatmap</p>
-                  <p className="section-sub">Agent priority pressure by company and filing year (cell text: H / M / L).</p>
+                  <p className="section-sub">Each cell shows High / Medium / Low counts and RPI for one company-year.</p>
                 </div>
               </div>
 
-              {companiesOrdered.length === 0 || yearsOrdered.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+              <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 text-xs text-slate-600">
+                <p className="font-semibold text-slate-700">How to read:</p>
+                <p className="mt-1">`H/M/L` = number of high/medium/low priority risks in that filing snapshot.</p>
+                <p className="mt-1">`RPI` (0-100) = weighted pressure index; higher means risk pressure is more concentrated in high-priority items.</p>
+                <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
+                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#22c55e' }} />Low pressure</span>
+                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#f59e0b' }} />Medium pressure</span>
+                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#ef4444' }} />High pressure</span>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto_auto] md:items-end">
+                <div>
+                  <label className="section-title">Company Search</label>
+                  <input
+                    className="input mt-2"
+                    placeholder="Filter companies..."
+                    value={heatSearch}
+                    onChange={(e) => setHeatSearch(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="section-title">Rows / Page</label>
+                  <select className="input mt-2 min-w-[110px]" value={heatPageSize} onChange={(e) => setHeatPageSize(Number(e.target.value) || 12)}>
+                    {[8, 12, 16, 24].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="section-title">Page</label>
+                  <select className="input mt-2 min-w-[110px]" value={heatPage} onChange={(e) => setHeatPage(Number(e.target.value) || 1)}>
+                    {Array.from({ length: totalHeatPages }, (_, i) => i + 1).map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="mb-2 text-xs font-semibold text-slate-600">Showing {heatRangeLabel} / {filteredCompanies.length}</p>
+              </div>
+
+              {pagedCompanies.length === 0 || yearsOrdered.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
                   No priority heatmap data available for the selected scope.
                 </div>
               ) : (
@@ -227,8 +313,8 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {companiesOrdered.map((c) => (
-                        <tr key={c} className="border-t border-slate-100">
+                      {pagedCompanies.map((c) => (
+                        <tr key={c} className="border-t border-slate-100/80">
                           <td className="py-2 pr-3 font-semibold text-slate-800">{c}</td>
                           {yearsOrdered.map((y) => {
                             const cell = heatCellMap.get(`${c}__${y}`)
@@ -245,7 +331,7 @@ export default function DashboardPage() {
                             return (
                               <td key={`${c}-${y}`} className="py-2 px-1">
                                 <div
-                                  className="mx-auto flex h-12 w-[78px] flex-col items-center justify-center rounded-lg border border-white/65 text-[10px] font-bold text-slate-800"
+                                  className="mx-auto flex h-12 w-[78px] flex-col items-center justify-center rounded-lg border border-white/70 text-[10px] font-bold text-slate-800"
                                   style={{ backgroundColor: bg }}
                                   title={title}
                                 >
@@ -269,24 +355,24 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className="card p-5">
+            <div className={`${panelClass} p-5`}>
               <p className="section-title">Priority Mix</p>
               <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-                <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+                <div className="rounded-xl border border-red-200/90 bg-red-50/70 p-3">
                   <p className="font-extrabold text-red-600">High</p>
                   <p className="mt-1 text-lg font-extrabold text-red-700">{loading ? '…' : safeNumber(priorityTotals.high)}</p>
                 </div>
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <div className="rounded-xl border border-amber-200/90 bg-amber-50/70 p-3">
                   <p className="font-extrabold text-amber-600">Medium</p>
                   <p className="mt-1 text-lg font-extrabold text-amber-700">{loading ? '…' : safeNumber(priorityTotals.medium)}</p>
                 </div>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <div className="rounded-xl border border-emerald-200/90 bg-emerald-50/70 p-3">
                   <p className="font-extrabold text-emerald-600">Low</p>
                   <p className="mt-1 text-lg font-extrabold text-emerald-700">{loading ? '…' : safeNumber(priorityTotals.low)}</p>
                 </div>
               </div>
 
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="mt-4 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Scope Snapshot</p>
                 <p className="mt-2 text-sm font-semibold text-slate-700">Average RPI: {safeNumber(priorityHeatmap.avg_rpi).toFixed(1)}</p>
                 <p className="mt-1 text-sm text-slate-600">Rows with priority data: {safeNumber(metrics.records_with_priority)} / {safeNumber(metrics.records)}</p>
@@ -299,7 +385,7 @@ export default function DashboardPage() {
                   {!loading && recent.length === 0 ? <p className="text-sm text-slate-500">No records in this scope.</p> : null}
                   {!loading &&
                     recent.slice(0, 6).map((r) => (
-                      <div key={r.record_id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                      <div key={r.record_id} className="rounded-xl border border-slate-200/80 bg-white/52 px-3 py-2">
                         <p className="text-sm font-semibold text-slate-800">{r.company} · {r.year}</p>
                         <p className="mt-1 text-xs text-slate-500">{r.industry || '—'} · {safeNumber(r.risk_items)} risk items</p>
                       </div>
@@ -313,7 +399,7 @@ export default function DashboardPage() {
 
       {activeTab === 'category' ? (
         <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="card p-5">
+          <div className={`${panelClass} p-5`}>
             <div className="section-headline">
               <div className="section-rail" />
               <div>
@@ -330,7 +416,7 @@ export default function DashboardPage() {
                   const max = Math.max(...topCategories.map((r) => safeNumber(r.count)), 1)
                   const width = `${Math.max(6, Math.round((safeNumber(row.count) / max) * 100))}%`
                   return (
-                    <div key={row.category} className="rounded-xl border border-slate-200 px-3 py-2">
+                    <div key={row.category} className="rounded-xl border border-slate-200/80 bg-white/52 px-3 py-2">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-semibold text-slate-700">{row.category}</p>
                         <p className="text-sm font-extrabold text-brand-700">{safeNumber(row.count)}</p>
@@ -344,7 +430,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="card p-5">
+          <div className={`${panelClass} p-5`}>
             <p className="section-title">Category Trend</p>
             <p className="mt-1 text-xs text-slate-500">Track one category across filing years in the current scope.</p>
 
@@ -354,10 +440,10 @@ export default function DashboardPage() {
                 className="input mt-2"
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                disabled={!topCategories.length}
+                disabled={!categoryCounts.length}
               >
-                {!topCategories.length ? <option value="">No categories</option> : null}
-                {topCategories.map((row) => (
+                {!categoryCounts.length ? <option value="">No categories</option> : null}
+                {categoryCounts.map((row) => (
                   <option key={row.category} value={row.category}>
                     {row.category}
                   </option>
@@ -385,7 +471,7 @@ export default function DashboardPage() {
               {!selectedCategoryTrend.length ? <p className="text-sm text-slate-500">No year trend available for this category.</p> : null}
             </div>
 
-            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="mt-5 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Filing Trend</p>
               <div className="mt-2 space-y-2">
                 {yearlyRecords.map((row) => (
