@@ -47,6 +47,11 @@ function buildAgentHref(search = '') {
   return `/agent${query ? `?${query}` : ''}`
 }
 
+function isImeComposing(event) {
+  const nativeEvent = event?.nativeEvent || {}
+  return Boolean(nativeEvent.isComposing || event?.isComposing || nativeEvent.keyCode === 229)
+}
+
 function SendArrowIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -280,6 +285,7 @@ export default function FloatingChatWidget() {
                 setQuery(e.target.value)
               }}
               onKeyDown={(e) => {
+                if (isImeComposing(e)) return
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   sendFromWidget()

@@ -151,6 +151,11 @@ function getHistoryMenuPosition(rect) {
   return { top: Math.round(top), left: Math.round(left) }
 }
 
+function isImeComposing(event) {
+  const nativeEvent = event?.nativeEvent || {}
+  return Boolean(nativeEvent.isComposing || event?.isComposing || nativeEvent.keyCode === 229)
+}
+
 export default function AppShell({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -600,6 +605,7 @@ export default function AppShell({ children }) {
                     }}
                     placeholder="Ask about any company, filing, comparison, stock, or news signal…"
                     onKeyDown={(e) => {
+                      if (isImeComposing(e)) return
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault()
                         submitQuery()
@@ -657,6 +663,7 @@ export default function AppShell({ children }) {
                 onBlur={() => setDockFocused(false)}
                 placeholder={dockPlaceholder(location.pathname)}
                 onKeyDown={(e) => {
+                  if (isImeComposing(e)) return
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
                     submitQuery()
