@@ -746,6 +746,8 @@ export default function StockPage() {
   const [detailTableLoading, setDetailTableLoading] = useState(false)
   const [detailTableSection, setDetailTableSection] = useState('income_statement')
   const [detailActiveRecordId, setDetailActiveRecordId] = useState('')
+  const [detailMainTab, setDetailMainTab] = useState('overview')
+  const [heatmapHover, setHeatmapHover] = useState(null)
 
   const initializedRef = useRef(false)
 
@@ -1106,66 +1108,26 @@ export default function StockPage() {
     return items.slice(0, 6)
   }, [loadedRows, sectorRows, filingSummary, selectedDisplayName, selectedTicker])
 
-  const heatmapGroups = useMemo(() => {
+  const heatmapTiles = useMemo(() => {
     const rows = [...loadedRows]
       .filter((r) => r.data)
       .sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0))
-      .slice(0, 64)
     if (!rows.length) return []
 
     const caps = rows.map((r) => Number(r.market_cap || 0)).filter((n) => Number.isFinite(n) && n > 0)
     const maxCap = caps.length ? Math.max(...caps) : 0
-    const sectorPctMap = {}
-    sectorRows.forEach((s) => {
-      sectorPctMap[s.industry] = Number.isFinite(Number(s.avgPct)) ? Number(s.avgPct) : undefined
-    })
-
-    const buckets = {}
-    rows.forEach((row) => {
-      const key = String(row.industry || 'Other').trim() || 'Other'
-      if (!buckets[key]) buckets[key] = []
-      buckets[key].push(row)
-    })
-
-    const groups = Object.entries(buckets).map(([industry, items]) => {
-      const sorted = [...items].sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0))
-      const totalCap = sorted.reduce((sum, r) => sum + Math.max(0, Number(r.market_cap || 0)), 0)
-      const localCaps = sorted.map((r) => Math.max(0, Number(r.market_cap || 0)))
-      const maxLocalCap = localCaps.length ? Math.max(...localCaps) : 0
-      const avgPctFallback = sorted.length
-        ? sorted.reduce((sum, r) => sum + (Number.isFinite(Number(r.change_percent)) ? Number(r.change_percent) : 0), 0) / sorted.length
-        : undefined
-
-      const formatted = sorted.map((row) => {
-        const cap = Math.max(0, Number(row.market_cap || 0))
-        const ratioGlobal = maxCap > 0 ? cap / maxCap : 0
-        const ratioLocal = maxLocalCap > 0 ? cap / maxLocalCap : 0
-        const size = ratioGlobal >= 0.33 ? 'xxl' : ratioGlobal >= 0.17 ? 'xl' : ratioGlobal >= 0.08 ? 'lg' : ratioGlobal >= 0.03 ? 'md' : 'sm'
-        const intensity = Math.max(1, Math.min(5, Math.ceil(Math.abs(Number(row.change_percent || 0)) / 1.1)))
-        return {
-          ...row,
-          size,
-          intensity,
-          showName: ratioLocal >= 0.38,
-        }
-      })
-
-      const globalShare = maxCap > 0 ? totalCap / maxCap : 0
-      const span = globalShare >= 1.25 ? 6 : globalShare >= 0.7 ? 5 : globalShare >= 0.35 ? 4 : 3
-
+    return rows.map((row, idx) => {
+      const cap = Math.max(0, Number(row.market_cap || 0))
+      const ratio = maxCap > 0 ? cap / maxCap : Math.max(0.02, 1 - idx / Math.max(1, rows.length))
+      const size = ratio >= 0.22 ? 'xxl' : ratio >= 0.11 ? 'xl' : ratio >= 0.05 ? 'lg' : ratio >= 0.02 ? 'md' : 'sm'
+      const intensity = Math.max(1, Math.min(5, Math.ceil(Math.abs(Number(row.change_percent || 0)) / 1)))
       return {
-        industry,
-        span,
-        avgPct: Number.isFinite(sectorPctMap[industry]) ? sectorPctMap[industry] : avgPctFallback,
-        items: formatted.slice(0, 30),
-        totalCap,
+        ...row,
+        size,
+        intensity,
       }
     })
-
-    return groups
-      .sort((a, b) => Number(b.totalCap || 0) - Number(a.totalCap || 0))
-      .slice(0, 10)
-  }, [loadedRows, sectorRows])
+  }, [loadedRows])
 
   const spotlightRows = useMemo(() => {
     const top = [...loadedRows]
@@ -1346,6 +1308,14 @@ export default function StockPage() {
     if (selectedTicker !== routeSymbol) setSelectedTicker(routeSymbol)
   }, [routeSymbol, selectedTicker])
 
+  useEffect(() => {
+    if (!isCompanyView) {
+      setDetailMainTab('overview')
+      return
+    }
+    setHeatmapHover(null)
+  }, [isCompanyView, routeSymbol])
+
   const addTicker = () => {
     const next = normalizeTicker(addTickerInput)
     if (!next) return
@@ -1496,18 +1466,6 @@ export default function StockPage() {
             {!miniTickerCards.length ? <p className="rl-stock-muted">No tracked ticker charts yet.</p> : null}
           </div>
 
-          <div className="rl-stock-focus-card">
-            <FocusChart
-              title={`Price Trend · ${selectedTicker}`}
-              subtitle={`${selectedDisplayName || selectedTicker} (${rangeKey})`}
-              values={closeValues || []}
-              kind="line"
-              color={chartColorFor(closeValues, '#16a34a', '#ef4444')}
-              dateRange={dateRange}
-              rangeKey={rangeKey}
-            />
-          </div>
-
           <section className="rl-stock-side-card rl-stock-summary-card">
             <div className="rl-stock-side-head">
               <p>Market Summary</p>
@@ -1532,39 +1490,64 @@ export default function StockPage() {
           <section className="rl-stock-side-card rl-stock-heatmap-card">
             <div className="rl-stock-side-head">
               <p>Tracked Heatmap</p>
-              <span>Color = daily move · size = market cap · grouped by sector</span>
+              <span>Color = daily move · size = market cap</span>
             </div>
-            <div className="rl-stock-heatmap-grid rl-stock-heatmap-grid-v2">
-              {heatmapGroups.map((group) => (
-                <section key={`heat-sector-${group.industry}`} className="rl-stock-heatmap-sector" style={{ gridColumn: `span ${group.span}` }}>
-                  <div className="rl-stock-heatmap-sector-head">
-                    <p>{group.industry}</p>
-                    <em className={toneClass(group.avgPct)}>{fmtPct(group.avgPct)}</em>
-                  </div>
-                  <div className="rl-stock-heatmap-sector-grid">
-                    {group.items.map((row) => (
-                      <button
-                        key={`heat-${group.industry}-${row.ticker}`}
-                        className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)} size-${row.size} intensity-${row.intensity}`}
-                        onClick={() => openDetail(row.ticker)}
-                        title={`${row.company} · ${fmtPct(row.change_percent)}`}
-                      >
-                        <span>{row.ticker}</span>
-                        {row.showName ? <small>{row.company}</small> : null}
-                        <em>{fmtPct(row.change_percent)}</em>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
-              {!heatmapGroups.length ? <p className="rl-stock-muted">Load tracked quotes to render heatmap.</p> : null}
+            <div className="rl-stock-heatmap-unified-wrap" onMouseLeave={() => setHeatmapHover(null)}>
+              <div className="rl-stock-heatmap-grid rl-stock-heatmap-grid-unified">
+                {heatmapTiles.map((row) => (
+                  <button
+                    key={`heat-${row.ticker}`}
+                    className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)} size-${row.size} intensity-${row.intensity}`}
+                    onClick={() => openDetail(row.ticker)}
+                    onMouseEnter={(e) => {
+                      setHeatmapHover({
+                        x: e.currentTarget.offsetLeft + e.currentTarget.offsetWidth / 2,
+                        y: e.currentTarget.offsetTop - 8,
+                        row,
+                      })
+                    }}
+                    onMouseMove={(e) => {
+                      setHeatmapHover((prev) => {
+                        if (!prev || prev.row?.ticker !== row.ticker) {
+                          return {
+                            x: e.currentTarget.offsetLeft + e.currentTarget.offsetWidth / 2,
+                            y: e.currentTarget.offsetTop - 8,
+                            row,
+                          }
+                        }
+                        return { ...prev, x: e.currentTarget.offsetLeft + e.currentTarget.offsetWidth / 2, y: e.currentTarget.offsetTop - 8 }
+                      })
+                    }}
+                    title={`${row.company} · ${fmtPct(row.change_percent)}`}
+                  >
+                    <span>{row.ticker}</span>
+                    <small>{row.company}</small>
+                    <em>{fmtPct(row.change_percent)}</em>
+                  </button>
+                ))}
+                {!heatmapTiles.length ? <p className="rl-stock-muted">Load tracked quotes to render heatmap.</p> : null}
+              </div>
+              {heatmapHover?.row ? (
+                <div
+                  className="rl-stock-heatmap-tooltip"
+                  style={{
+                    left: `${heatmapHover.x}px`,
+                    top: `${heatmapHover.y}px`,
+                  }}
+                >
+                  <p>{heatmapHover.row.industry || 'Other'}</p>
+                  <strong>{heatmapHover.row.ticker} · {heatmapHover.row.company}</strong>
+                  <span>{fmtPrice(heatmapHover.row.data?.price)} · {fmtPct(heatmapHover.row.change_percent)}</span>
+                  <em>Cap {fmtCompact(heatmapHover.row.market_cap)} · Vol {fmtCompact(heatmapHover.row.volume)}</em>
+                </div>
+              ) : null}
             </div>
           </section>
 
           <section className="rl-stock-side-card rl-stock-spotlight-card">
             <div className="rl-stock-side-head">
               <p>Spotlight Stocks</p>
-              <span>Perplexity-style highlights from your tracked universe</span>
+              <span>High-impact movers from your tracked universe</span>
             </div>
             <div className="rl-stock-spotlight-list">
               {spotlightRows.map((row) => (
@@ -1723,59 +1706,135 @@ export default function StockPage() {
       ) : (
       <section className="rl-stock-workbench rl-stock-workbench-v2 rl-stock-detail-layout">
         <div className="rl-stock-left">
-          <section className="rl-stock-side-card rl-stock-detail-market-panel">
-            <div className="rl-stock-quote-strip">
-              <div className="rl-stock-quote-cell">
-                <p className="rl-stock-quote-price">
-                  {fmtPrice(detailData?.price)} <span className={toneClass(detailData?.change_percent)}>{fmtSigned(detailData?.change)} {fmtPct(detailData?.change_percent)}</span>
-                </p>
-                <span>Regular close · {fmtDateTime(detailData?.regular_market_time)}</span>
-              </div>
-              <div className="rl-stock-quote-cell">
-                <p className="rl-stock-quote-price">
-                  {fmtPrice(detailData?.post_market_price)}{' '}
-                  <span className={toneClass(detailData?.post_market_change_percent)}>
-                    {fmtSigned(detailData?.post_market_change)} {fmtPct(detailData?.post_market_change_percent)}
-                  </span>
-                </p>
-                <span>After hours · {fmtDateTime(detailData?.post_market_time)}</span>
-              </div>
+          <section className="rl-stock-side-card rl-stock-detail-main-card">
+            <div className="rl-stock-detail-main-tabs">
+              <button className={detailMainTab === 'overview' ? 'active' : ''} onClick={() => setDetailMainTab('overview')}>Overview</button>
+              <button className={detailMainTab === 'financials' ? 'active' : ''} onClick={() => setDetailMainTab('financials')}>Financial Data</button>
             </div>
 
-            <div className="rl-stock-detail-chart-shell">
-              <div className="rl-stock-range-row rl-stock-range-row-compact">
-                <label className="section-title">Time Range</label>
-                <div className="rl-segment">
-                  {RANGE_OPTIONS.map((key) => (
-                    <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => setRangeKey(key)}>{key}</button>
-                  ))}
+            {detailMainTab === 'overview' ? (
+              <div className="rl-stock-detail-market-panel">
+                <div className="rl-stock-quote-strip">
+                  <div className="rl-stock-quote-cell">
+                    <p className="rl-stock-quote-price">
+                      {fmtPrice(detailData?.price)} <span className={toneClass(detailData?.change_percent)}>{fmtSigned(detailData?.change)} {fmtPct(detailData?.change_percent)}</span>
+                    </p>
+                    <span>Regular close · {fmtDateTime(detailData?.regular_market_time)}</span>
+                  </div>
+                  <div className="rl-stock-quote-cell">
+                    <p className="rl-stock-quote-price">
+                      {fmtPrice(detailData?.post_market_price)}{' '}
+                      <span className={toneClass(detailData?.post_market_change_percent)}>
+                        {fmtSigned(detailData?.post_market_change)} {fmtPct(detailData?.post_market_change_percent)}
+                      </span>
+                    </p>
+                    <span>After hours · {fmtDateTime(detailData?.post_market_time)}</span>
+                  </div>
+                </div>
+
+                <div className="rl-stock-detail-chart-shell">
+                  <div className="rl-stock-range-row rl-stock-range-row-compact">
+                    <label className="section-title">Time Range</label>
+                    <div className="rl-segment">
+                      {RANGE_OPTIONS.map((key) => (
+                        <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => setRangeKey(key)}>{key}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rl-stock-focus-card rl-stock-focus-card-formal">
+                    <FocusChart
+                      title={`Price Trend · ${detailSymbol}`}
+                      subtitle={`${detailCompany || detailSymbol} (${rangeKey})`}
+                      values={closeValues || []}
+                      kind="line"
+                      color={chartColorFor(closeValues, '#15803d', '#b91c1c')}
+                      dateRange={dateRange}
+                      rangeKey={rangeKey}
+                      formal
+                    />
+                  </div>
+                </div>
+
+                <div className="rl-stock-kpi-table">
+                  <div><span>Previous Close</span><strong>{fmtPrice(prevClose)}</strong></div>
+                  <div><span>Market Cap</span><strong>{fmtCompact(detailData?.market_cap)}</strong></div>
+                  <div><span>Open</span><strong>{fmtPrice(openPrice)}</strong></div>
+                  <div><span>PE Ratio</span><strong>{detailData?.pe_ratio ? Number(detailData.pe_ratio).toFixed(2) : '—'}</strong></div>
+                  <div><span>Day Range</span><strong>{fmtRange(dayLow, dayHigh)}</strong></div>
+                  <div><span>Dividend Yield</span><strong>{fmtYield(detailData?.dividend_yield)}</strong></div>
+                  <div><span>52W Range</span><strong>{fmtRange(detailData?.low_52, detailData?.high_52)}</strong></div>
+                  <div><span>EPS (TTM)</span><strong>{fmtPrice(detailData?.eps)}</strong></div>
+                  <div><span>Volume</span><strong>{fmtCompact(volumeNow)}</strong></div>
                 </div>
               </div>
-              <div className="rl-stock-focus-card rl-stock-focus-card-formal">
-                <FocusChart
-                  title={`Price Trend · ${detailSymbol}`}
-                  subtitle={`${detailCompany || detailSymbol} (${rangeKey})`}
-                  values={closeValues || []}
-                  kind="line"
-                  color={chartColorFor(closeValues, '#15803d', '#b91c1c')}
-                  dateRange={dateRange}
-                  rangeKey={rangeKey}
-                  formal
-                />
-              </div>
-            </div>
+            ) : (
+              <div className="rl-stock-financial-card rl-stock-financial-panel">
+                <div className="rl-stock-side-head">
+                  <p>Financial Data</p>
+                  <span>{activeDetailRecord ? `${activeDetailRecord.year} · ${activeDetailRecord.filing_type || '10-K'}` : 'No extracted tables'}</span>
+                </div>
 
-            <div className="rl-stock-kpi-table">
-              <div><span>Previous Close</span><strong>{fmtPrice(prevClose)}</strong></div>
-              <div><span>Market Cap</span><strong>{fmtCompact(detailData?.market_cap)}</strong></div>
-              <div><span>Open</span><strong>{fmtPrice(openPrice)}</strong></div>
-              <div><span>PE Ratio</span><strong>{detailData?.pe_ratio ? Number(detailData.pe_ratio).toFixed(2) : '—'}</strong></div>
-              <div><span>Day Range</span><strong>{fmtRange(dayLow, dayHigh)}</strong></div>
-              <div><span>Dividend Yield</span><strong>{fmtYield(detailData?.dividend_yield)}</strong></div>
-              <div><span>52W Range</span><strong>{fmtRange(detailData?.low_52, detailData?.high_52)}</strong></div>
-              <div><span>EPS (TTM)</span><strong>{fmtPrice(detailData?.eps)}</strong></div>
-              <div><span>Volume</span><strong>{fmtCompact(volumeNow)}</strong></div>
-            </div>
+                <div className="rl-stock-fin-year-tabs">
+                  {detailRecords.map((rec) => {
+                    const rid = String(rec?.record_id || '')
+                    return (
+                      <button
+                        key={`fin-year-${rid}`}
+                        className={detailActiveRecordId === rid ? 'active' : ''}
+                        onClick={() => setDetailActiveRecordId(rid)}
+                      >
+                        {rec?.year || '—'}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="rl-stock-fin-section-tabs">
+                  {TABLE_SECTIONS.map((section) => (
+                    <button
+                      key={`fin-section-${section.key}`}
+                      className={detailTableSection === section.key ? 'active' : ''}
+                      onClick={() => setDetailTableSection(section.key)}
+                    >
+                      {section.label}
+                    </button>
+                  ))}
+                </div>
+
+                {detailTableLoading ? <p className="rl-stock-muted">Loading extracted tables…</p> : null}
+                {!detailTableLoading && !activeTableResult ? <p className="rl-stock-muted">No extracted table bundle for this filing year yet.</p> : null}
+                {!detailTableLoading && activeTableResult && !activeTableBlock?.found ? (
+                  <p className="rl-stock-muted">This statement was not found in the selected filing.</p>
+                ) : null}
+                {!detailTableLoading && activeTableBlock?.found ? (
+                  <>
+                    {String(activeTableBlock?.unit || '').trim() ? <p className="rl-stock-fin-unit">Unit: {String(activeTableBlock.unit)}</p> : null}
+                    <div className="rl-stock-fin-table-wrap">
+                      <table className="rl-stock-fin-table">
+                        {activeTableHeaders.length ? (
+                          <thead>
+                            <tr>
+                              {activeTableHeaders.map((h, idx) => (
+                                <th key={`fin-head-${idx}`}>{String(h || `Col ${idx + 1}`)}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                        ) : null}
+                        <tbody>
+                          {activeTableRows.slice(0, 60).map((row, rIdx) => (
+                            <tr key={`fin-row-${rIdx}`}>
+                              {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
+                                <td key={`fin-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            )}
           </section>
         </div>
 
@@ -1792,73 +1851,6 @@ export default function StockPage() {
               <div><span>Exchange</span><strong>{detailData?.exchange || 'US'}</strong></div>
             </div>
             {detailData?.description ? <p className="rl-stock-profile-desc">{detailData.description}</p> : null}
-          </section>
-
-          <section className="rl-stock-side-card rl-stock-financial-card">
-            <div className="rl-stock-side-head">
-              <p>Financial Data</p>
-              <span>{activeDetailRecord ? `${activeDetailRecord.year} · ${activeDetailRecord.filing_type || '10-K'}` : 'No extracted tables'}</span>
-            </div>
-
-            <div className="rl-stock-fin-year-tabs">
-              {detailRecords.map((rec) => {
-                const rid = String(rec?.record_id || '')
-                return (
-                  <button
-                    key={`fin-year-${rid}`}
-                    className={detailActiveRecordId === rid ? 'active' : ''}
-                    onClick={() => setDetailActiveRecordId(rid)}
-                  >
-                    {rec?.year || '—'}
-                  </button>
-                )
-              })}
-            </div>
-
-            <div className="rl-stock-fin-section-tabs">
-              {TABLE_SECTIONS.map((section) => (
-                <button
-                  key={`fin-section-${section.key}`}
-                  className={detailTableSection === section.key ? 'active' : ''}
-                  onClick={() => setDetailTableSection(section.key)}
-                >
-                  {section.label}
-                </button>
-              ))}
-            </div>
-
-            {detailTableLoading ? <p className="rl-stock-muted">Loading extracted tables…</p> : null}
-            {!detailTableLoading && !activeTableResult ? <p className="rl-stock-muted">No extracted table bundle for this filing year yet.</p> : null}
-            {!detailTableLoading && activeTableResult && !activeTableBlock?.found ? (
-              <p className="rl-stock-muted">This statement was not found in the selected filing.</p>
-            ) : null}
-            {!detailTableLoading && activeTableBlock?.found ? (
-              <>
-                {String(activeTableBlock?.unit || '').trim() ? <p className="rl-stock-fin-unit">Unit: {String(activeTableBlock.unit)}</p> : null}
-                <div className="rl-stock-fin-table-wrap">
-                  <table className="rl-stock-fin-table">
-                    {activeTableHeaders.length ? (
-                      <thead>
-                        <tr>
-                          {activeTableHeaders.map((h, idx) => (
-                            <th key={`fin-head-${idx}`}>{String(h || `Col ${idx + 1}`)}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                    ) : null}
-                    <tbody>
-                      {activeTableRows.slice(0, 60).map((row, rIdx) => (
-                        <tr key={`fin-row-${rIdx}`}>
-                          {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
-                            <td key={`fin-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : null}
           </section>
 
           <section className="rl-stock-side-card">

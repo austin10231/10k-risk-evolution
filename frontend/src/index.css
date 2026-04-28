@@ -901,7 +901,7 @@ select.input {
 }
 
 .rl-global-dock.news .rl-global-dock-inner {
-  max-width: min(1124px, calc(100% - 348px));
+  max-width: min(1124px, calc(100% - 404px));
   margin-left: 0;
   margin-right: auto;
 }
@@ -2239,8 +2239,8 @@ select.input {
 }
 
 .rl-stock-workbench-v2 {
-  grid-template-columns: minmax(0, 1fr) 312px;
-  gap: 32px;
+  grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
+  gap: 36px;
 }
 
 .rl-stock-page .up {
@@ -2320,77 +2320,53 @@ select.input {
 .rl-stock-heatmap-grid {
   margin-top: 9px;
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-auto-rows: minmax(44px, auto);
-  gap: 10px;
-}
-
-.rl-stock-heatmap-grid-v2 {
-  align-items: start;
-}
-
-.rl-stock-heatmap-sector {
-  border: 1px solid rgba(24, 36, 58, 0.7);
-  border-radius: 13px;
-  background:
-    radial-gradient(160% 140% at 100% 0%, rgba(34, 197, 94, 0.08), rgba(15, 23, 42, 0)),
-    linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(14, 19, 33, 0.96));
-  padding: 8px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 30px rgba(2, 6, 23, 0.34);
-}
-
-.rl-stock-heatmap-sector-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.rl-stock-heatmap-sector-head p {
-  margin: 0;
-  color: #e2e8f0;
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.rl-stock-heatmap-sector-head em {
-  font-style: normal;
-  font-size: 0.88rem;
-  font-weight: 700;
-}
-
-.rl-stock-heatmap-sector-grid {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-auto-rows: 30px;
   gap: 4px;
 }
 
+.rl-stock-heatmap-unified-wrap {
+  margin-top: 10px;
+  border: 1px solid rgba(186, 201, 224, 0.88);
+  border-radius: 14px;
+  background:
+    radial-gradient(180% 160% at 100% 0%, rgba(30, 64, 175, 0.06), rgba(30, 64, 175, 0)),
+    linear-gradient(180deg, rgba(251, 253, 255, 0.94), rgba(241, 247, 255, 0.9));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.64), 0 14px 28px rgba(15, 23, 42, 0.1);
+  padding: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.rl-stock-heatmap-grid-unified {
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  grid-auto-rows: 24px;
+  align-items: stretch;
+}
+
 .rl-stock-heatmap-tile {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 4px;
   color: #f8fafc;
-  padding: 4px 5px;
+  padding: 4px 6px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: space-between;
   text-align: left;
   min-width: 0;
-  transition: transform 0.14s ease, border-color 0.16s ease, filter 0.16s ease;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: transform 0.12s ease, border-color 0.16s ease, filter 0.16s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  cursor: pointer;
 }
 
 .rl-stock-heatmap-tile:hover {
-  transform: translateY(-1px) scale(1.01);
-  border-color: rgba(255, 255, 255, 0.34);
-  filter: brightness(1.06);
+  transform: translateY(-1px);
+  border-color: rgba(15, 23, 42, 0.3);
+  filter: brightness(1.05);
 }
 
 .rl-stock-heatmap-tile span {
-  font-size: 0.76rem;
-  font-weight: 700;
+  font-size: 0.75rem;
+  font-weight: 800;
   line-height: 1.05;
   letter-spacing: 0.01em;
   white-space: nowrap;
@@ -2400,9 +2376,9 @@ select.input {
 
 .rl-stock-heatmap-tile small {
   margin-top: 2px;
-  color: rgba(248, 250, 252, 0.84);
-  font-size: 0.62rem;
-  font-weight: 600;
+  color: rgba(248, 250, 252, 0.9);
+  font-size: 0.61rem;
+  font-weight: 650;
   line-height: 1.15;
   white-space: nowrap;
   overflow: hidden;
@@ -2412,20 +2388,20 @@ select.input {
 .rl-stock-heatmap-tile em {
   margin-top: 2px;
   font-style: normal;
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.7rem;
+  font-weight: 800;
 }
 
 .rl-stock-heatmap-tile.tone-up {
-  background: linear-gradient(145deg, rgba(26, 98, 54, 0.96), rgba(57, 158, 84, 0.92));
+  background: linear-gradient(145deg, rgba(53, 136, 72, 0.96), rgba(93, 182, 116, 0.93));
 }
 
 .rl-stock-heatmap-tile.tone-down {
-  background: linear-gradient(145deg, rgba(117, 41, 59, 0.98), rgba(173, 73, 98, 0.94));
+  background: linear-gradient(145deg, rgba(165, 66, 90, 0.96), rgba(206, 92, 121, 0.92));
 }
 
 .rl-stock-heatmap-tile.tone-flat {
-  background: linear-gradient(145deg, rgba(51, 65, 85, 0.98), rgba(71, 85, 105, 0.94));
+  background: linear-gradient(145deg, rgba(88, 103, 126, 0.94), rgba(111, 126, 149, 0.92));
 }
 
 .rl-stock-heatmap-tile.size-xxl {
@@ -2455,7 +2431,56 @@ select.input {
 
 .rl-stock-heatmap-tile.intensity-4,
 .rl-stock-heatmap-tile.intensity-5 {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.1);
+}
+
+.rl-stock-heatmap-tooltip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  min-width: 280px;
+  max-width: min(460px, calc(100% - 20px));
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  border-radius: 12px;
+  background:
+    radial-gradient(140% 150% at 100% 0%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0)),
+    rgba(16, 23, 37, 0.92);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.4);
+  color: #e5edf9;
+  padding: 10px 12px;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.rl-stock-heatmap-tooltip p {
+  margin: 0;
+  color: #9fb2cf;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.rl-stock-heatmap-tooltip strong {
+  margin-top: 4px;
+  display: block;
+  color: #f8fbff;
+  font-size: 0.92rem;
+  font-weight: 760;
+}
+
+.rl-stock-heatmap-tooltip span {
+  margin-top: 5px;
+  display: block;
+  color: #d8e5fb;
+  font-size: 0.81rem;
+  font-weight: 640;
+}
+
+.rl-stock-heatmap-tooltip em {
+  margin-top: 5px;
+  display: block;
+  color: #c5d2e8;
+  font-size: 0.73rem;
+  font-style: normal;
+  font-weight: 600;
 }
 
 .rl-stock-spotlight-list {
@@ -2658,6 +2683,35 @@ select.input {
   gap: 12px;
 }
 
+.rl-stock-detail-main-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.rl-stock-detail-main-tabs {
+  padding: 10px 11px;
+  border-bottom: 1px solid rgba(201, 212, 229, 0.72);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rl-stock-detail-main-tabs button {
+  border: 1px solid rgba(186, 202, 226, 0.84);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #475569;
+  font-size: 0.73rem;
+  font-weight: 700;
+  padding: 5px 10px;
+}
+
+.rl-stock-detail-main-tabs button.active {
+  background: rgba(37, 99, 235, 0.92);
+  border-color: rgba(37, 99, 235, 0.95);
+  color: #ffffff;
+}
+
 .rl-stock-profile-card {
   padding: 10px;
 }
@@ -2806,6 +2860,10 @@ select.input {
 
 .rl-stock-financial-card {
   padding: 10px;
+}
+
+.rl-stock-financial-panel {
+  border-top: 0;
 }
 
 .rl-stock-fin-year-tabs,
@@ -4583,8 +4641,8 @@ select.input {
 
 .rl-news-v2-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 312px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
+  gap: 36px;
   align-items: start;
 }
 
@@ -5299,15 +5357,7 @@ select.input {
   }
 
   .rl-stock-heatmap-grid {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-  }
-
-  .rl-stock-heatmap-sector {
-    grid-column: span 4 !important;
-  }
-
-  .rl-stock-heatmap-sector-grid {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
+    grid-template-columns: repeat(16, minmax(0, 1fr));
   }
 
   .rl-stock-spotlight-stats {
@@ -5497,17 +5547,8 @@ select.input {
   }
 
   .rl-stock-heatmap-grid {
-    grid-template-columns: 1fr;
-    grid-auto-rows: auto;
-  }
-
-  .rl-stock-heatmap-sector {
-    grid-column: span 1 !important;
-  }
-
-  .rl-stock-heatmap-sector-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    grid-auto-rows: 30px;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+    grid-auto-rows: 20px;
   }
 
   .rl-stock-heatmap-tile.size-xxl,
