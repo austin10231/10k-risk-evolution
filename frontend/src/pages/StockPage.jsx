@@ -145,13 +145,6 @@ const MARKET_OVERVIEW_TICKERS = [
   { label: 'Volatility', ticker: 'VIXY' },
 ]
 
-const MARKET_SPOTLIGHT_UNIVERSE = [
-  'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA', 'BRK.B', 'JPM', 'V', 'MA', 'UNH',
-  'XOM', 'WMT', 'LLY', 'AVGO', 'ORCL', 'NFLX', 'COST', 'JNJ', 'PG', 'HD', 'BAC', 'ABBV',
-  'KO', 'PEP', 'MRK', 'CVX', 'CSCO', 'AMD', 'ADBE', 'CRM', 'ACN', 'QCOM', 'MCD', 'TMO',
-  'PFE', 'TXN', 'DHR', 'AMAT', 'CAT', 'GE', 'INTU', 'BKNG', 'LOW', 'IBM', 'NOW', 'MS',
-]
-
 function normalizeTicker(raw) {
   return String(raw || '')
     .trim()
@@ -736,6 +729,31 @@ function heatmapSummaryText(row) {
   return `${company} ${move}, with activity centered in ${industry}.`
 }
 
+function avgVolumeFromHistory(history = []) {
+  const rows = Array.isArray(history) ? history : []
+  const volumes = rows
+    .map((row) => Number(row?.volume))
+    .filter((v) => Number.isFinite(v) && v > 0)
+  if (!volumes.length) return null
+  const sample = volumes.slice(-21, -1)
+  const target = sample.length ? sample : volumes
+  if (!target.length) return null
+  return target.reduce((sum, v) => sum + v, 0) / target.length
+}
+
+function spotlightReason({
+  volumeSurge,
+  distToHighPct,
+  distToLowPct,
+  absChangePct,
+}) {
+  if (Number.isFinite(volumeSurge) && volumeSurge >= 1.8) return `Volume surge ${volumeSurge.toFixed(2)}x`
+  if (Number.isFinite(distToHighPct) && distToHighPct <= 3.0) return `Near 52W high (${distToHighPct.toFixed(1)}% away)`
+  if (Number.isFinite(distToLowPct) && distToLowPct <= 3.0) return `Near 52W low (${distToLowPct.toFixed(1)}% away)`
+  if (Number.isFinite(absChangePct) && absChangePct >= 2.2) return `Strong move ${absChangePct.toFixed(2)}%`
+  return 'Cross-signal momentum'
+}
+
 function MiniChart({ values, kind, color, compact = true }) {
   const width = compact ? 320 : 360
   const height = compact ? 116 : 132
@@ -920,15 +938,6 @@ function FocusChart({
       </div>
     </div>
   )
-}
-
-function makeSpotlightSummary(row, sectorText) {
-  const name = row.company || row.name || row.ticker
-  const chg = Number(row.change_percent)
-  const direction = Number.isFinite(chg) ? (chg >= 0 ? 'rose' : 'fell') : 'moved'
-  const pct = Number.isFinite(chg) ? `${Math.abs(chg).toFixed(2)}%` : 'notably'
-  const risk = row.riskItems > 0 ? `Latest filing shows ${row.riskItems} risk items.` : 'No filing risk count available yet.'
-  return `${name} ${direction} ${pct} in the selected window. ${sectorText} ${risk}`
 }
 
 function isInvalidTickerMessage(msg) {
@@ -1232,26 +1241,6 @@ export default function StockPage() {
   }, [fetchBundle])
 
   useEffect(() => {
-    const symbols = mergeTickers(MARKET_SPOTLIGHT_UNIVERSE).filter((tk) => !unsupportedTickerSet.has(tk)).slice(0, 48)
-    const timers = []
-    symbols.forEach((ticker, idx) => {
-      const timer = window.setTimeout(() => {
-        fetchBundle(ticker, {
-          preferCache: true,
-          silent: true,
-          skipIfFresh: true,
-          remember: false,
-          muteError: true,
-          muteStatus: true,
-          lite: true,
-        })
-      }, 1200 + idx * 260)
-      timers.push(timer)
-    })
-    return () => timers.forEach((id) => window.clearTimeout(id))
-  }, [fetchBundle, unsupportedTickerSet])
-
-  useEffect(() => {
     let alive = true
     setMarketIntelLoading(true)
     get(`/api/news?company=${encodeURIComponent('S&P 500')}&ticker=SPY&days=2&limit=6`)
@@ -1465,34 +1454,66 @@ export default function StockPage() {
     })
   }, [loadedRows])
 
-  const spotlightRows = useMemo(() => {
-    const rows = MARKET_SPOTLIGHT_UNIVERSE.map((tk) => {
-      const payload = bundleMap[normalizeTicker(tk)]?.data || null
-      if (!payload) return null
-      const pct = resolveChangePercent(payload)
-      if (!Number.isFinite(pct)) return null
-      const price = resolvePrice(payload)
-      return {
-        ticker: normalizeTicker(tk),
-        company: String(payload?.name || normalizeTicker(tk)),
-        industry: resolveEquitySector({
-          filingIndustry: '',
-          quoteSector: payload?.sector,
-          ticker: tk,
-          company: String(payload?.name || tk),
-        }),
-        data: payload,
-        change_percent: pct,
-        market_cap: resolveMarketCap(payload),
-        volume: Number(payload?.volume || 0),
-        price: Number.isFinite(price) ? price : null,
-      }
-    }).filter(Boolean)
+  const leadersCluster = useMemo(() => {
+    const gain = [...loadedRows].sort((a, b) => Number(b.change_percent || 0) - Number(a.change_percent || 0)).slice(0, 5)
+    const lose = [...loadedRows].sort((a, b) => Number(a.change_percent || 0) - Number(b.change_percent || 0)).slice(0, 5)
+    const active = [...loadedRows].sort((a, b) => Number(b.volume || 0) - Number(a.volume || 0)).slice(0, 5)
+    return new Set([...gain, ...lose, ...active].map((row) => normalizeTicker(row?.ticker)))
+  }, [loadedRows])
 
-    const gainers = [...rows].sort((a, b) => Number(b.change_percent) - Number(a.change_percent)).slice(0, 3).map((row) => ({ ...row, side: 'gainer' }))
-    const losers = [...rows].sort((a, b) => Number(a.change_percent) - Number(b.change_percent)).slice(0, 3).map((row) => ({ ...row, side: 'loser' }))
-    return [...gainers, ...losers]
-  }, [bundleMap])
+  const spotlightRows = useMemo(() => {
+    const scored = loadedRows.map((row) => {
+      const price = Number(resolvePrice(row?.data))
+      const absChangePct = Math.abs(Number(row?.change_percent || 0))
+      const volNow = Number(row?.volume || 0)
+      const volAvg = Number(avgVolumeFromHistory(row?.data?.history || []))
+      const volumeSurge = Number.isFinite(volAvg) && volAvg > 0 ? volNow / volAvg : null
+      const high52 = Number(row?.data?.high_52)
+      const low52 = Number(row?.data?.low_52)
+      const distToHighPct = Number.isFinite(price) && Number.isFinite(high52) && high52 > 0
+        ? ((high52 - price) / high52) * 100
+        : null
+      const distToLowPct = Number.isFinite(price) && Number.isFinite(low52) && low52 > 0
+        ? ((price - low52) / low52) * 100
+        : null
+      const cap = Number(row?.market_cap || 0)
+      const largeCapPenalty = cap > 1_000_000_000_000 ? 0.45 : cap > 500_000_000_000 ? 0.24 : 0
+
+      const signalA = Math.min(absChangePct, 8) * 0.55
+      const signalB = Number.isFinite(volumeSurge) ? Math.min(Math.max(volumeSurge - 1, 0), 3) * 0.9 : 0
+      const signalC = Number.isFinite(distToHighPct) ? Math.max(0, 3.6 - distToHighPct) * 0.28 : 0
+      const signalD = Number.isFinite(distToLowPct) ? Math.max(0, 3.6 - distToLowPct) * 0.25 : 0
+      const signalE = Number(row?.riskItems || 0) > 0 ? 0.16 : 0
+      const score = signalA + signalB + signalC + signalD + signalE - largeCapPenalty
+
+      return {
+        ...row,
+        price: Number.isFinite(price) ? price : null,
+        volume_surge: volumeSurge,
+        dist_to_high_pct: distToHighPct,
+        dist_to_low_pct: distToLowPct,
+        highlight_score: score,
+        highlight_reason: spotlightReason({
+          volumeSurge,
+          distToHighPct,
+          distToLowPct,
+          absChangePct,
+        }),
+      }
+    })
+      .filter((row) => Number.isFinite(row.highlight_score))
+      .sort((a, b) => Number(b.highlight_score) - Number(a.highlight_score))
+
+    const primary = scored.filter((row) => !leadersCluster.has(normalizeTicker(row?.ticker))).slice(0, 3)
+    if (primary.length >= 3) return primary
+
+    const used = new Set(primary.map((row) => normalizeTicker(row?.ticker)))
+    const extra = scored.filter((row) => {
+      const sym = normalizeTicker(row?.ticker)
+      return sym && !used.has(sym)
+    }).slice(0, Math.max(0, 3 - primary.length))
+    return [...primary, ...extra].slice(0, 3)
+  }, [loadedRows, leadersCluster])
 
   const marketSummaryUpdatedAt = useMemo(() => {
     const values = marketSummaryRows.map((row) => Number(row.updatedAt || 0)).filter((n) => Number.isFinite(n) && n > 0)
@@ -1926,11 +1947,11 @@ export default function StockPage() {
           <section className="rl-stock-side-card rl-stock-spotlight-card">
             <div className="rl-stock-side-head">
               <p>Spotlight Stocks</p>
-              <span>S&P 500 high/low movers</span>
+              <span>3 highlighted names (not leaders board)</span>
             </div>
             <div className="rl-stock-spotlight-list">
               {spotlightRows.map((row) => (
-                <article key={`spot-${row.ticker}-${row.side}`} className="rl-stock-spotlight-item">
+                <article key={`spot-${row.ticker}`} className="rl-stock-spotlight-item">
                   <div className="rl-stock-spotlight-head">
                     <div className="rl-stock-company-mini" onClick={() => openDetail(row.ticker)}>
                       <CompanyLogo ticker={row.ticker} company={row.company} />
@@ -1946,14 +1967,14 @@ export default function StockPage() {
                   </div>
 
                   <div className="rl-stock-spotlight-stats rl-stock-spotlight-stats-market">
-                    <span><b>Direction</b>{row.side === 'gainer' ? 'Top Gainer' : 'Top Loser'}</span>
+                    <span><b>Highlight</b>{row.highlight_reason || 'Notable move'}</span>
                     <span><b>Industry</b>{row.industry || 'Other'}</span>
                     <span><b>Market Cap</b>{fmtCompact(row.market_cap)}</span>
                     <span><b>Volume</b>{fmtCompact(row.volume)}</span>
                   </div>
                 </article>
               ))}
-              {!spotlightRows.length ? <p className="rl-stock-muted">Spotlight movers are loading from the S&P 500 universe.</p> : null}
+              {!spotlightRows.length ? <p className="rl-stock-muted">Spotlight is loading from your tracked company set.</p> : null}
             </div>
           </section>
           </div>
