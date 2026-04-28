@@ -700,6 +700,28 @@ function toneClass(v) {
   return 'flat'
 }
 
+function companyIdentityKey(row) {
+  const fromName = sanitizeCompanyName(row?.company || row?.data?.name || '')
+  if (fromName) return fromName
+  const ticker = normalizeTicker(row?.ticker || '')
+  if (!ticker) return ''
+  return ticker.replace(/[.\-]/g, '')
+}
+
+function uniqueRowsByCompany(rows, limit = Infinity) {
+  const list = Array.isArray(rows) ? rows : []
+  const out = []
+  const seen = new Set()
+  for (const row of list) {
+    const key = companyIdentityKey(row)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
 function MiniChart({ values, kind, color, compact = true }) {
   const width = compact ? 320 : 360
   const height = compact ? 116 : 132
@@ -1343,7 +1365,7 @@ export default function StockPage() {
     if (boardTab === 'losers') rows.sort((a, b) => Number(a.change_percent) - Number(b.change_percent))
     else if (boardTab === 'active') rows.sort((a, b) => Number(b.volume || 0) - Number(a.volume || 0))
     else rows.sort((a, b) => Number(b.change_percent) - Number(a.change_percent))
-    return rows.slice(0, 5)
+    return uniqueRowsByCompany(rows, 5)
   }, [loadedRows, boardTab])
 
   const popularRows = useMemo(() => {
@@ -1353,7 +1375,7 @@ export default function StockPage() {
       if (aData !== bData) return bData - aData
       return String(a.company).localeCompare(String(b.company))
     })
-    return merged.slice(0, 5)
+    return uniqueRowsByCompany(merged, 5)
   }, [trackedRows])
 
   const uploadedSectorAgg = useMemo(() => {
