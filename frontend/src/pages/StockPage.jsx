@@ -588,19 +588,20 @@ function normalizeCompanyRoot(raw) {
 
 function logoCandidates(ticker, companyName) {
   const sym = normalizeTicker(ticker)
-  const domains = []
-  const mappedDomain = LOGO_DOMAIN_BY_TICKER[sym]
-  if (mappedDomain) domains.push(mappedDomain)
-
-  const root = normalizeCompanyRoot(companyName)
-  if (root && root.length >= 3) domains.push(`${root}.com`)
-
-  const uniq = Array.from(new Set(domains))
   const urls = []
-  uniq.forEach((domain) => {
-    urls.push(`https://logo.clearbit.com/${domain}`)
-    urls.push(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`)
-  })
+  if (sym) {
+    urls.push(`https://financialmodelingprep.com/image-stock/${encodeURIComponent(sym)}.png`)
+    urls.push(`https://eodhistoricaldata.com/img/logos/US/${encodeURIComponent(sym)}.png`)
+  }
+  const mappedDomain = LOGO_DOMAIN_BY_TICKER[sym]
+  if (mappedDomain) {
+    urls.push(`https://logo.clearbit.com/${mappedDomain}`)
+  } else {
+    const root = normalizeCompanyRoot(companyName)
+    if (root && root.length >= 3) {
+      urls.push(`https://logo.clearbit.com/${root}.com`)
+    }
+  }
   return urls
 }
 
@@ -932,6 +933,7 @@ export default function StockPage() {
   const [heatmapHover, setHeatmapHover] = useState(null)
   const [marketIntelItems, setMarketIntelItems] = useState([])
   const [marketIntelLoading, setMarketIntelLoading] = useState(false)
+  const [marketSummaryOpenIdx, setMarketSummaryOpenIdx] = useState(0)
 
   const initializedRef = useRef(false)
   const heatmapWrapRef = useRef(null)
@@ -1053,6 +1055,14 @@ export default function StockPage() {
       alive = false
     }
   }, [])
+
+  useEffect(() => {
+    if (!marketIntelItems.length) {
+      setMarketSummaryOpenIdx(0)
+      return
+    }
+    setMarketSummaryOpenIdx((prev) => (prev >= 0 && prev < marketIntelItems.length ? prev : 0))
+  }, [marketIntelItems])
 
   useEffect(() => {
     const cfgTicker = normalizeTicker(config.ticker)
@@ -1215,15 +1225,16 @@ export default function StockPage() {
         setMarketIntelItems(
           items.map((row) => ({
             title: String(row?.title || '').trim(),
+            summary: String(row?.summary || '').trim(),
             source: String(row?.source || '').trim(),
             published_at: String(row?.published_at || '').trim(),
-            url: String(row?.url || '').trim(),
-          })).filter((row) => row.title).slice(0, 4),
+          })).filter((row) => row.title).slice(0, 6),
         )
       })
       .catch(() => {
         if (!alive) return
         setMarketIntelItems([])
+        setMarketSummaryOpenIdx(0)
       })
       .finally(() => {
         if (!alive) return
@@ -1452,38 +1463,6 @@ export default function StockPage() {
     return values.length ? Math.max(...values) : 0
   }, [marketSummaryRows])
 
-  const marketSummaryInsights = useMemo(() => {
-    const rows = marketSummaryRows.filter((row) => Number.isFinite(row.pct))
-    if (!rows.length) return []
-    const upCount = rows.filter((row) => Number(row.pct) > 0).length
-    const lead = [...rows].sort((a, b) => Number(b.pct) - Number(a.pct))[0]
-    const lag = [...rows].sort((a, b) => Number(a.pct) - Number(b.pct))[0]
-    const vix = rows.find((row) => row.ticker === 'VIXY')
-    const sectors = sectorRows.filter((row) => Number.isFinite(row.avgPct))
-    const bestSector = [...sectors].sort((a, b) => Number(b.avgPct) - Number(a.avgPct))[0]
-    const weakSector = [...sectors].sort((a, b) => Number(a.avgPct) - Number(b.avgPct))[0]
-    const topMove = spotlightRows[0]
-
-    const riskLine = vix
-      ? (Number(vix.pct) >= 0 ? `Volatility +${Number(vix.pct).toFixed(2)}%, market is in cautious mode.` : `Volatility ${Number(vix.pct).toFixed(2)}%, risk appetite is improving.`)
-      : 'Volatility data is not available yet.'
-
-    const sectorLine = bestSector && weakSector
-      ? `Sector breadth: ${bestSector.industry} ${fmtPct(bestSector.avgPct)} leads, ${weakSector.industry} ${fmtPct(weakSector.avgPct)} lags.`
-      : 'Sector breadth is still building from incoming quotes.'
-
-    const momentumLine = topMove
-      ? `Spotlight mover: ${topMove.company} (${topMove.ticker}) ${fmtPct(topMove.change_percent)}.`
-      : 'Spotlight movers are loading.'
-
-    return [
-      `${upCount}/${rows.length} key indexes are green. Leader: ${lead.label} ${fmtPct(lead.pct)}; laggard: ${lag.label} ${fmtPct(lag.pct)}.`,
-      riskLine,
-      sectorLine,
-      momentumLine,
-    ]
-  }, [marketSummaryRows, sectorRows, spotlightRows])
-
   const miniTickerCards = useMemo(() => {
     return loadedRows
       .map((row) => {
@@ -1500,28 +1479,6 @@ export default function StockPage() {
       .sort((a, b) => Number(Math.abs(b.change_percent || 0)) - Number(Math.abs(a.change_percent || 0)))
       .slice(0, 6)
   }, [loadedRows])
-
-  const heatmapSections = useMemo(() => {
-    const groups = {}
-    heatmapTiles.forEach((row) => {
-      const key = String(row.industry || 'Other').trim() || 'Other'
-      if (!groups[key]) groups[key] = []
-      groups[key].push(row)
-    })
-
-    return Object.entries(groups)
-      .map(([industry, rows]) => {
-        const pctList = rows.map((r) => Number(r.change_percent)).filter(Number.isFinite)
-        const avgPct = pctList.length ? (pctList.reduce((sum, cur) => sum + cur, 0) / pctList.length) : null
-        return {
-          industry,
-          avgPct,
-          rows: [...rows].sort((a, b) => Number(b.market_cap || 0) - Number(a.market_cap || 0)),
-          totalCap: rows.reduce((sum, r) => sum + Number(r.market_cap || 0), 0),
-        }
-      })
-      .sort((a, b) => Number(b.totalCap) - Number(a.totalCap))
-  }, [heatmapTiles])
 
   const selectedFromUpload = companyMapByTicker[selectedTicker] || null
   const routeSymbol = normalizeTicker(routeTicker || '')
@@ -1836,32 +1793,31 @@ export default function StockPage() {
               <p>Market Summary</p>
               <span>{marketSummaryUpdatedAt ? `Updated ${timeAgoFrom(marketSummaryUpdatedAt)}` : 'Major market snapshot'}</span>
             </div>
-            <div className="rl-stock-market-grid">
-              {marketSummaryRows.map((row) => (
-                <div key={`mkt-${row.ticker}`} className="rl-stock-market-item">
-                  <p>{row.label}</p>
-                  <strong>{fmtPrice(row.price)}</strong>
-                  <em className={toneClass(row.pct)}>{fmtPct(row.pct)}</em>
-                  <span>{row.ticker} · {row.hasData ? fmtPrice(row.change) : 'loading…'}</span>
-                </div>
-              ))}
-            </div>
-            <div className="rl-stock-market-intel">
-              {marketSummaryInsights.map((line, idx) => (
-                <p key={`mkt-intel-${idx}`}>{line}</p>
-              ))}
-              {!marketSummaryInsights.length ? <p>Market intelligence is loading from index snapshots.</p> : null}
-            </div>
             <div className="rl-stock-market-news">
               <p className="rl-stock-market-news-title">Headline Intelligence</p>
               {marketIntelLoading ? <span className="rl-stock-market-news-empty">Loading market headlines…</span> : null}
               {!marketIntelLoading && !marketIntelItems.length ? <span className="rl-stock-market-news-empty">No market headlines available right now.</span> : null}
-              {!marketIntelLoading && marketIntelItems.map((item, idx) => (
-                <a key={`mkt-news-${idx}`} href={item.url || '#'} target="_blank" rel="noreferrer" className="rl-stock-market-news-item">
-                  <strong>{item.title}</strong>
-                  <span>{item.source || 'Market feed'} · {item.published_at ? fmtDateOnly(item.published_at) : 'today'}</span>
-                </a>
-              ))}
+              {!marketIntelLoading && marketIntelItems.map((item, idx) => {
+                const open = marketSummaryOpenIdx === idx
+                return (
+                  <article key={`mkt-news-${idx}`} className={`rl-stock-market-news-item ${open ? 'open' : ''}`}>
+                    <button
+                      type="button"
+                      className="rl-stock-market-news-head"
+                      onClick={() => setMarketSummaryOpenIdx((prev) => (prev === idx ? -1 : idx))}
+                    >
+                      <strong>{item.title}</strong>
+                      <span>{open ? '▴' : '▾'}</span>
+                    </button>
+                    {open ? (
+                      <div className="rl-stock-market-news-body">
+                        <p>{item.summary || 'No summary from upstream feed yet.'}</p>
+                        <em>{item.source || 'Market feed'} · {item.published_at ? fmtDateOnly(item.published_at) : 'today'}</em>
+                      </div>
+                    ) : null}
+                  </article>
+                )
+              })}
             </div>
           </section>
 
@@ -1871,33 +1827,22 @@ export default function StockPage() {
               <span>Click any tile to open company detail</span>
             </div>
             <div ref={heatmapWrapRef} className="rl-stock-heatmap-unified-wrap" onMouseLeave={() => setHeatmapHover(null)}>
-              <div className="rl-stock-heatmap-sections">
-                {heatmapSections.map((group) => (
-                  <section key={`heat-group-${group.industry}`} className="rl-stock-heatmap-sector-block">
-                    <header className="rl-stock-heatmap-sector-head">
-                      <p>{group.industry}</p>
-                      <em className={toneClass(group.avgPct)}>{fmtPct(group.avgPct)}</em>
-                    </header>
-                    <div className="rl-stock-heatmap-grid rl-stock-heatmap-grid-unified">
-                      {group.rows.map((row) => (
-                        <button
-                          type="button"
-                          key={`heat-${row.ticker}`}
-                          className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)} size-${row.size} intensity-${row.intensity}`}
-                          onClick={() => openDetail(row.ticker)}
-                          onMouseEnter={(e) => updateHeatmapHover(e, row)}
-                          onMouseMove={(e) => updateHeatmapHover(e, row)}
-                          title={`${row.company} · ${fmtPct(row.change_percent)} · click to open`}
-                        >
-                          <span>{row.ticker}</span>
-                          <small>{row.company}</small>
-                          <em>{fmtPct(row.change_percent)}</em>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
+              <div className="rl-stock-heatmap-grid rl-stock-heatmap-grid-unified">
+                {heatmapTiles.map((row) => (
+                  <button
+                    type="button"
+                    key={`heat-${row.ticker}`}
+                    className={`rl-stock-heatmap-tile tone-${toneClass(row.change_percent)} size-${row.size} intensity-${row.intensity}`}
+                    onClick={() => openDetail(row.ticker)}
+                    onMouseEnter={(e) => updateHeatmapHover(e, row)}
+                    onMouseMove={(e) => updateHeatmapHover(e, row)}
+                    title={`${row.ticker} · ${fmtPct(row.change_percent)} · click to open`}
+                  >
+                    <span>{row.ticker}</span>
+                    <em>{fmtPct(row.change_percent)}</em>
+                  </button>
                 ))}
-                {!heatmapSections.length ? <p className="rl-stock-muted">Load tracked quotes to render heatmap.</p> : null}
+                {!heatmapTiles.length ? <p className="rl-stock-muted">Load tracked quotes to render heatmap.</p> : null}
               </div>
               {heatmapHover?.row ? (
                 <div
