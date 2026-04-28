@@ -6,6 +6,7 @@ import { useGlobalConfig } from '../lib/globalConfig'
 const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL']
 const RANGE_OPTIONS = ['1W', '1M', '3M', '6M', '1Y']
 const RANGE_SIZE = { '1W': 5, '1M': 22, '3M': 66, '6M': 132, '1Y': 252 }
+const MINI_CARD_RANGE = '3M'
 const TABLE_SECTIONS = [
   { key: 'income_statement', label: 'Income Statement' },
   { key: 'comprehensive_income', label: 'Comprehensive Income' },
@@ -354,6 +355,9 @@ function clipHistory(history, key) {
     .map((row) => ({
       date: String(row?.date || ''),
       close: Number(row?.close),
+      open: Number(row?.open),
+      high: Number(row?.high),
+      low: Number(row?.low),
       volume: Number(row?.volume || 0),
     }))
     .filter((row) => row.date && Number.isFinite(row.close))
@@ -609,8 +613,8 @@ function toneClass(v) {
 }
 
 function MiniChart({ values, kind, color, compact = true }) {
-  const width = compact ? 220 : 320
-  const height = compact ? 74 : 126
+  const width = compact ? 320 : 360
+  const height = compact ? 116 : 132
 
   if (!Array.isArray(values) || values.length < 2) {
     return (
@@ -640,11 +644,27 @@ function MiniChart({ values, kind, color, compact = true }) {
   )
 }
 
-function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey, formal = false }) {
+function FocusChart({
+  title,
+  subtitle,
+  values,
+  kind,
+  color,
+  dateRange,
+  rangeKey,
+  formal = false,
+  rows = [],
+  showRangeSelector = false,
+  onSelectRange = null,
+  hideTitle = false,
+}) {
+  const [hoverIdx, setHoverIdx] = useState(-1)
   const width = 920
   const height = 360
+  const chartRows = Array.isArray(rows) ? rows : []
+  const series = Array.isArray(values) && values.length ? values : numericSeries(chartRows, 'close')
 
-  if (!Array.isArray(values) || values.length < 2) {
+  if (!Array.isArray(series) || series.length < 2) {
     return (
       <div className="rl-stock-focus-chart-empty">
         <p>No chart data yet</p>
@@ -653,17 +673,19 @@ function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey,
     )
   }
 
-  const minVal = Math.min(...values)
-  const maxVal = Math.max(...values)
+  const minVal = Math.min(...series)
+  const maxVal = Math.max(...series)
 
   if (kind === 'bars') {
-    const bars = barsGeometry(values, width, height, 28)
+    const bars = barsGeometry(series, width, height, 28)
     return (
       <div className="rl-stock-focus-chart-shell">
-        <div className="rl-stock-focus-chart-head">
-          <p>{title}</p>
-          <span>{subtitle}</span>
-        </div>
+        {!hideTitle ? (
+          <div className="rl-stock-focus-chart-head">
+            <p>{title}</p>
+            <span>{subtitle}</span>
+          </div>
+        ) : null}
         <svg viewBox={`0 0 ${width} ${height}`} className="rl-stock-focus-svg" aria-hidden="true">
           {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
             <line key={ratio} x1="28" x2={width - 24} y1={(height - 28) * ratio + 8} y2={(height - 28) * ratio + 8} stroke={formal ? 'rgba(100, 116, 139, 0.28)' : 'rgba(148, 163, 184, 0.2)'} strokeWidth="1" />
@@ -681,28 +703,91 @@ function FocusChart({ title, subtitle, values, kind, color, dateRange, rangeKey,
     )
   }
 
-  const line = lineGeometry(values, width, height, 28)
+  const line = lineGeometry(series, width, height, 28)
   const lastPoint = line.points[line.points.length - 1]
+  const resolvedHoverIdx = hoverIdx >= 0 ? hoverIdx : line.points.length - 1
+  const hoveredPoint = line.points[Math.max(0, Math.min(resolvedHoverIdx, line.points.length - 1))]
+  const hoveredRow = chartRows[resolvedHoverIdx] || chartRows[chartRows.length - 1] || null
+  const hoveredValue = Number(hoveredPoint?.v)
+
+  const onPointerMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const xNorm = Math.max(0, Math.min(1, x / Math.max(1, rect.width)))
+    const idx = Math.round(xNorm * (line.points.length - 1))
+    setHoverIdx(Math.max(0, Math.min(idx, line.points.length - 1)))
+  }
+
+  const tooltipLeftPct = hoveredPoint ? (hoveredPoint.x / width) * 100 : 50
+  const tooltipTopPct = hoveredPoint ? (hoveredPoint.y / height) * 100 : 12
 
   return (
     <div className="rl-stock-focus-chart-shell">
-      <div className="rl-stock-focus-chart-head">
-        <p>{title}</p>
-        <span>{subtitle}</span>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="rl-stock-focus-svg" aria-hidden="true">
-        {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
-          <line key={ratio} x1="28" x2={width - 24} y1={(height - 28) * ratio + 8} y2={(height - 28) * ratio + 8} stroke={formal ? 'rgba(100, 116, 139, 0.28)' : 'rgba(148, 163, 184, 0.2)'} strokeWidth="1" />
-        ))}
-        <path d={line.areaPath} fill={color} opacity={formal ? '0.05' : '0.12'} />
-        <path d={line.path} fill="none" stroke={color} strokeWidth={formal ? '2.25' : '2.8'} strokeLinecap="round" strokeLinejoin="round" />
-        {!formal && lastPoint ? (
-          <>
-            <circle cx={lastPoint.x} cy={lastPoint.y} r="4.7" fill={color} stroke="#ffffff" strokeWidth="2" />
-            <line x1={lastPoint.x} x2={lastPoint.x} y1={lastPoint.y + 10} y2={height - 22} stroke={color} strokeOpacity="0.25" strokeWidth="1.2" strokeDasharray="4 3" />
-          </>
+      {!hideTitle ? (
+        <div className="rl-stock-focus-chart-head">
+          <p>{title}</p>
+          <span>{subtitle}</span>
+        </div>
+      ) : null}
+      <div className="rl-stock-focus-svg-wrap">
+        {showRangeSelector ? (
+          <div className="rl-stock-focus-range-overlay">
+            <div className="rl-segment rl-segment-inline">
+              {RANGE_OPTIONS.map((key) => (
+                <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => onSelectRange?.(key)}>{key}</button>
+              ))}
+            </div>
+          </div>
         ) : null}
-      </svg>
+        {hoveredPoint && hoveredRow ? (
+          <div
+            className="rl-stock-focus-tooltip"
+            style={{
+              left: `clamp(128px, ${tooltipLeftPct}%, calc(100% - 132px))`,
+              top: `clamp(56px, ${tooltipTopPct}%, calc(100% - 104px))`,
+            }}
+          >
+            <strong>{hoveredRow.date || '—'}</strong>
+            <span>Close {fmtPrice(hoveredValue)}</span>
+            <em>Open {fmtPrice(hoveredRow.open)} · High {fmtPrice(hoveredRow.high)} · Low {fmtPrice(hoveredRow.low)}</em>
+            <em>Volume {fmtCompact(hoveredRow.volume)}</em>
+          </div>
+        ) : null}
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="rl-stock-focus-svg"
+          aria-hidden="true"
+          onMouseMove={onPointerMove}
+          onMouseLeave={() => setHoverIdx(-1)}
+        >
+          {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
+            <line key={ratio} x1="28" x2={width - 24} y1={(height - 28) * ratio + 8} y2={(height - 28) * ratio + 8} stroke={formal ? 'rgba(100, 116, 139, 0.28)' : 'rgba(148, 163, 184, 0.2)'} strokeWidth="1" />
+          ))}
+          <path d={line.areaPath} fill={color} opacity={formal ? '0.05' : '0.12'} />
+          <path d={line.path} fill="none" stroke={color} strokeWidth={formal ? '2.25' : '2.8'} strokeLinecap="round" strokeLinejoin="round" />
+          {hoveredPoint ? (
+            <>
+              <line
+                x1={hoveredPoint.x}
+                x2={hoveredPoint.x}
+                y1={16}
+                y2={height - 20}
+                stroke={color}
+                strokeOpacity="0.32"
+                strokeWidth="1.15"
+                strokeDasharray="4 4"
+              />
+              <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="4.4" fill={color} stroke="#ffffff" strokeWidth="2" />
+            </>
+          ) : null}
+          {!hoveredPoint && !formal && lastPoint ? (
+            <>
+              <circle cx={lastPoint.x} cy={lastPoint.y} r="4.7" fill={color} stroke="#ffffff" strokeWidth="2" />
+              <line x1={lastPoint.x} x2={lastPoint.x} y1={lastPoint.y + 10} y2={height - 22} stroke={color} strokeOpacity="0.25" strokeWidth="1.2" strokeDasharray="4 3" />
+            </>
+          ) : null}
+        </svg>
+      </div>
       <div className="rl-stock-focus-foot">
         <span>{dateRange?.start || '—'}</span>
         <span>Min {fmtSigned(minVal)} · Max {fmtSigned(maxVal)}</span>
@@ -1152,7 +1237,7 @@ export default function StockPage() {
   const miniTickerCards = useMemo(() => {
     return loadedRows
       .map((row) => {
-        const hist = clipHistory(row.data?.history || [], rangeKey)
+        const hist = clipHistory(row.data?.history || [], MINI_CARD_RANGE)
         const closes = numericSeries(hist, 'close')
         const lastClose = closes.length ? closes[closes.length - 1] : null
         return {
@@ -1164,7 +1249,7 @@ export default function StockPage() {
       .filter((row) => row.closes.length >= 2)
       .sort((a, b) => Number(Math.abs(b.change_percent || 0)) - Number(Math.abs(a.change_percent || 0)))
       .slice(0, 6)
-  }, [loadedRows, rangeKey])
+  }, [loadedRows])
 
   const selectedFromUpload = companyMapByTicker[selectedTicker] || null
   const routeSymbol = normalizeTicker(routeTicker || '')
@@ -1443,15 +1528,6 @@ export default function StockPage() {
       {!isCompanyView ? (
       <section className="rl-stock-workbench rl-stock-workbench-v2">
         <div className="rl-stock-left">
-          <div className="rl-stock-range-row">
-            <label className="section-title">Time Range</label>
-            <div className="rl-segment">
-              {RANGE_OPTIONS.map((key) => (
-                <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => setRangeKey(key)}>{key}</button>
-              ))}
-            </div>
-          </div>
-
           <div className="rl-stock-chart-grid">
             {miniTickerCards.map((card) => (
               <button key={`mini-card-${card.ticker}`} className={`rl-stock-chart-tile ${selectedTicker === card.ticker ? 'active' : ''}`} onClick={() => openDetail(card.ticker)}>
@@ -1733,24 +1809,20 @@ export default function StockPage() {
                 </div>
 
                 <div className="rl-stock-detail-chart-shell">
-                  <div className="rl-stock-range-row rl-stock-range-row-compact">
-                    <label className="section-title">Time Range</label>
-                    <div className="rl-segment">
-                      {RANGE_OPTIONS.map((key) => (
-                        <button key={key} className={rangeKey === key ? 'active' : ''} onClick={() => setRangeKey(key)}>{key}</button>
-                      ))}
-                    </div>
-                  </div>
                   <div className="rl-stock-focus-card rl-stock-focus-card-formal">
                     <FocusChart
-                      title={`Price Trend · ${detailSymbol}`}
-                      subtitle={`${detailCompany || detailSymbol} (${rangeKey})`}
+                      title=""
+                      subtitle=""
                       values={closeValues || []}
+                      rows={chartRows}
                       kind="line"
                       color={chartColorFor(closeValues, '#15803d', '#b91c1c')}
                       dateRange={dateRange}
                       rangeKey={rangeKey}
                       formal
+                      hideTitle
+                      showRangeSelector
+                      onSelectRange={setRangeKey}
                     />
                   </div>
                 </div>
@@ -1774,19 +1846,23 @@ export default function StockPage() {
                   <span>{activeDetailRecord ? `${activeDetailRecord.year} · ${activeDetailRecord.filing_type || '10-K'}` : 'No extracted tables'}</span>
                 </div>
 
-                <div className="rl-stock-fin-year-tabs">
-                  {detailRecords.map((rec) => {
-                    const rid = String(rec?.record_id || '')
-                    return (
-                      <button
-                        key={`fin-year-${rid}`}
-                        className={detailActiveRecordId === rid ? 'active' : ''}
-                        onClick={() => setDetailActiveRecordId(rid)}
-                      >
-                        {rec?.year || '—'}
-                      </button>
-                    )
-                  })}
+                <div className="rl-stock-fin-year-select-row">
+                  <label htmlFor="rl-stock-fin-year">Year</label>
+                  <select
+                    id="rl-stock-fin-year"
+                    className="rl-stock-fin-year-select"
+                    value={detailActiveRecordId || String(detailRecords[0]?.record_id || '')}
+                    onChange={(e) => setDetailActiveRecordId(String(e.target.value || ''))}
+                  >
+                    {detailRecords.map((rec) => {
+                      const rid = String(rec?.record_id || '')
+                      return (
+                        <option key={`fin-year-${rid}`} value={rid}>
+                          {rec?.year || '—'} · {rec?.filing_type || '10-K'}
+                        </option>
+                      )
+                    })}
+                  </select>
                 </div>
 
                 <div className="rl-stock-fin-section-tabs">
@@ -1815,7 +1891,7 @@ export default function StockPage() {
                           <thead>
                             <tr>
                               {activeTableHeaders.map((h, idx) => (
-                                <th key={`fin-head-${idx}`}>{String(h || `Col ${idx + 1}`)}</th>
+                                <th key={`fin-head-${idx}`}>{/^col\s*\d+$/i.test(String(h || '')) ? '' : String(h || '')}</th>
                               ))}
                             </tr>
                           </thead>

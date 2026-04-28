@@ -901,7 +901,7 @@ select.input {
 }
 
 .rl-global-dock.news .rl-global-dock-inner {
-  max-width: min(1124px, calc(100% - 404px));
+  max-width: min(1100px, calc(100% - 300px));
   margin-left: 0;
   margin-right: auto;
 }
@@ -1931,7 +1931,7 @@ select.input {
 .rl-stock-chart-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .rl-stock-chart-tile {
@@ -1940,10 +1940,13 @@ select.input {
   background:
     radial-gradient(140% 140% at 100% 0%, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0)),
     rgba(248, 251, 255, 0.9);
-  padding: 10px 10px 8px;
+  padding: 12px 12px 10px;
   text-align: left;
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.045);
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  min-height: 188px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .rl-stock-chart-tile:hover {
@@ -1965,7 +1968,7 @@ select.input {
 
 .rl-stock-chart-tile-top p {
   margin: 0;
-  font-size: 0.83rem;
+  font-size: 0.89rem;
   color: #0f172a;
   font-weight: 800;
   letter-spacing: -0.01em;
@@ -1973,23 +1976,23 @@ select.input {
 
 .rl-stock-chart-tile-top span {
   margin: 0;
-  font-size: 0.79rem;
+  font-size: 0.87rem;
   color: #0f172a;
   font-weight: 700;
 }
 
 .rl-stock-chart-tile small {
-  margin-top: 2px;
+  margin-top: 3px;
   display: block;
-  font-size: 0.68rem;
+  font-size: 0.78rem;
   color: #64748b;
   font-weight: 600;
 }
 
 .rl-stock-mini-svg {
-  margin-top: 5px;
+  margin-top: 8px;
   width: 100%;
-  height: 74px;
+  height: 116px;
   display: block;
 }
 
@@ -2019,6 +2022,7 @@ select.input {
 .rl-stock-focus-chart-shell {
   display: grid;
   gap: 8px;
+  position: relative;
 }
 
 .rl-stock-focus-chart-head {
@@ -2048,6 +2052,66 @@ select.input {
   width: 100%;
   min-height: 250px;
   display: block;
+}
+
+.rl-stock-focus-svg-wrap {
+  position: relative;
+}
+
+.rl-stock-focus-range-overlay {
+  position: absolute;
+  left: 14px;
+  top: 12px;
+  z-index: 4;
+}
+
+.rl-stock-focus-range-overlay .rl-segment-inline {
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+}
+
+.rl-stock-focus-range-overlay .rl-segment-inline button {
+  font-size: 0.78rem;
+  padding: 5px 10px;
+}
+
+.rl-stock-focus-tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 12px));
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #dbeafe;
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.35);
+  padding: 8px 10px;
+  min-width: 220px;
+  max-width: 300px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.rl-stock-focus-tooltip strong {
+  display: block;
+  color: #f8fafc;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.rl-stock-focus-tooltip span {
+  display: block;
+  margin-top: 4px;
+  color: #a7f3d0;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.rl-stock-focus-tooltip em {
+  display: block;
+  margin-top: 3px;
+  color: #cbd5e1;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 600;
 }
 
 .rl-stock-focus-foot {
@@ -2239,7 +2303,7 @@ select.input {
 }
 
 .rl-stock-workbench-v2 {
-  grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 0.7fr);
   gap: 36px;
 }
 
@@ -2670,9 +2734,10 @@ select.input {
 }
 
 .rl-stock-back-btn {
-  min-height: 30px;
-  padding: 4px 10px;
-  font-size: 0.72rem;
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .rl-stock-detail-title-row {
@@ -2752,13 +2817,13 @@ select.input {
 .rl-stock-quote-price {
   margin: 0;
   color: #0f172a;
-  font-size: 1.15rem;
+  font-size: 1.02rem;
   font-weight: 700;
   line-height: 1.2;
 }
 
 .rl-stock-quote-price span {
-  font-size: 1.03rem;
+  font-size: 0.92rem;
   font-weight: 700;
 }
 
@@ -2766,7 +2831,7 @@ select.input {
   display: block;
   margin-top: 4px;
   color: #64748b;
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 600;
 }
 
@@ -2799,7 +2864,7 @@ select.input {
 .rl-stock-kpi-table span {
   display: block;
   color: #64748b;
-  font-size: 0.7rem;
+  font-size: 0.64rem;
   font-weight: 600;
 }
 
@@ -2807,16 +2872,16 @@ select.input {
   display: block;
   margin-top: 4px;
   color: #0f172a;
-  font-size: 1rem;
+  font-size: 0.88rem;
   font-weight: 700;
   line-height: 1.25;
 }
 
 .rl-stock-profile-list {
   margin-top: 8px;
-  border: 1px solid rgba(195, 208, 227, 0.82);
-  border-radius: 10px;
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 
 .rl-stock-profile-list > div {
@@ -2824,8 +2889,8 @@ select.input {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 8px 9px;
-  background: rgba(252, 254, 255, 0.75);
+  padding: 8px 2px;
+  background: transparent;
   border-top: 1px solid rgba(203, 213, 225, 0.68);
 }
 
@@ -2847,11 +2912,11 @@ select.input {
 }
 
 .rl-stock-profile-desc {
-  margin: 9px 0 0;
-  border: 1px solid rgba(195, 208, 227, 0.82);
-  border-radius: 10px;
-  background: rgba(252, 254, 255, 0.72);
-  padding: 9px 10px;
+  margin: 8px 0 0;
+  border: 0;
+  border-top: 1px solid rgba(203, 213, 225, 0.68);
+  background: transparent;
+  padding: 9px 2px 0;
   color: #334155;
   font-size: 0.78rem;
   line-height: 1.62;
@@ -2866,15 +2931,31 @@ select.input {
   border-top: 0;
 }
 
-.rl-stock-fin-year-tabs,
+.rl-stock-fin-year-select-row,
 .rl-stock-fin-section-tabs {
   margin-top: 9px;
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
-.rl-stock-fin-year-tabs button,
+.rl-stock-fin-year-select-row label {
+  color: #64748b;
+  font-size: 0.71rem;
+  font-weight: 700;
+}
+
+.rl-stock-fin-year-select {
+  border: 1px solid rgba(186, 202, 226, 0.84);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #334155;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
 .rl-stock-fin-section-tabs button {
   border: 1px solid rgba(186, 202, 226, 0.84);
   border-radius: 999px;
@@ -2885,7 +2966,6 @@ select.input {
   padding: 5px 10px;
 }
 
-.rl-stock-fin-year-tabs button.active,
 .rl-stock-fin-section-tabs button.active {
   background: rgba(37, 99, 235, 0.9);
   border-color: rgba(37, 99, 235, 0.95);
@@ -2903,7 +2983,8 @@ select.input {
   margin-top: 6px;
   border: 1px solid rgba(193, 208, 228, 0.82);
   border-radius: 10px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   max-height: 360px;
   background: rgba(255, 255, 255, 0.68);
 }
@@ -2911,6 +2992,7 @@ select.input {
 .rl-stock-fin-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 0.74rem;
 }
 
@@ -2925,6 +3007,9 @@ select.input {
   font-weight: 700;
   border-bottom: 1px solid rgba(195, 208, 227, 0.88);
   background: rgba(240, 247, 255, 0.96);
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rl-stock-fin-table td {
@@ -2933,6 +3018,9 @@ select.input {
   color: #1e293b;
   font-weight: 500;
   border-top: 1px solid rgba(208, 219, 235, 0.58);
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rl-stock-fin-table tbody tr:nth-child(even) td {
@@ -4641,7 +4729,7 @@ select.input {
 
 .rl-news-v2-layout {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 0.7fr);
   gap: 36px;
   align-items: start;
 }
@@ -5535,7 +5623,7 @@ select.input {
     max-height: 300px;
   }
 
-  .rl-stock-fin-year-tabs button,
+  .rl-stock-fin-year-select,
   .rl-stock-fin-section-tabs button {
     font-size: 0.68rem;
     padding: 5px 8px;
