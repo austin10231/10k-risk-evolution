@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { get } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 
@@ -689,6 +690,8 @@ function makeSpotlightSummary(row, sectorText) {
 
 export default function StockPage() {
   const { config } = useGlobalConfig()
+  const navigate = useNavigate()
+  const location = useLocation()
 
   const [selectedTicker, setSelectedTicker] = useState('AAPL')
   const [watchlist, setWatchlist] = useState(DEFAULT_TICKERS)
@@ -1137,13 +1140,22 @@ export default function StockPage() {
       setSelectedTicker(sym)
       setDetailTicker(sym)
       setViewMode('detail')
+      const params = new URLSearchParams(location.search || '')
+      params.set('view', 'company')
+      params.set('ticker', sym)
+      navigate({ pathname: '/stock', search: `?${params.toString()}` })
     },
-    [selectedTicker],
+    [selectedTicker, location.search, navigate],
   )
 
   const closeDetail = useCallback(() => {
     setViewMode('overview')
-  }, [])
+    const params = new URLSearchParams(location.search || '')
+    params.delete('view')
+    params.delete('ticker')
+    const next = params.toString()
+    navigate({ pathname: '/stock', search: next ? `?${next}` : '' })
+  }, [location.search, navigate])
 
   const detailSymbol = normalizeTicker(detailTicker || selectedTicker)
   const detailRow = trackedRowByTicker[detailSymbol] || null
@@ -1162,6 +1174,24 @@ export default function StockPage() {
       .slice(0, 5)
     return sameSector.length ? [...sameSector, ...fallback.filter((r) => !sameSector.some((s) => s.ticker === r.ticker))].slice(0, 5) : fallback
   }, [loadedRows, detailSymbol, detailIndustry])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '')
+    const qView = String(params.get('view') || '').trim().toLowerCase()
+    const qTicker = normalizeTicker(params.get('ticker') || '')
+    const isCompanyView = qView === 'company'
+
+    if (isCompanyView) {
+      if (viewMode !== 'detail') setViewMode('detail')
+      if (qTicker) {
+        if (selectedTicker !== qTicker) setSelectedTicker(qTicker)
+        if (detailTicker !== qTicker) setDetailTicker(qTicker)
+      }
+      return
+    }
+
+    if (viewMode !== 'overview') setViewMode('overview')
+  }, [location.search, viewMode, selectedTicker, detailTicker])
 
   const addTicker = () => {
     const next = normalizeTicker(addTickerInput)
@@ -1194,6 +1224,8 @@ export default function StockPage() {
         </div>
       </section>
 
+      {viewMode === 'overview' ? (
+      <>
       <section className="rl-stock-command rl-stock-command-v2">
         <div className="rl-stock-command-head">
           <div>
@@ -1265,6 +1297,10 @@ export default function StockPage() {
           <span className="rl-stock-metric-sub">companies with filing context</span>
         </div>
       </section>
+      </>
+      ) : null}
+
+      {viewMode === 'detail' && error ? <div className="rl-up-inline-error">{error}</div> : null}
 
       {viewMode === 'overview' ? (
       <section className="rl-stock-workbench rl-stock-workbench-v2">
@@ -1511,7 +1547,6 @@ export default function StockPage() {
           <section className="rl-stock-side-card rl-stock-detail-head">
             <div className="rl-stock-detail-topline">
               <button className="btn-secondary rl-stock-back-btn" onClick={closeDetail}>← Back</button>
-              <span className="rl-stock-detail-tag">Stock Detail</span>
             </div>
             <div className="rl-stock-detail-title-row">
               <div className="rl-stock-company-mini">

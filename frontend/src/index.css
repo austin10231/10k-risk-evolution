@@ -2555,14 +2555,6 @@ select.input {
   font-size: 0.72rem;
 }
 
-.rl-stock-detail-tag {
-  font-size: 0.66rem;
-  color: #64748b;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
 .rl-stock-detail-title-row {
   margin-top: 9px;
   display: flex;
