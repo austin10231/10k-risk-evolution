@@ -251,6 +251,12 @@ function fmtPct(v) {
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
 }
 
+function fmtPctPlain(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return `${n.toFixed(2)}%`
+}
+
 function fmtSigned(v) {
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
@@ -705,9 +711,10 @@ function FocusChart({
 
   const line = lineGeometry(series, width, height, 28)
   const lastPoint = line.points[line.points.length - 1]
-  const resolvedHoverIdx = hoverIdx >= 0 ? hoverIdx : line.points.length - 1
-  const hoveredPoint = line.points[Math.max(0, Math.min(resolvedHoverIdx, line.points.length - 1))]
-  const hoveredRow = chartRows[resolvedHoverIdx] || chartRows[chartRows.length - 1] || null
+  const hasHover = hoverIdx >= 0
+  const resolvedHoverIdx = hasHover ? hoverIdx : -1
+  const hoveredPoint = hasHover ? line.points[Math.max(0, Math.min(resolvedHoverIdx, line.points.length - 1))] : null
+  const hoveredRow = hasHover ? (chartRows[resolvedHoverIdx] || null) : null
   const hoveredValue = Number(hoveredPoint?.v)
 
   const onPointerMove = (e) => {
@@ -739,7 +746,7 @@ function FocusChart({
             </div>
           </div>
         ) : null}
-        {hoveredPoint && hoveredRow ? (
+        {hasHover && hoveredPoint && hoveredRow ? (
           <div
             className="rl-stock-focus-tooltip"
             style={{
@@ -765,7 +772,7 @@ function FocusChart({
           ))}
           <path d={line.areaPath} fill={color} opacity={formal ? '0.05' : '0.12'} />
           <path d={line.path} fill="none" stroke={color} strokeWidth={formal ? '2.25' : '2.8'} strokeLinecap="round" strokeLinejoin="round" />
-          {hoveredPoint ? (
+          {hasHover && hoveredPoint ? (
             <>
               <line
                 x1={hoveredPoint.x}
@@ -780,7 +787,7 @@ function FocusChart({
               <circle cx={hoveredPoint.x} cy={hoveredPoint.y} r="4.4" fill={color} stroke="#ffffff" strokeWidth="2" />
             </>
           ) : null}
-          {!hoveredPoint && !formal && lastPoint ? (
+          {!hasHover && !formal && lastPoint ? (
             <>
               <circle cx={lastPoint.x} cy={lastPoint.y} r="4.7" fill={color} stroke="#ffffff" strokeWidth="2" />
               <line x1={lastPoint.x} x2={lastPoint.x} y1={lastPoint.y + 10} y2={height - 22} stroke={color} strokeOpacity="0.25" strokeWidth="1.2" strokeDasharray="4 3" />
@@ -1281,14 +1288,9 @@ export default function StockPage() {
   const detailData = detailRow?.data || data
   const detailCompany = detailRow?.company || detailData?.name || detailSymbol
   const detailIndustry = detailRow?.industry || 'Other'
-  const detailMappedSector = normalizeSectorName(SECTOR_BY_TICKER[normalizeTicker(detailSymbol)])
-  const detailSector = detailMappedSector || resolveEquitySector({
-    filingIndustry: detailRow?.industry,
-    quoteSector: detailData?.sector,
-    ticker: detailSymbol,
-    company: detailCompany,
-  })
   const detailProfileIndustry = normalizeSectorName(detailData?.industry) || detailIndustry || '—'
+  const detailDescription = String(detailData?.description || '').trim()
+  const detailIntro = detailDescription || `${detailCompany || detailSymbol} (${detailSymbol || 'N/A'}) is a listed company in ${detailProfileIndustry || 'its sector'} on ${detailData?.exchange || 'US exchanges'}${detailData?.country ? `, based in ${detailData.country}` : ''}.`
   const detailHistory = Array.isArray(detailData?.history) ? detailData.history : []
   const lastHistory = detailHistory.length ? detailHistory[detailHistory.length - 1] : null
   const prevHistory = detailHistory.length > 1 ? detailHistory[detailHistory.length - 2] : null
@@ -1421,7 +1423,7 @@ export default function StockPage() {
         {!isCompanyView ? (
           <div className="page-header !mb-0">
             <div className="page-header-left rl-up-title-block">
-              <span className="page-icon">💹</span>
+              <span className="page-icon">📊</span>
               <div>
                 <p className="page-title">Stock</p>
                 <p className="page-subtitle">Market board for your tracked companies, grounded in uploaded 10-K context</p>
@@ -1793,7 +1795,7 @@ export default function StockPage() {
                 <div className="rl-stock-quote-strip">
                   <div className="rl-stock-quote-cell">
                     <p className="rl-stock-quote-price">
-                      {fmtPrice(detailData?.price)} <span className={toneClass(detailData?.change_percent)}>{fmtSigned(detailData?.change)} {fmtPct(detailData?.change_percent)}</span>
+                      {fmtPrice(detailData?.price)} <span className={toneClass(detailData?.change_percent)}>{fmtSigned(detailData?.change)} ({fmtPctPlain(detailData?.change_percent)})</span>
                     </p>
                     <span>Regular close · {fmtDateTime(detailData?.regular_market_time)}</span>
                   </div>
@@ -1916,17 +1918,16 @@ export default function StockPage() {
 
         <aside className="rl-stock-side">
           <section className="rl-stock-side-card rl-stock-profile-card">
-            <div className="rl-stock-profile-list">
-              <div><span>Symbol</span><strong>{detailSymbol || '—'}</strong></div>
-              <div><span>IPO Date</span><strong>{fmtDateOnly(detailData?.ipo_date)}</strong></div>
-              <div><span>CEO</span><strong>{detailData?.ceo || '—'}</strong></div>
-              <div><span>Full-time Employees</span><strong>{Number.isFinite(fullTimeEmployees) ? fmtWhole(fullTimeEmployees) : '—'}</strong></div>
-              <div><span>Sector</span><strong>{detailSector || '—'}</strong></div>
-              <div><span>Industry</span><strong>{detailProfileIndustry}</strong></div>
-              <div><span>Country/Region</span><strong>{detailData?.country || '—'}</strong></div>
-              <div><span>Exchange</span><strong>{detailData?.exchange || 'US'}</strong></div>
-            </div>
-            {detailData?.description ? <p className="rl-stock-profile-desc">{detailData.description}</p> : null}
+              <div className="rl-stock-profile-list">
+                <div><span>Symbol</span><strong>{detailSymbol || '—'}</strong></div>
+                <div><span>IPO Date</span><strong>{fmtDateOnly(detailData?.ipo_date)}</strong></div>
+                <div><span>CEO</span><strong>{detailData?.ceo || '—'}</strong></div>
+                <div><span>Full-time Employees</span><strong>{Number.isFinite(fullTimeEmployees) ? fmtWhole(fullTimeEmployees) : '—'}</strong></div>
+                <div><span>Industry</span><strong>{detailProfileIndustry}</strong></div>
+                <div><span>Country/Region</span><strong>{detailData?.country || '—'}</strong></div>
+                <div><span>Exchange</span><strong>{detailData?.exchange || 'US'}</strong></div>
+              </div>
+            <p className="rl-stock-profile-desc">{detailIntro}</p>
           </section>
 
           <section className="rl-stock-side-card">
