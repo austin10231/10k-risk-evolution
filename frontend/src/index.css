@@ -2433,7 +2433,7 @@ select.input {
 }
 
 .rl-stock-market-news-item:hover {
-  background: rgba(255, 255, 255, 0.5);
+  background: transparent;
 }
 
 .rl-stock-market-news-item.open {
@@ -2450,6 +2450,16 @@ select.input {
   gap: 12px;
   text-align: left;
   padding: 8px 2px;
+}
+
+.rl-stock-market-news-head:hover {
+  background: transparent;
+}
+
+.rl-stock-market-news-head:focus,
+.rl-stock-market-news-head:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .rl-stock-market-news-head strong {
@@ -2477,6 +2487,8 @@ select.input {
   font-size: 0.73rem;
   line-height: 1.5;
   font-weight: 560;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .rl-stock-market-news-body em {
@@ -2486,6 +2498,13 @@ select.input {
   font-size: 0.66rem;
   font-weight: 620;
   font-style: normal;
+}
+
+.rl-stock-market-news-body em a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 700;
 }
 
 .rl-stock-accordion-list {

@@ -1243,7 +1243,7 @@ export default function StockPage() {
   useEffect(() => {
     let alive = true
     setMarketIntelLoading(true)
-    get(`/api/news?company=${encodeURIComponent('S&P 500')}&ticker=SPY&days=2&limit=6`)
+    get(`/api/news?company=${encodeURIComponent('S&P 500')}&ticker=SPY&days=2&limit=12`)
       .then((res) => {
         if (!alive) return
         const items = Array.isArray(res?.items) ? res.items : []
@@ -1253,7 +1253,8 @@ export default function StockPage() {
             summary: String(row?.summary || '').trim(),
             source: String(row?.source || '').trim(),
             published_at: String(row?.published_at || '').trim(),
-          })).filter((row) => row.title).slice(0, 6),
+            url: String(row?.url || '').trim(),
+          })).filter((row) => row.title).slice(0, 5),
         )
       })
       .catch(() => {
@@ -1869,7 +1870,7 @@ export default function StockPage() {
             <div className="rl-stock-market-news">
               {marketIntelLoading ? <span className="rl-stock-market-news-empty">Loading market headlines…</span> : null}
               {!marketIntelLoading && !marketIntelItems.length ? <span className="rl-stock-market-news-empty">No market headlines available right now.</span> : null}
-              {!marketIntelLoading && marketIntelItems.map((item, idx) => {
+              {!marketIntelLoading && marketIntelItems.slice(0, 5).map((item, idx) => {
                 const open = marketSummaryOpenIdx === idx
                 return (
                   <article key={`mkt-news-${idx}`} className={`rl-stock-market-news-item ${open ? 'open' : ''}`}>
@@ -1884,7 +1885,17 @@ export default function StockPage() {
                     {open ? (
                       <div className="rl-stock-market-news-body">
                         <p>{item.summary || 'No summary from upstream feed yet.'}</p>
-                        <em>{item.source || 'Market feed'} · {item.published_at ? fmtDateOnly(item.published_at) : 'today'}</em>
+                        <em>
+                          {item.source || 'Market feed'} · {item.published_at ? fmtDateOnly(item.published_at) : 'today'}
+                          {item.url ? (
+                            <>
+                              {' '}·{' '}
+                              <a href={item.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                                Open source
+                              </a>
+                            </>
+                          ) : null}
+                        </em>
                       </div>
                     ) : null}
                   </article>
