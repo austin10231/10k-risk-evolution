@@ -1373,15 +1373,6 @@ export default function StockPage() {
     }
   }, [config.ticker, upsertBundle])
 
-  useEffect(() => {
-    if (!effectiveUploadedCompanies.length) return
-    const uploadedTickers = effectiveUploadedCompanies.map((c) => c.ticker).filter((tk) => !unsupportedTickerSet.has(tk))
-    setWatchlist((prev) => mergeTickers(uploadedTickers, prev, DEFAULT_TICKERS).slice(0, 14))
-    if (!normalizeTicker(selectedTicker)) {
-      setSelectedTicker(uploadedTickers[0])
-    }
-  }, [effectiveUploadedCompanies, selectedTicker, unsupportedTickerSet])
-
   const effectiveUploadedCompanies = useMemo(
     () =>
       uploadedCompanies.map((c) => {
@@ -1392,6 +1383,15 @@ export default function StockPage() {
       }),
     [uploadedCompanies, tickerOverrides],
   )
+
+  useEffect(() => {
+    if (!effectiveUploadedCompanies.length) return
+    const uploadedTickers = effectiveUploadedCompanies.map((c) => c.ticker).filter((tk) => !unsupportedTickerSet.has(tk))
+    setWatchlist((prev) => mergeTickers(uploadedTickers, prev, DEFAULT_TICKERS).slice(0, 14))
+    if (!normalizeTicker(selectedTicker)) {
+      setSelectedTicker(uploadedTickers[0])
+    }
+  }, [effectiveUploadedCompanies, selectedTicker, unsupportedTickerSet])
 
   useEffect(() => {
     tickerResolveTriedRef.current = new Set()
