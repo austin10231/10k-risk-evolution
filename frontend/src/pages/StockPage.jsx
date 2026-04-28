@@ -722,6 +722,20 @@ function uniqueRowsByCompany(rows, limit = Infinity) {
   return out
 }
 
+function heatmapSummaryText(row) {
+  const raw = String(row?.data?.description || '').trim()
+  if (raw) {
+    const compact = raw.replace(/\s+/g, ' ').trim()
+    if (compact.length <= 180) return compact
+    return `${compact.slice(0, 177).trimEnd()}...`
+  }
+  const company = String(row?.company || row?.ticker || 'This company')
+  const industry = String(row?.industry || 'its sector')
+  const pct = Number(row?.change_percent)
+  const move = Number.isFinite(pct) ? `is ${pct >= 0 ? 'up' : 'down'} ${Math.abs(pct).toFixed(2)}% today` : 'is moving today'
+  return `${company} ${move}, with activity centered in ${industry}.`
+}
+
 function MiniChart({ values, kind, color, compact = true }) {
   const width = compact ? 320 : 360
   const height = compact ? 116 : 132
@@ -1872,9 +1886,20 @@ export default function StockPage() {
                   }}
                 >
                   <p>{heatmapHover.row.industry || 'Other'}</p>
-                  <strong>{heatmapHover.row.ticker} · {heatmapHover.row.company}</strong>
-                  <span>{fmtPrice(heatmapHover.row.data?.price)} · {fmtPct(heatmapHover.row.change_percent)}</span>
-                  <em>Cap {fmtCompact(heatmapHover.row.market_cap)} · Vol {fmtCompact(heatmapHover.row.volume)}</em>
+                  <div className="rl-stock-heatmap-tooltip-head">
+                    <CompanyLogo ticker={heatmapHover.row.ticker} company={heatmapHover.row.company} />
+                    <div>
+                      <strong>{heatmapHover.row.ticker} · {heatmapHover.row.company}</strong>
+                      <small>{heatmapHover.row.data?.exchange || 'US'} · Cap {fmtCompact(heatmapHover.row.market_cap)}</small>
+                    </div>
+                  </div>
+                  <span>
+                    {fmtPrice(heatmapHover.row.data?.price)} ·{' '}
+                    <b className={toneClass(heatmapHover.row.change_percent)}>{fmtPct(heatmapHover.row.change_percent)}</b>
+                    {' '}· Vol {fmtCompact(heatmapHover.row.volume)}
+                  </span>
+                  <em>{heatmapSummaryText(heatmapHover.row)}</em>
+                  <i>Click to open company detail</i>
                 </div>
               ) : null}
             </div>

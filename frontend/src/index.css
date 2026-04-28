@@ -2706,8 +2706,8 @@ select.input {
 .rl-stock-heatmap-tooltip {
   position: absolute;
   transform: translate(-50%, -100%);
-  min-width: 280px;
-  max-width: min(460px, calc(100% - 20px));
+  min-width: 320px;
+  max-width: min(520px, calc(100% - 20px));
   border: 1px solid rgba(148, 163, 184, 0.48);
   border-radius: 12px;
   background:
@@ -2728,28 +2728,63 @@ select.input {
 }
 
 .rl-stock-heatmap-tooltip strong {
-  margin-top: 4px;
   display: block;
   color: #0f172a;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   font-weight: 760;
+  line-height: 1.35;
+}
+
+.rl-stock-heatmap-tooltip-head {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rl-stock-heatmap-tooltip-head .rl-stock-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.rl-stock-heatmap-tooltip-head small {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 620;
 }
 
 .rl-stock-heatmap-tooltip span {
   margin-top: 5px;
   display: block;
   color: #1e293b;
-  font-size: 0.81rem;
+  font-size: 0.8rem;
   font-weight: 640;
 }
 
 .rl-stock-heatmap-tooltip em {
-  margin-top: 5px;
+  margin-top: 7px;
   display: block;
   color: #475569;
-  font-size: 0.73rem;
+  font-size: 0.72rem;
   font-style: normal;
-  font-weight: 600;
+  font-weight: 580;
+  line-height: 1.45;
+}
+
+.rl-stock-heatmap-tooltip i {
+  margin-top: 8px;
+  display: block;
+  color: #64748b;
+  font-size: 0.67rem;
+  font-style: normal;
+  font-weight: 620;
+}
+
+.rl-stock-heatmap-tooltip b {
+  font-weight: 760;
 }
 
 .rl-stock-spotlight-list {
