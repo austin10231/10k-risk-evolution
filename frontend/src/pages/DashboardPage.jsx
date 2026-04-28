@@ -3,6 +3,13 @@ import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
 
+const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
+const dashboardSummaryCache = {
+  data: null,
+  ts: 0,
+  inFlight: null,
+}
+
 const TABS = [
   { key: 'pulse', label: 'Risk Pulse' },
   { key: 'category', label: 'Category Intelligence' },
@@ -46,6 +53,7 @@ export default function DashboardPage() {
   const { config } = useGlobalConfig()
   const tabsRef = useRef(null)
   const autoEnsuredRef = useRef(false)
+  const mountedRef = useRef(true)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -61,32 +69,84 @@ export default function DashboardPage() {
 
   useSlidingTabIndicator(tabsRef, [activeTab])
 
-  const load = () => {
-    let mounted = true
-    setLoading(true)
+  const load = ({ force = false, background = false } = {}) => {
+    const now = Date.now()
+    const hasCache = Boolean(dashboardSummaryCache.data)
+    const isFresh = hasCache && now - safeNumber(dashboardSummaryCache.ts) < DASHBOARD_CACHE_TTL_MS
+
+    if (!force && isFresh) {
+      setData(dashboardSummaryCache.data)
+      setError('')
+      setLoading(false)
+      return Promise.resolve(dashboardSummaryCache.data)
+    }
+
+    if (dashboardSummaryCache.inFlight) {
+      if (!background) setLoading(!hasCache)
+      return dashboardSummaryCache.inFlight
+        .then((cachedData) => {
+          if (!mountedRef.current) return cachedData
+          if (cachedData) setData(cachedData)
+          return cachedData
+        })
+        .catch((e) => {
+          if (!mountedRef.current) return null
+          if (!hasCache) setError(e.message || 'Failed to load dashboard summary')
+          return null
+        })
+        .finally(() => {
+          if (!mountedRef.current) return
+          if (!background || !hasCache) setLoading(false)
+        })
+    }
+
+    if (!background) setLoading(!hasCache)
     setError('')
-    get('/api/dashboard/summary')
-      .then((summaryRes) => {
-        if (!mounted) return
-        setData(summaryRes?.data || null)
+
+    dashboardSummaryCache.inFlight = get('/api/dashboard/summary').then((summaryRes) => {
+      const nextData = summaryRes?.data || null
+      dashboardSummaryCache.data = nextData
+      dashboardSummaryCache.ts = Date.now()
+      return nextData
+    })
+
+    return dashboardSummaryCache.inFlight
+      .then((nextData) => {
+        if (!mountedRef.current) return nextData
+        setData(nextData)
+        return nextData
       })
       .catch((e) => {
-        if (!mounted) return
-        setError(e.message || 'Failed to load dashboard summary')
+        if (!mountedRef.current) return null
+        if (!hasCache) setError(e.message || 'Failed to load dashboard summary')
+        return null
       })
       .finally(() => {
-        if (!mounted) return
-        setLoading(false)
+        dashboardSummaryCache.inFlight = null
+        if (!mountedRef.current) return
+        if (!background || !hasCache) setLoading(false)
       })
-
-    return () => {
-      mounted = false
-    }
   }
 
   useEffect(() => {
-    const off = load()
-    return off
+    mountedRef.current = true
+    const hasCache = Boolean(dashboardSummaryCache.data)
+    const cacheAge = Date.now() - safeNumber(dashboardSummaryCache.ts)
+    const cacheFresh = hasCache && cacheAge < DASHBOARD_CACHE_TTL_MS
+
+    if (hasCache) {
+      setData(dashboardSummaryCache.data)
+      setError('')
+      setLoading(false)
+    }
+
+    if (!cacheFresh) {
+      load({ background: hasCache })
+    }
+
+    return () => {
+      mountedRef.current = false
+    }
   }, [])
 
   const industryOptions = useMemo(() => {
@@ -134,7 +194,7 @@ export default function DashboardPage() {
     autoEnsuredRef.current = true
     post('/api/dashboard/ensure-priority', {})
       .then((res) => {
-        if (safeNumber(res?.updated) > 0) load()
+        if (safeNumber(res?.updated) > 0) load({ force: true, background: true })
       })
       .catch(() => {
         // keep UI usable if ensure-priority fails
@@ -348,7 +408,7 @@ export default function DashboardPage() {
                   </select>
                 </div>
 
-                <button className="btn-secondary" onClick={load} disabled={loading}>
+                <button className="btn-secondary" onClick={() => load({ force: true })} disabled={loading}>
                   {loading ? 'Refreshing…' : 'Refresh'}
                 </button>
               </div>
@@ -433,14 +493,14 @@ export default function DashboardPage() {
                 <p className="mt-1 text-sm text-slate-600">Rows with priority data: {safeNumber(metrics.records_with_priority)} / {safeNumber(metrics.records)}</p>
               </div>
 
-              <div className="mt-3">
+              <div className="mt-3 rounded-xl border border-slate-200/70 bg-slate-100/55 p-2.5">
                 <p className="section-title">Recent Filings</p>
                 <div className="mt-1.5 space-y-1.5">
                   {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
                   {!loading && recent.length === 0 ? <p className="text-sm text-slate-500">No records in this scope.</p> : null}
                   {!loading &&
                     recent.slice(0, 5).map((r) => (
-                      <div key={r.record_id} className="rounded-xl border border-slate-200/80 bg-white/52 px-3 py-2">
+                      <div key={r.record_id} className="rounded-xl border border-slate-200/85 bg-slate-50/85 px-3 py-2">
                         <p className="text-sm font-semibold text-slate-800">{r.company} · {r.year}</p>
                         <p className="mt-1 text-xs text-slate-500">{r.industry || '—'} · {safeNumber(r.risk_items)} risk items</p>
                       </div>
@@ -474,7 +534,7 @@ export default function DashboardPage() {
                   ))}
                 </select>
               </div>
-              <button className="btn-secondary" onClick={load} disabled={loading}>
+              <button className="btn-secondary" onClick={() => load({ force: true })} disabled={loading}>
                 {loading ? 'Refreshing…' : 'Refresh'}
               </button>
             </div>
@@ -562,7 +622,7 @@ export default function DashboardPage() {
         const pos = tooltipPosition(safeNumber(hoverPopup.x), safeNumber(hoverPopup.y))
         return (
           <div
-            className="fixed z-[80] w-[320px] rounded-xl border border-slate-200 bg-white/96 p-3 shadow-2xl backdrop-blur-sm"
+            className="fixed z-[80] w-[320px] rounded-xl border border-slate-300 bg-white p-3 shadow-2xl"
             style={{ left: `${pos.left}px`, top: `${pos.top}px`, pointerEvents: 'none' }}
           >
             <p className="text-sm font-bold text-slate-800">{hoverPopup.cell.company} · {hoverPopup.cell.year}</p>
@@ -581,7 +641,7 @@ export default function DashboardPage() {
                     ? 'Unavailable'
                     : '—'}
             </p>
-            <p className="mt-2 text-xs font-semibold text-indigo-600">Click card to open this record →</p>
+            <p className="mt-2 text-xs font-semibold text-slate-600">Click the heatmap card to open this record.</p>
           </div>
         )
       })() : null}
