@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useMemo, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { post } from './api'
 import { useGlobalConfig } from './globalConfig'
 import { useChatMemory } from './chatMemory'
@@ -11,11 +11,12 @@ function detectLang(text) {
 function plannedTools(query, hasConfig, pathname) {
   const q = String(query || '').toLowerCase()
   const route = String(pathname || '')
-  const tools = ['Risk Synthesis']
+  const tools = []
 
   if (q.includes('compare') || q.includes('对比') || route.includes('/compare')) tools.push('Cross-Filing Compare')
   if (route.includes('/tables')) tools.push('Financial Tables')
   if (route.includes('/upload') || q.includes('upload')) tools.push('Filing Ingestion')
+  if (q.includes('10-k') || q.includes('10k') || q.includes('risk factor') || q.includes('风险')) tools.push('10-K Risk Analysis')
 
   if (
     q.includes('stock') ||
@@ -34,7 +35,9 @@ function plannedTools(query, hasConfig, pathname) {
   }
 
   if (hasConfig) tools.push('Global Config Memory')
-  return Array.from(new Set(tools))
+  const unique = Array.from(new Set(tools))
+  if (!unique.length) unique.push('General Chat')
+  return unique
 }
 
 function parseContextFromSearch(search = '') {
@@ -43,6 +46,38 @@ function parseContextFromSearch(search = '') {
     recordId: String(params.get('record_id') || '').trim(),
     compareRecordId: String(params.get('compare_record_id') || '').trim(),
   }
+}
+
+function buildActionPath(response) {
+  if (!response || response.type !== 'action' || response.action !== 'navigate') return ''
+  const target = String(response.target || '').trim()
+  const params = response.params && typeof response.params === 'object' ? response.params : {}
+
+  const baseMap = {
+    compare_page: '/compare',
+    stock_page: '/stock',
+    news_page: '/news',
+    upload_page: '/upload',
+    analyze_page: '/analyze',
+    risk_page: '/analyze',
+    chat_page: '/agent',
+    agent_page: '/agent',
+  }
+  let path = baseMap[target] || ''
+  if (!path) return ''
+
+  if (path === '/stock' && String(params.ticker || '').trim()) {
+    return `/stock/${encodeURIComponent(String(params.ticker).trim().toUpperCase())}`
+  }
+
+  const query = new URLSearchParams()
+  const allowedKeys = ['record_id', 'compare_record_id', 'company', 'year', 'ticker']
+  allowedKeys.forEach((k) => {
+    const v = String(params[k] ?? '').trim()
+    if (v) query.set(k, v)
+  })
+  const qs = query.toString()
+  return qs ? `${path}?${qs}` : path
 }
 
 const WorkspaceChatContext = createContext({
@@ -59,6 +94,7 @@ const WorkspaceChatContext = createContext({
 
 export function WorkspaceChatProvider({ children }) {
   const location = useLocation()
+  const navigate = useNavigate()
   const { config } = useGlobalConfig()
   const { currentThread, currentThreadId, appendMessage, createThread } = useChatMemory()
 
@@ -109,16 +145,26 @@ export function WorkspaceChatProvider({ children }) {
     setError('')
 
     try {
+      const historyPayload = [...messages, { role: 'user', text: userText }]
+        .filter((m) => (m?.role === 'user' || m?.role === 'assistant') && String(m?.text || '').trim())
+        .slice(-16)
+        .map((m) => ({ role: m.role, text: String(m.text || '').trim() }))
+
       const payload = {
         user_query: userText,
         company: config.company || '',
         year: config.year ? Number(config.year) : 0,
         record_id: options.recordId || context.recordId || '',
         compare_record_id: options.compareRecordId || context.compareRecordId || '',
+        history: historyPayload,
+        source_page: routePath,
       }
       const res = await post('/api/agent/query', payload)
       const report = res?.report || res?.result || {}
+      const structured = report?.response || {}
       const answer =
+        (structured?.type === 'text' ? structured?.content : '') ||
+        (structured?.type === 'action' ? structured?.message : '') ||
         report?.direct_answer ||
         report?.executive_summary ||
         'I completed the analysis, but no direct answer text was returned.'
@@ -127,8 +173,12 @@ export function WorkspaceChatProvider({ children }) {
         role: 'assistant',
         text: answer,
         report,
-        meta: { lang, tools, timestamp: Date.now(), route: routePath },
+        meta: { lang, tools, timestamp: Date.now(), route: routePath, intent: report?.intent || '', response: structured || null },
       })
+      if (options.navigateOnAction !== false) {
+        const actionPath = buildActionPath(structured)
+        if (actionPath) navigate(actionPath)
+      }
       return targetThreadId
     } catch (e) {
       const msg = e.message || 'Agent request failed'

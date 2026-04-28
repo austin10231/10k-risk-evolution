@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
@@ -24,13 +24,6 @@ export default function AgentPage() {
       search: pending.originSearch || '',
     })
   }, [location.pathname, location.search, send])
-
-  const lastReport = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i].report) return messages[i].report
-    }
-    return null
-  }, [messages])
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -83,7 +76,6 @@ export default function AgentPage() {
                 <strong>RiskLens Agent</strong>
                 <span>Running</span>
               </div>
-              <p>Planning analysis path and querying the best available context…</p>
               <div className="rl-agent-thinking-dots">
                 <span />
                 <span />
@@ -93,44 +85,6 @@ export default function AgentPage() {
           </article>
         ) : null}
       </section>
-
-      {lastReport ? (
-        <section className="rl-agent-report-wrap">
-          <details className="rl-agent-report-details">
-            <summary>
-              <span>Analysis Details</span>
-              <span className="rl-agent-report-hint">Priority + Executive Summary</span>
-            </summary>
-
-            <div className="rl-agent-summary-grid">
-              <article className="card p-5">
-                <p className="section-title">Priority Snapshot</p>
-                <div className="rl-agent-priority-grid">
-                  <div>
-                    <span>High</span>
-                    <strong>{lastReport?.priority_matrix?.high?.count ?? 0}</strong>
-                  </div>
-                  <div>
-                    <span>Medium</span>
-                    <strong>{lastReport?.priority_matrix?.medium?.count ?? 0}</strong>
-                  </div>
-                  <div>
-                    <span>Low</span>
-                    <strong>{lastReport?.priority_matrix?.low?.count ?? 0}</strong>
-                  </div>
-                </div>
-              </article>
-
-              <article className="card p-5">
-                <p className="section-title">Executive Summary</p>
-                <p className="rl-agent-exec-summary">
-                  {lastReport?.executive_summary || 'No summary available from the last run.'}
-                </p>
-              </article>
-            </div>
-          </details>
-        </section>
-      ) : null}
     </div>
   )
 }

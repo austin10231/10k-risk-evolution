@@ -173,6 +173,15 @@ def _invoke(prompt: str, max_tokens: int = 2048) -> str:
         ) from sigv4_error
 
 
+def invoke_llm_text(prompt: str, max_tokens: int = 1200) -> str:
+    """Public helper for other runtime modules that need direct LLM text responses."""
+    return _invoke(prompt, max_tokens=max_tokens)
+
+
+def get_model_id() -> str:
+    return MODEL_ID
+
+
 def _strip_json_fences(text: str) -> str:
     return re.sub(r"```json|```", "", str(text or "")).strip()
 

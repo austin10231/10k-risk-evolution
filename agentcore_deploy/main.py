@@ -61,6 +61,9 @@ except Exception:
     extract_tables_from_pdf = None
 
 _RUN_AGENT = None
+_RUN_CHAT_AGENT = None
+_LLM_INVOKE = None
+_MODEL_ID = None
 
 INDEX_KEY = "filing_records_index.json"
 RESULTS_PREFIX = "risk_analysis_results"
@@ -3083,6 +3086,36 @@ def _get_run_agent():
     return _RUN_AGENT
 
 
+def _get_run_chat_agent():
+    global _RUN_CHAT_AGENT
+    if _RUN_CHAT_AGENT is None:
+        from chat_agent import run_chat_agent as _imported_run_chat_agent
+
+        _RUN_CHAT_AGENT = _imported_run_chat_agent
+    return _RUN_CHAT_AGENT
+
+
+def _get_llm_invoke():
+    global _LLM_INVOKE
+    if _LLM_INVOKE is None:
+        from agent import invoke_llm_text as _imported_invoke
+
+        _LLM_INVOKE = _imported_invoke
+    return _LLM_INVOKE
+
+
+def _get_model_id() -> str:
+    global _MODEL_ID
+    if _MODEL_ID is None:
+        try:
+            from agent import get_model_id as _imported_get_model_id
+
+            _MODEL_ID = str(_imported_get_model_id() or "").strip() or "us.amazon.nova-pro-v1:0"
+        except Exception:
+            _MODEL_ID = "us.amazon.nova-pro-v1:0"
+    return _MODEL_ID
+
+
 def _to_int(value, default=0):
     try:
         return int(value)
@@ -3226,12 +3259,73 @@ def _compare_payload(latest_record_id: str, prior_record_id: str) -> dict:
     }
 
 
+def _coerce_chat_history(raw_history: Any) -> List[dict]:
+    out: List[dict] = []
+    if not isinstance(raw_history, list):
+        return out
+    for row in raw_history:
+        if not isinstance(row, dict):
+            continue
+        role = str(row.get("role", "") or "").strip().lower()
+        text = str(row.get("text", "") or row.get("content", "") or "").strip()
+        if role not in {"user", "assistant"} or not text:
+            continue
+        out.append({"role": role, "text": text[:1200]})
+    return out[-16:]
+
+
+def _extract_ticker_candidate(text: str) -> str:
+    q = str(text or "")
+    if not q:
+        return ""
+    tokens = re.findall(r"\$?([A-Za-z]{1,5})\b", q)
+    if not tokens:
+        return ""
+    stop = {
+        "the", "and", "for", "with", "from", "this", "that", "what", "when", "where", "which",
+        "will", "would", "could", "should", "stock", "stocks", "risk", "news", "query", "page",
+        "about", "today", "price", "chart", "market",
+    }
+    for tok in tokens:
+        norm = tok.upper()
+        if tok.lower() in stop:
+            continue
+        if norm.isalpha():
+            return norm
+    return ""
+
+
+def _resolve_agent_ticker(
+    *,
+    user_query: str,
+    company: str,
+    context_ticker: str,
+) -> str:
+    from_query = _normalize_ticker(_extract_ticker_candidate(user_query))
+    if from_query:
+        return from_query
+
+    from_context = _normalize_ticker(context_ticker)
+    if from_context:
+        return from_context
+
+    if company:
+        try:
+            resolved = _resolve_ticker_for_company(company=company, ticker_hint="")
+            if resolved.get("ok"):
+                return _normalize_ticker(resolved.get("ticker"))
+        except Exception:
+            pass
+    return ""
+
+
 def _agent_query(payload: dict) -> dict:
     user_query = str(payload.get("user_query", "") or "").strip()
     company = str(payload.get("company", "") or "").strip()
     year = _to_int(payload.get("year", 0), 0)
     record_id = str(payload.get("record_id", "") or "").strip()
     compare_record_id = str(payload.get("compare_record_id", "") or "").strip()
+    history = _coerce_chat_history(payload.get("history", []))
 
     selected_record = None
     selected_result = None
@@ -3250,6 +3344,13 @@ def _agent_query(payload: dict) -> dict:
             record_id = str(rec.get("record_id", "") or "")
             selected_result = _load_result(record_id)
 
+    ticker_lookup = _build_ticker_lookup()
+    context_ticker = ""
+    if isinstance(selected_record, dict):
+        context_ticker = _resolve_record_ticker(selected_record, ticker_lookup=ticker_lookup)
+    context_ticker = _normalize_ticker(context_ticker)
+    context_ticker = context_ticker or _normalize_ticker(str(payload.get("ticker", "") or "").strip().upper())
+
     risks = []
     if isinstance(selected_result, dict):
         risks = selected_result.get("risks", []) if isinstance(selected_result.get("risks"), list) else []
@@ -3260,14 +3361,244 @@ def _agent_query(payload: dict) -> dict:
         if "error" not in cmp_payload:
             compare_data = cmp_payload
 
-    raw = {
-        "user_query": user_query,
+    run_agent = _get_run_agent()
+    llm_invoke = _get_llm_invoke()
+
+    def _polish_business_answer(raw_text: str, query: str, mode: str) -> str:
+        text = str(raw_text or "").strip()
+        if not text:
+            return text
+        prompt = f"""You are a professional 10-K risk analyst assistant.
+
+User question:
+{str(query or '').strip()}
+
+Draft answer:
+{text}
+
+Rewrite the draft answer to be:
+- more natural and human,
+- concise but professional,
+- grounded in the same facts (do not add unsupported claims),
+- in the same language as the user.
+
+Context mode: {mode}
+
+Return plain text only."""
+        try:
+            polished = str(llm_invoke(prompt, 700) or "").strip()
+            if polished:
+                return polished
+        except Exception:
+            pass
+        return text
+
+    def tool_risk_analysis(*, query: str, history: List[dict], context: dict) -> dict:
+        if not risks:
+            msg = (
+                "I cannot find extracted risk data yet. Please upload or select a filing first, "
+                "then I can run risk analysis."
+            )
+            return {
+                "response": {
+                    "type": "action",
+                    "action": "navigate",
+                    "target": "upload_page",
+                    "params": {"company": company, "year": year},
+                    "message": msg,
+                },
+                "tool_payload": {"has_risks": False},
+            }
+
+        report = run_agent(
+            user_query=query or "Summarize the most important risks.",
+            company=company,
+            year=year,
+            risks=risks,
+            compare_data=None,
+        )
+        message = str(report.get("direct_answer", "") or report.get("executive_summary", "") or "").strip()
+        if not message:
+            message = "Risk analysis completed."
+        message = _polish_business_answer(message, query, "risk_analysis")
+        return {
+            "response": {"type": "text", "content": message},
+            "tool_payload": {
+                "has_risks": True,
+                "risk_count": sum(len(c.get("sub_risks", [])) for c in risks if isinstance(c, dict)),
+            },
+            "risk_report": report,
+        }
+
+    def tool_compare_risk(*, query: str, history: List[dict], context: dict) -> dict:
+        if not compare_data:
+            msg = (
+                "I need two filings to compare. Please choose a baseline filing in Compare, "
+                "then ask me again for deltas."
+            )
+            return {
+                "response": {
+                    "type": "action",
+                    "action": "navigate",
+                    "target": "compare_page",
+                    "params": {"record_id": record_id, "company": company, "year": year},
+                    "message": msg,
+                },
+                "tool_payload": {"has_compare_data": False},
+            }
+
+        report = run_agent(
+            user_query=query or "Compare risk deltas and summarize key changes.",
+            company=company,
+            year=year,
+            risks=risks,
+            compare_data=compare_data,
+        )
+        message = str(report.get("direct_answer", "") or report.get("compare_insights", "") or report.get("executive_summary", "")).strip()
+        if not message:
+            message = "Risk comparison completed."
+        message = _polish_business_answer(message, query, "compare_risk")
+        return {
+            "response": {
+                "type": "action",
+                "action": "navigate",
+                "target": "compare_page",
+                "params": {
+                    "record_id": record_id,
+                    "compare_record_id": compare_record_id,
+                    "company": company,
+                    "year": year,
+                },
+                "message": message,
+            },
+            "tool_payload": {
+                "has_compare_data": True,
+                "new_count": len(compare_data.get("new_risks", [])) if isinstance(compare_data, dict) else 0,
+                "removed_count": len(compare_data.get("removed_risks", [])) if isinstance(compare_data, dict) else 0,
+            },
+            "risk_report": report,
+        }
+
+    def tool_stock_query(*, query: str, history: List[dict], context: dict) -> dict:
+        ticker = _resolve_agent_ticker(user_query=query, company=company, context_ticker=context_ticker)
+        if not ticker:
+            return {
+                "response": {
+                    "type": "action",
+                    "action": "navigate",
+                    "target": "stock_page",
+                    "params": {"company": company},
+                    "message": "Please provide a ticker (for example AAPL) so I can fetch stock data.",
+                },
+                "tool_payload": {"ticker": ""},
+            }
+
+        quote_payload = _stock_quote(ticker, lite=True)
+        if quote_payload.get("error"):
+            return {
+                "response": {
+                    "type": "text",
+                    "content": f"I could not fetch stock data for {ticker}: {quote_payload.get('error')}",
+                },
+                "tool_payload": {"ticker": ticker, "error": quote_payload.get("error")},
+            }
+
+        price = quote_payload.get("price")
+        pct = quote_payload.get("change_percent")
+        chg = quote_payload.get("change")
+        if isinstance(price, (int, float)) and isinstance(pct, (int, float)):
+            summary = f"{ticker} is trading at {price:.2f}, with a daily move of {pct:+.2f}% ({chg:+.2f})."
+        else:
+            summary = f"I fetched the latest stock snapshot for {ticker}."
+
+        return {
+            "response": {
+                "type": "action",
+                "action": "navigate",
+                "target": "stock_page",
+                "params": {"ticker": ticker},
+                "message": summary,
+            },
+            "tool_payload": {"ticker": ticker, "quote": quote_payload},
+        }
+
+    def tool_news_query(*, query: str, history: List[dict], context: dict) -> dict:
+        ticker = _resolve_agent_ticker(user_query=query, company=company, context_ticker=context_ticker)
+        company_for_news = company
+        if not company_for_news and ticker:
+            company_for_news = ticker
+
+        if not company_for_news and not ticker:
+            return {
+                "response": {
+                    "type": "action",
+                    "action": "navigate",
+                    "target": "news_page",
+                    "params": {},
+                    "message": "Please provide a company name or ticker so I can fetch relevant news.",
+                },
+                "tool_payload": {"company": "", "ticker": ""},
+            }
+
+        news_payload = _fetch_news(company_for_news, ticker, 30, 8)
+        if news_payload.get("error"):
+            return {
+                "response": {
+                    "type": "text",
+                    "content": f"I could not fetch news right now: {news_payload.get('error')}",
+                },
+                "tool_payload": {"company": company_for_news, "ticker": ticker, "error": news_payload.get("error")},
+            }
+
+        items = news_payload.get("items", []) if isinstance(news_payload.get("items"), list) else []
+        top_titles = [str(x.get("title", "") or "").strip() for x in items[:3] if isinstance(x, dict) and str(x.get("title", "")).strip()]
+        if top_titles:
+            summary = "Top headlines: " + " | ".join(top_titles)
+        else:
+            summary = f"I found no major recent headlines for {ticker or company_for_news}."
+
+        return {
+            "response": {
+                "type": "action",
+                "action": "navigate",
+                "target": "news_page",
+                "params": {"company": company_for_news, "ticker": ticker},
+                "message": summary,
+            },
+            "tool_payload": {
+                "company": company_for_news,
+                "ticker": ticker,
+                "items_count": len(items),
+                "provider": news_payload.get("provider", ""),
+            },
+        }
+
+    chat_context = {
         "company": company,
         "year": year,
-        "risks": risks,
-        "compare_data": compare_data,
+        "record_id": record_id,
+        "compare_record_id": compare_record_id,
+        "ticker": context_ticker,
+        "model_id": _get_model_id(),
+        "has_risks": bool(risks),
+        "risk_count": sum(len(c.get("sub_risks", [])) for c in risks if isinstance(c, dict)),
+        "has_compare_data": isinstance(compare_data, dict),
+        "source_page": str(payload.get("source_page", "") or "").strip(),
     }
-    report = _invoke_logic(raw)
+
+    run_chat_agent = _get_run_chat_agent()
+    report = run_chat_agent(
+        user_query=user_query,
+        history=history,
+        context=chat_context,
+        llm_invoke=llm_invoke,
+        tools={
+            "risk_analysis": tool_risk_analysis,
+            "compare_risk": tool_compare_risk,
+            "stock_query": tool_stock_query,
+            "news_query": tool_news_query,
+        },
+    )
 
     return {
         "ok": True,
@@ -3277,6 +3608,7 @@ def _agent_query(payload: dict) -> dict:
             "year": year,
             "record_id": record_id,
             "compare_record_id": compare_record_id,
+            "ticker": context_ticker,
             "has_risks": bool(risks),
         },
         "report": report,
