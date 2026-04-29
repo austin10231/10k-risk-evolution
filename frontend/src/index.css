@@ -830,8 +830,8 @@ select.input {
 
 .rl-landing-input-row {
   display: flex;
-  align-items: center;
-  gap: 9px;
+  align-items: flex-end;
+  gap: 11px;
 }
 
 .rl-landing-input-row textarea {
@@ -985,38 +985,42 @@ select.input {
 
 .rl-global-dock-row {
   display: flex;
-  align-items: center;
-  gap: 9px;
+  align-items: flex-end;
+  gap: 11px;
 }
 
 .rl-dock-attach-wrap {
   position: relative;
   flex: 0 0 auto;
+  align-self: flex-end;
+  margin-bottom: 3px;
 }
 
 .rl-dock-attach-trigger {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
   border-radius: 999px;
   border: 0;
   background: transparent;
-  color: rgba(51, 65, 85, 0.88);
+  color: rgba(30, 41, 59, 0.95);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease;
+  font-weight: 800;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.14s ease;
 }
 
 .rl-dock-attach-trigger:hover {
-  background: rgba(226, 232, 240, 0.7);
-  color: #1e293b;
+  background: rgba(203, 213, 225, 0.44);
+  color: #0f172a;
+  transform: translateY(-0.5px);
 }
 
 .rl-dock-attach-trigger svg {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
 }
 
 .rl-dock-attach-menu {
@@ -1053,11 +1057,14 @@ select.input {
   border: 1px solid rgba(148, 163, 184, 0.42);
   border-radius: 12px;
   background: rgba(248, 250, 252, 0.84);
-  padding: 7px 9px;
-  display: flex;
+  padding: 7px 8px 7px 9px;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
+  width: fit-content;
+  max-width: min(380px, 100%);
+  align-self: flex-start;
 }
 
 .rl-dock-attachment-copy {
@@ -6325,18 +6332,18 @@ select.input {
   }
 
   .rl-global-dock-row {
-    gap: 8px;
+    gap: 9px;
   }
 
   .rl-dock-attach-trigger {
-    width: 22px;
-    height: 22px;
-    min-width: 22px;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
   }
 
   .rl-dock-attach-trigger svg {
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
   }
 
   .rl-global-dock-composer textarea {

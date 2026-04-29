@@ -808,7 +808,7 @@ export default function AppShell({ children }) {
                         aria-label="Open upload menu"
                         title="Add file"
                       >
-                        <NavIcon name="plus" />
+                        <NavIcon name="plus" strokeWidth={2.35} />
                       </button>
                       {attachMenuOpen ? (
                         <div ref={attachMenuRef} className="rl-dock-attach-menu" role="menu">
@@ -917,7 +917,7 @@ export default function AppShell({ children }) {
                     aria-label="Open upload menu"
                     title="Add file"
                   >
-                    <NavIcon name="plus" />
+                    <NavIcon name="plus" strokeWidth={2.35} />
                   </button>
                   {attachMenuOpen ? (
                     <div ref={attachMenuRef} className="rl-dock-attach-menu" role="menu">
