@@ -928,7 +928,7 @@ select.input {
 
 .rl-global-dock.news .rl-global-dock-composer {
   border-color: rgba(100, 116, 139, 0.46);
-  background: rgba(246, 250, 255, 0.96);
+  background: rgba(250, 253, 255, 0.97);
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.19);
   padding: 10px 12px;
 }
@@ -955,7 +955,7 @@ select.input {
 .rl-global-dock-composer {
   border: 1px solid rgba(148, 163, 184, 0.34);
   border-radius: 18px;
-  background: rgba(245, 248, 252, 0.92);
+  background: rgba(249, 252, 255, 0.94);
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
   padding: 8px 10px;
   display: flex;
@@ -967,7 +967,7 @@ select.input {
 .rl-global-dock.agent .rl-global-dock-composer {
   border-radius: 22px;
   border-color: rgba(148, 163, 184, 0.42);
-  background: rgba(241, 246, 253, 0.74);
+  background: rgba(247, 251, 255, 0.9);
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
   padding: 10px 12px;
 }
@@ -983,8 +983,8 @@ select.input {
   background: transparent;
   color: #0f172a;
   padding: 7px 10px 6px;
-  font-size: 0.8rem;
-  line-height: 1.38;
+  font-size: 0.9rem;
+  line-height: 1.45;
   transition: min-height 0.16s ease, max-height 0.16s ease, font-size 0.16s ease;
 }
 
@@ -996,13 +996,13 @@ select.input {
 .rl-global-dock.compact .rl-global-dock-composer textarea {
   min-height: 30px;
   max-height: 72px;
-  font-size: 0.77rem;
+  font-size: 0.86rem;
 }
 
 .rl-global-dock.agent.compact .rl-global-dock-composer textarea {
   min-height: 38px;
   max-height: 96px;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
 }
 
 .rl-global-dock.expanded .rl-global-dock-composer {
@@ -1010,19 +1010,19 @@ select.input {
   gap: 9px;
   border-color: rgba(100, 116, 139, 0.44);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
-  background: rgba(246, 249, 253, 0.96);
+  background: rgba(250, 253, 255, 0.98);
 }
 
 .rl-global-dock.expanded .rl-global-dock-composer textarea {
   min-height: 42px;
   max-height: 122px;
-  font-size: 0.81rem;
+  font-size: 0.92rem;
 }
 
 .rl-global-dock.agent.expanded .rl-global-dock-composer textarea {
   min-height: 52px;
   max-height: 148px;
-  font-size: 0.84rem;
+  font-size: 0.95rem;
 }
 
 .rl-global-dock-composer textarea::placeholder {
@@ -1708,6 +1708,8 @@ select.input {
 
 .rl-chat-bubble {
   @apply max-w-[88%] whitespace-pre-wrap rounded-2xl border px-3 py-2 text-sm leading-6;
+  font-size: 0.98rem;
+  line-height: 1.68;
 }
 
 .rl-chat-row.user .rl-chat-bubble {
@@ -1728,6 +1730,8 @@ select.input {
 
 .rl-chat-input {
   @apply min-h-[92px] w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
+  font-size: 0.95rem;
+  line-height: 1.52;
 }
 
 .rl-chat-input::placeholder {
@@ -4734,20 +4738,20 @@ select.input {
 }
 
 .rl-agent-msg-top strong {
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   color: #334155;
 }
 
 .rl-agent-msg-top span {
-  font-size: 0.7rem;
+  font-size: 0.76rem;
   color: #94a3b8;
 }
 
 .rl-agent-msg-body p {
   margin: 5px 0 0;
   white-space: pre-wrap;
-  font-size: 0.89rem;
-  line-height: 1.62;
+  font-size: 0.98rem;
+  line-height: 1.68;
   color: #1e293b;
 }
 
