@@ -281,7 +281,9 @@ select.input {
 }
 
 .rl-history-main {
-  width: 100%;
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
   border: 0;
   outline: 0;
   background: transparent;
@@ -325,7 +327,8 @@ select.input {
 
 .rl-history-actions {
   position: relative;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  z-index: 2;
 }
 
 .rl-history-menu-btn,
@@ -340,7 +343,7 @@ select.input {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.72;
   transition: opacity 0.16s ease, border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
 }
 
@@ -354,6 +357,11 @@ select.input {
 .rl-history-item.active .rl-history-menu-btn,
 .rl-history-actions.open .rl-history-menu-btn,
 .rl-history-action-btn {
+  opacity: 1;
+}
+
+.rl-history-menu-btn:focus-visible,
+.rl-history-action-btn:focus-visible {
   opacity: 1;
 }
 
@@ -382,7 +390,7 @@ select.input {
   right: auto !important;
   min-width: 148px;
   width: 148px;
-  z-index: 90;
+  z-index: 1300;
   animation: rl-fade-up 0.14s ease;
 }
 
