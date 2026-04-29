@@ -1057,14 +1057,32 @@ select.input {
   border: 1px solid rgba(148, 163, 184, 0.42);
   border-radius: 12px;
   background: rgba(248, 250, 252, 0.84);
-  padding: 7px 8px 7px 9px;
+  padding: 7px 8px 7px 7px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
   width: fit-content;
-  max-width: min(380px, 100%);
+  max-width: min(420px, 100%);
   align-self: flex-start;
+}
+
+.rl-dock-attachment-icon {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #ef4444, #f97316);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 14px rgba(239, 68, 68, 0.24);
+}
+
+.rl-dock-attachment-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .rl-dock-attachment-copy {
@@ -1075,7 +1093,7 @@ select.input {
 
 .rl-dock-attachment-copy span {
   color: #0f172a;
-  font-size: 0.79rem;
+  font-size: 0.8rem;
   font-weight: 700;
   line-height: 1.25;
   white-space: nowrap;
@@ -1093,8 +1111,8 @@ select.input {
 
 .rl-dock-attachment-remove {
   border: 0;
-  width: 20px;
-  height: 20px;
+  width: 19px;
+  height: 19px;
   border-radius: 999px;
   background: rgba(226, 232, 240, 0.88);
   color: #334155;

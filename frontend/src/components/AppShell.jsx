@@ -113,6 +113,17 @@ function SubmitArrowIcon() {
   )
 }
 
+function AttachmentFileIcon() {
+  return (
+    <span className="rl-dock-attachment-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M7 3.8H13.2L18.2 8.8V20.2H7V3.8Z" />
+        <path d="M13 3.8V9H18.2" />
+      </svg>
+    </span>
+  )
+}
+
 function dockPlaceholder(pathname) {
   if (pathname === '/compare') return 'Ask about comparison changes, deltas, or risk shifts…'
   if (String(pathname || '').startsWith('/stock')) return 'Ask about this ticker movement or risk implications…'
@@ -780,6 +791,7 @@ export default function AppShell({ children }) {
                 >
                   {pendingAttachment ? (
                     <div className="rl-dock-attachment-chip">
+                      <AttachmentFileIcon />
                       <div className="rl-dock-attachment-copy">
                         <span>{pendingAttachment.name}</span>
                         <em>{String(pendingAttachment.ext || '').toUpperCase()} · {formatBytes(pendingAttachment.size)}</em>
@@ -889,6 +901,7 @@ export default function AppShell({ children }) {
             >
               {pendingAttachment ? (
                 <div className="rl-dock-attachment-chip">
+                  <AttachmentFileIcon />
                   <div className="rl-dock-attachment-copy">
                     <span>{pendingAttachment.name}</span>
                     <em>{String(pendingAttachment.ext || '').toUpperCase()} · {formatBytes(pendingAttachment.size)}</em>
