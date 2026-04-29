@@ -180,12 +180,8 @@ export default function FloatingChatWidget() {
     const isProcessKey = key === 'Process' || String(nativeEvent.code || '') === 'Process'
     if (isComposingRef.current) return true
     if (nativeEvent.isComposing || event?.isComposing || keyCode === 229 || isProcessKey) return true
-    const justEndedComposition = Date.now() - Number(lastCompositionEndAtRef.current || 0) < 42
+    const justEndedComposition = Date.now() - Number(lastCompositionEndAtRef.current || 0) < 18
     if (isEnterKey && justEndedComposition && ignoreNextEnterRef.current) {
-      ignoreNextEnterRef.current = false
-      return true
-    }
-    if (isEnterKey && ignoreNextEnterRef.current) {
       ignoreNextEnterRef.current = false
       return true
     }

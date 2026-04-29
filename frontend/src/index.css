@@ -4685,7 +4685,7 @@ select.input {
 
 .rl-agent-msg.assistant .rl-agent-msg-avatar {
   border-color: #bfdbfe;
-  background: #eff6ff;
+  background: rgba(239, 246, 255, 0.82);
   color: #1d4ed8;
 }
 
@@ -4713,7 +4713,12 @@ select.input {
 }
 
 .rl-agent-msg.assistant .rl-agent-msg-body {
-  max-width: min(92%, 980px);
+  max-width: min(72%, 760px);
+  border-radius: 12px;
+  border: 1px solid rgba(186, 205, 227, 0.66);
+  background: linear-gradient(180deg, rgba(238, 246, 255, 0.62), rgba(228, 238, 251, 0.52));
+  backdrop-filter: blur(3px);
+  padding: 8px 11px;
 }
 
 .rl-agent-msg-top {

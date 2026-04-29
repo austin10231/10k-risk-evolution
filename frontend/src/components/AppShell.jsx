@@ -250,12 +250,8 @@ export default function AppShell({ children }) {
     if (isComposingRef.current) return true
     if (nativeEvent.isComposing || event?.isComposing || keyCode === 229 || isProcessKey) return true
     // Some browsers emit compositionend right before Enter keydown.
-    const justEndedComposition = Date.now() - Number(lastCompositionEndAtRef.current || 0) < 42
+    const justEndedComposition = Date.now() - Number(lastCompositionEndAtRef.current || 0) < 18
     if (isEnterKey && justEndedComposition && ignoreNextEnterRef.current) {
-      ignoreNextEnterRef.current = false
-      return true
-    }
-    if (isEnterKey && ignoreNextEnterRef.current) {
       ignoreNextEnterRef.current = false
       return true
     }
