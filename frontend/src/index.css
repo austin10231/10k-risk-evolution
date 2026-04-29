@@ -880,38 +880,16 @@ select.input {
 
 .rl-global-dock-inner {
   pointer-events: auto;
-  max-width: min(920px, 100%);
+  max-width: min(980px, 100%);
   margin: 0 auto;
 }
 
 .rl-global-dock.agent {
-  bottom: 24px;
-}
-
-.rl-global-dock.agent .rl-global-dock-inner {
-  max-width: min(1040px, 100%);
+  bottom: 10px;
 }
 
 .rl-global-dock.focus {
-  bottom: 18px;
-}
-
-.rl-global-dock.focus .rl-global-dock-inner {
-  max-width: min(1020px, 100%);
-}
-
-.rl-global-dock.focus .rl-global-dock-composer {
-  padding: 10px 12px;
-}
-
-.rl-global-dock.focus.compact .rl-global-dock-composer textarea {
-  min-height: 38px;
-  max-height: 88px;
-}
-
-.rl-global-dock.focus.expanded .rl-global-dock-composer textarea {
-  min-height: 52px;
-  max-height: 142px;
+  bottom: 10px;
 }
 
 .rl-global-dock.news {
@@ -921,7 +899,8 @@ select.input {
 }
 
 .rl-global-dock.news .rl-global-dock-inner {
-  max-width: min(1056px, var(--workspace-left-rail-width));
+  width: min(100%, var(--workspace-left-rail-width));
+  max-width: none;
   margin-left: 0;
   margin-right: auto;
 }
@@ -965,11 +944,11 @@ select.input {
 }
 
 .rl-global-dock.agent .rl-global-dock-composer {
-  border-radius: 22px;
-  border-color: rgba(148, 163, 184, 0.42);
-  background: rgba(247, 251, 255, 0.9);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
-  padding: 10px 12px;
+  border-radius: 18px;
+  border-color: rgba(148, 163, 184, 0.34);
+  background: rgba(249, 252, 255, 0.94);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14);
+  padding: 8px 10px;
 }
 
 .rl-global-dock-composer textarea {
@@ -1000,9 +979,9 @@ select.input {
 }
 
 .rl-global-dock.agent.compact .rl-global-dock-composer textarea {
-  min-height: 38px;
-  max-height: 96px;
-  font-size: 0.9rem;
+  min-height: 30px;
+  max-height: 72px;
+  font-size: 0.86rem;
 }
 
 .rl-global-dock.expanded .rl-global-dock-composer {
@@ -1020,9 +999,9 @@ select.input {
 }
 
 .rl-global-dock.agent.expanded .rl-global-dock-composer textarea {
-  min-height: 52px;
-  max-height: 148px;
-  font-size: 0.95rem;
+  min-height: 42px;
+  max-height: 122px;
+  font-size: 0.92rem;
 }
 
 .rl-global-dock-composer textarea::placeholder {
@@ -5690,14 +5669,16 @@ select.input {
 
 @media (max-width: 1320px) {
   .rl-global-dock.news {
-    left: calc(var(--sidebar-width) + 18px);
-    right: 18px;
+    left: calc(var(--sidebar-width) + var(--workspace-shell-gutter));
+    right: var(--workspace-shell-gutter);
     bottom: 14px;
   }
 
   .rl-global-dock.news .rl-global-dock-inner {
-    max-width: min(920px, 100%);
-    margin: 0 auto;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: auto;
   }
 
   .rl-global-dock.news .rl-global-dock-composer {
@@ -6178,7 +6159,7 @@ select.input {
   }
 
   .rl-global-dock.agent {
-    bottom: 12px;
+    bottom: 8px;
   }
 
   .rl-global-dock.news {
@@ -6213,18 +6194,18 @@ select.input {
   }
 
   .rl-global-dock.agent .rl-global-dock-composer {
-    border-radius: 16px;
-    padding: 8px 10px;
+    border-radius: 15px;
+    padding: 7px 9px;
   }
 
   .rl-global-dock.agent.compact .rl-global-dock-composer textarea {
-    min-height: 34px;
-    max-height: 82px;
+    min-height: 26px;
+    max-height: 62px;
   }
 
   .rl-global-dock.agent.expanded .rl-global-dock-composer textarea {
-    min-height: 42px;
-    max-height: 106px;
+    min-height: 36px;
+    max-height: 88px;
   }
 
   .rl-ask-shell {
