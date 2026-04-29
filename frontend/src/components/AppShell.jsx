@@ -7,7 +7,7 @@ import { stashPendingChat } from '../lib/pendingChat'
 import brandIcon from '../assets/logo-icon.svg'
 
 const WORKSPACE_TABS = [
-  { to: '/upload', label: 'Upload&Records' },
+  { to: '/upload', label: 'Upload & Records' },
   { to: '/stock', label: 'Stock' },
   { to: '/news', label: 'News' },
   { to: '/dashboard', label: 'Dashboard' },
