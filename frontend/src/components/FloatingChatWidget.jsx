@@ -96,7 +96,7 @@ export default function FloatingChatWidget() {
   const fabDragRef = useRef(null)
   const panelDragRef = useRef(null)
   const isComposingRef = useRef(false)
-  const suppressEnterUntilRef = useRef(0)
+  const lastCompositionEndAtRef = useRef(0)
   const ignoreNextEnterRef = useRef(false)
   const compositionEndTimerRef = useRef(0)
 
@@ -155,7 +155,7 @@ export default function FloatingChatWidget() {
   }
 
   const markCompositionEnd = () => {
-    suppressEnterUntilRef.current = Date.now() + 320
+    lastCompositionEndAtRef.current = Date.now()
     ignoreNextEnterRef.current = true
     if (typeof window !== 'undefined') {
       if (compositionEndTimerRef.current) window.clearTimeout(compositionEndTimerRef.current)
@@ -171,6 +171,7 @@ export default function FloatingChatWidget() {
   const shouldIgnoreEnterSubmit = (event) => {
     const nativeEvent = event?.nativeEvent || {}
     const key = String(event?.key || nativeEvent.key || '')
+    const isEnterKey = key === 'Enter' || key === 'NumpadEnter'
     if (key && key !== 'Enter' && key !== 'NumpadEnter' && key !== 'Process') {
       ignoreNextEnterRef.current = false
       return false
@@ -179,8 +180,12 @@ export default function FloatingChatWidget() {
     const isProcessKey = key === 'Process' || String(nativeEvent.code || '') === 'Process'
     if (isComposingRef.current) return true
     if (nativeEvent.isComposing || event?.isComposing || keyCode === 229 || isProcessKey) return true
-    if (Date.now() < Number(suppressEnterUntilRef.current || 0)) return true
-    if (ignoreNextEnterRef.current) {
+    const justEndedComposition = Date.now() - Number(lastCompositionEndAtRef.current || 0) < 42
+    if (isEnterKey && justEndedComposition && ignoreNextEnterRef.current) {
+      ignoreNextEnterRef.current = false
+      return true
+    }
+    if (isEnterKey && ignoreNextEnterRef.current) {
       ignoreNextEnterRef.current = false
       return true
     }
@@ -335,7 +340,10 @@ export default function FloatingChatWidget() {
               onCompositionStart={markCompositionStart}
               onCompositionEnd={markCompositionEnd}
               onKeyDown={(e) => {
-                if (shouldIgnoreEnterSubmit(e)) return
+                if (shouldIgnoreEnterSubmit(e)) {
+                  if (e.key === 'Enter' && !e.shiftKey) e.preventDefault()
+                  return
+                }
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   sendFromWidget()

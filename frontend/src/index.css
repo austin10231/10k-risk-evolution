@@ -4697,17 +4697,23 @@ select.input {
 
 .rl-agent-msg-body {
   max-width: min(84%, 920px);
-  border-radius: 14px;
-  border: 1px solid rgba(203, 213, 225, 0.62);
-  background: rgba(255, 255, 255, 0.62);
-  backdrop-filter: blur(5px);
-  padding: 11px 13px;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+  padding: 2px 0;
 }
 
 .rl-agent-msg.user .rl-agent-msg-body {
+  border-radius: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.6);
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.94), rgba(37, 99, 235, 0.9));
-  border-color: rgba(96, 165, 250, 0.6);
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.2);
+  padding: 11px 13px;
+}
+
+.rl-agent-msg.assistant .rl-agent-msg-body {
+  max-width: min(92%, 980px);
 }
 
 .rl-agent-msg-top {

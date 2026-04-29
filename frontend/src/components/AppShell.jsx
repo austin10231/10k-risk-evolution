@@ -169,7 +169,7 @@ export default function AppShell({ children }) {
   const workspaceAppRef = useRef(null)
   const dockRef = useRef(null)
   const isComposingRef = useRef(false)
-  const suppressEnterUntilRef = useRef(0)
+  const lastCompositionEndAtRef = useRef(0)
   const ignoreNextEnterRef = useRef(false)
   const compositionEndTimerRef = useRef(0)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -222,8 +222,8 @@ export default function AppShell({ children }) {
   }
 
   const markCompositionEnd = () => {
-    // Keep a short guard window and ignore one Enter so IME confirm does not send.
-    suppressEnterUntilRef.current = Date.now() + 320
+    // Swallow only the IME confirm Enter, then allow immediate submit on next Enter.
+    lastCompositionEndAtRef.current = Date.now()
     ignoreNextEnterRef.current = true
     if (typeof window !== 'undefined') {
       if (compositionEndTimerRef.current) window.clearTimeout(compositionEndTimerRef.current)
@@ -239,6 +239,7 @@ export default function AppShell({ children }) {
   const shouldIgnoreEnterSubmit = (event) => {
     const nativeEvent = event?.nativeEvent || {}
     const key = String(event?.key || nativeEvent.key || '')
+    const isEnterKey = key === 'Enter' || key === 'NumpadEnter'
     if (key && key !== 'Enter' && key !== 'NumpadEnter' && key !== 'Process') {
       // User kept typing after composition, do not consume next Enter anymore.
       ignoreNextEnterRef.current = false
@@ -248,8 +249,13 @@ export default function AppShell({ children }) {
     const isProcessKey = key === 'Process' || String(nativeEvent.code || '') === 'Process'
     if (isComposingRef.current) return true
     if (nativeEvent.isComposing || event?.isComposing || keyCode === 229 || isProcessKey) return true
-    if (Date.now() < Number(suppressEnterUntilRef.current || 0)) return true
-    if (ignoreNextEnterRef.current) {
+    // Some browsers emit compositionend right before Enter keydown.
+    const justEndedComposition = Date.now() - Number(lastCompositionEndAtRef.current || 0) < 42
+    if (isEnterKey && justEndedComposition && ignoreNextEnterRef.current) {
+      ignoreNextEnterRef.current = false
+      return true
+    }
+    if (isEnterKey && ignoreNextEnterRef.current) {
       ignoreNextEnterRef.current = false
       return true
     }
@@ -657,7 +663,10 @@ export default function AppShell({ children }) {
                     onCompositionEnd={markCompositionEnd}
                     placeholder="Ask about any company, filing, comparison, stock, or news signal…"
                     onKeyDown={(e) => {
-                      if (shouldIgnoreEnterSubmit(e)) return
+                      if (shouldIgnoreEnterSubmit(e)) {
+                        if (e.key === 'Enter' && !e.shiftKey) e.preventDefault()
+                        return
+                      }
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault()
                         submitQuery()
@@ -717,7 +726,10 @@ export default function AppShell({ children }) {
                 onBlur={() => setDockFocused(false)}
                 placeholder={dockPlaceholder(location.pathname)}
                 onKeyDown={(e) => {
-                  if (shouldIgnoreEnterSubmit(e)) return
+                  if (shouldIgnoreEnterSubmit(e)) {
+                    if (e.key === 'Enter' && !e.shiftKey) e.preventDefault()
+                    return
+                  }
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
                     submitQuery()
