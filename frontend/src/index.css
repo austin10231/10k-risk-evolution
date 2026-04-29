@@ -625,6 +625,11 @@ select.input {
 .rl-workspace-app {
   --sidebar-width: 272px;
   --dock-height: 0px;
+  --workspace-shell-gutter: max(52px, (100vw - var(--sidebar-width) - 1460px) / 2);
+  --workspace-shell-width: min(1460px, calc(100vw - var(--sidebar-width) - 104px));
+  --workspace-split-gap: 36px;
+  --workspace-left-split-ratio: 0.7407407407;
+  --workspace-left-rail-width: calc((var(--workspace-shell-width) - var(--workspace-split-gap)) * var(--workspace-left-split-ratio));
 }
 
 .rl-workspace-app.sidebar-collapsed {
@@ -884,7 +889,7 @@ select.input {
 }
 
 .rl-global-dock.agent .rl-global-dock-inner {
-  max-width: min(1080px, 100%);
+  max-width: min(1040px, 100%);
 }
 
 .rl-global-dock.focus {
@@ -910,13 +915,13 @@ select.input {
 }
 
 .rl-global-dock.news {
-  left: calc(var(--sidebar-width) + max(52px, (100vw - var(--sidebar-width) - 1460px) / 2));
-  right: max(52px, (100vw - var(--sidebar-width) - 1460px) / 2);
+  left: calc(var(--sidebar-width) + var(--workspace-shell-gutter));
+  right: var(--workspace-shell-gutter);
   bottom: 24px;
 }
 
 .rl-global-dock.news .rl-global-dock-inner {
-  max-width: min(1056px, calc(100% - 404px));
+  max-width: min(1056px, var(--workspace-left-rail-width));
   margin-left: 0;
   margin-right: auto;
 }
