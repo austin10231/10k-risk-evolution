@@ -429,12 +429,6 @@ export default function AppShell({ children }) {
       setSidebarCollapsed(false)
       return
     }
-    const hasAskedQuestion = (currentThread?.messages || []).some(
-      (message) => message.role === 'user' && String(message.text || '').trim(),
-    )
-    if (hasAskedQuestion) {
-      startNewThread()
-    }
     navigate('/agent')
   }
 
