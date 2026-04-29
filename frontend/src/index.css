@@ -823,7 +823,7 @@ select.input {
   background: transparent;
   color: #0f172a;
   min-height: 56px;
-  padding: 9px 12px 7px;
+  padding: 8px 12px;
   font-size: 0.89rem;
   line-height: 1.4;
 }
@@ -973,7 +973,7 @@ select.input {
   max-height: 104px;
   background: transparent;
   color: #0f172a;
-  padding: 7px 10px;
+  padding: 8px 10px;
   font-size: 0.9rem;
   line-height: 1.45;
   transition: min-height 0.16s ease, max-height 0.16s ease, font-size 0.16s ease;
@@ -6366,7 +6366,7 @@ select.input {
 
   .rl-global-dock-composer textarea {
     min-height: 28px;
-    padding: 6px 9px 5px;
+    padding: 7px 9px;
   }
 
   .rl-global-dock.compact .rl-global-dock-composer textarea {
