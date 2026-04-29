@@ -179,6 +179,7 @@ export default function AppShell({ children }) {
   const [editingThreadId, setEditingThreadId] = useState('')
   const [editingTitle, setEditingTitle] = useState('')
   const [dockFocused, setDockFocused] = useState(false)
+  const [dockInlineStyle, setDockInlineStyle] = useState(null)
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -348,6 +349,72 @@ export default function AppShell({ children }) {
       window.removeEventListener('resize', updateDockHeight)
     }
   }, [showLandingComposer, dockExpanded, error, location.pathname, loading, query])
+
+  useEffect(() => {
+    if (showLandingComposer || typeof window === 'undefined' || typeof document === 'undefined') {
+      setDockInlineStyle(null)
+      return undefined
+    }
+
+    const resolveAnchorSelectors = () => {
+      if (String(location.pathname || '').startsWith('/stock')) {
+        return ['.rl-stock-main-col', '.rl-stock-detail-main-card', '.rl-stock-page']
+      }
+      if (location.pathname === '/news') {
+        return ['.rl-news-v2-feed', '.rl-news-v2-page']
+      }
+      if (location.pathname === '/agent') {
+        return ['.rl-ask-shell']
+      }
+      return ['.rl-page-shell', '.rl-workspace-content']
+    }
+
+    const updateDockBounds = () => {
+      if (window.innerWidth <= 1080) {
+        setDockInlineStyle(null)
+        return
+      }
+      const anchor = resolveAnchorSelectors()
+        .map((selector) => document.querySelector(selector))
+        .find((node) => node instanceof Element)
+      if (!anchor) {
+        setDockInlineStyle(null)
+        return
+      }
+      const rect = anchor.getBoundingClientRect()
+      if (!Number.isFinite(rect.left) || !Number.isFinite(rect.right) || rect.width < 120) {
+        setDockInlineStyle(null)
+        return
+      }
+      const left = Math.max(10, Math.round(rect.left))
+      const right = Math.max(10, Math.round(window.innerWidth - rect.right))
+      setDockInlineStyle({ left: `${left}px`, right: `${right}px` })
+    }
+
+    const runUpdate = () => window.requestAnimationFrame(updateDockBounds)
+    runUpdate()
+
+    const rootObserver = typeof ResizeObserver !== 'undefined' && workspaceAppRef.current
+      ? new ResizeObserver(runUpdate)
+      : null
+    if (rootObserver && workspaceAppRef.current) rootObserver.observe(workspaceAppRef.current)
+
+    const anchorObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(runUpdate)
+      : null
+    resolveAnchorSelectors().forEach((selector) => {
+      const node = document.querySelector(selector)
+      if (anchorObserver && node) anchorObserver.observe(node)
+    })
+
+    window.addEventListener('resize', runUpdate)
+
+    return () => {
+      window.removeEventListener('resize', runUpdate)
+      if (rootObserver) rootObserver.disconnect()
+      if (anchorObserver) anchorObserver.disconnect()
+    }
+  }, [showLandingComposer, location.pathname, sidebarCollapsed, isConversationStarted, loading, dockExpanded])
 
   const handleNewChat = () => {
     const hasAskedQuestion = (currentThread?.messages || []).some(
@@ -692,6 +759,7 @@ export default function AppShell({ children }) {
         <div
           ref={dockRef}
           className={`rl-global-dock ${dockExpanded ? 'expanded' : 'compact'} ${isAgentRoute ? 'agent' : ''} ${isNewsStyleDockRoute ? 'news' : ''} ${isFocusDockRoute ? 'focus' : ''}`}
+          style={dockInlineStyle || undefined}
           aria-live="polite"
         >
           <div className="rl-global-dock-inner">
