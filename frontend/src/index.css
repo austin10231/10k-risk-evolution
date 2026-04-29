@@ -1696,7 +1696,9 @@ select.input {
 }
 
 .rl-chat-row.assistant .rl-chat-bubble {
-  @apply border-slate-200 bg-white text-slate-700;
+  border-color: rgba(186, 205, 227, 0.78);
+  background: linear-gradient(180deg, rgba(249, 253, 255, 0.96), rgba(242, 248, 255, 0.92));
+  color: #334155;
 }
 
 .rl-chat-error {
@@ -4703,8 +4705,8 @@ select.input {
 .rl-agent-msg.assistant .rl-agent-msg-body {
   max-width: min(72%, 760px);
   border-radius: 12px;
-  border: 1px solid rgba(186, 205, 227, 0.66);
-  background: linear-gradient(180deg, rgba(238, 246, 255, 0.62), rgba(228, 238, 251, 0.52));
+  border: 1px solid rgba(186, 205, 227, 0.82);
+  background: linear-gradient(180deg, rgba(248, 252, 255, 0.9), rgba(239, 246, 255, 0.82));
   backdrop-filter: blur(3px);
   padding: 8px 11px;
 }
