@@ -3330,6 +3330,67 @@ def _strip_markdown_artifacts(text: str) -> str:
     return s.strip()
 
 
+def _is_chinese_text(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", str(text or "")))
+
+
+def _detect_target_lang(user_query: str, history: List[dict]) -> str:
+    q = str(user_query or "").strip()
+    if _is_chinese_text(q):
+        return "zh"
+    if q:
+        return "en"
+    for row in reversed(history or []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("role", "") or "").strip().lower() != "user":
+            continue
+        text = str(row.get("text", "") or "").strip()
+        if not text:
+            continue
+        return "zh" if _is_chinese_text(text) else "en"
+    return "en"
+
+
+def _is_spanish_like(text: str) -> bool:
+    t = str(text or "").strip().lower()
+    if not t:
+        return False
+    if len(re.findall(r"[áéíóúñ¿¡]", t)) >= 2:
+        return True
+    tokens = [x.lower() for x in re.findall(r"[A-Za-zÀ-ÿ']+", t)]
+    if len(tokens) < 6:
+        return False
+    hints = {
+        "el", "la", "los", "las", "de", "del", "que", "por", "para", "con", "sin", "una", "uno",
+        "como", "pero", "muy", "más", "sus", "sobre", "entre", "cuando", "donde", "porque", "hola",
+        "gracias", "buenos", "buenas", "usted", "ustedes", "hoy", "mañana", "riesgo", "noticias",
+    }
+    hit = sum(1 for tok in tokens if tok in hints)
+    return hit >= 3 and (hit / max(1, len(tokens))) >= 0.18
+
+
+def _looks_like_target_lang(text: str, target_lang: str) -> bool:
+    t = str(text or "").strip()
+    if not t:
+        return True
+    if target_lang == "zh":
+        cjk_count = len(re.findall(r"[\u4e00-\u9fff]", t))
+        latin_count = len(re.findall(r"[A-Za-z]", t))
+        if cjk_count >= 1:
+            return True
+        if latin_count <= 4 and len(t) <= 8:
+            return True
+        return False
+    if target_lang == "en":
+        if _is_chinese_text(t):
+            return False
+        if _is_spanish_like(t):
+            return False
+        return True
+    return True
+
+
 def _agent_query(payload: dict) -> dict:
     user_query = str(payload.get("user_query", "") or "").strip()
     company = str(payload.get("company", "") or "").strip()
@@ -3337,6 +3398,7 @@ def _agent_query(payload: dict) -> dict:
     record_id = str(payload.get("record_id", "") or "").strip()
     compare_record_id = str(payload.get("compare_record_id", "") or "").strip()
     history = _coerce_chat_history(payload.get("history", []))
+    target_lang = _detect_target_lang(user_query, history)
 
     selected_record = None
     selected_result = None
@@ -3379,6 +3441,7 @@ def _agent_query(payload: dict) -> dict:
         text = str(raw_text or "").strip()
         if not text:
             return text
+        lang_label = "Simplified Chinese" if target_lang == "zh" else "English"
         prompt = f"""You are a professional 10-K risk analyst assistant.
 
 User question:
@@ -3391,7 +3454,8 @@ Rewrite the draft answer to be:
 - more natural and human,
 - concise but professional,
 - grounded in the same facts (do not add unsupported claims),
-- in the same language as the user.
+- strictly in {lang_label} only,
+- never use Spanish or any third language.
 
 Context mode: {mode}
 
@@ -3399,7 +3463,9 @@ Return plain text only."""
         try:
             polished = str(llm_invoke(prompt, 700) or "").strip()
             if polished:
-                return _strip_markdown_artifacts(polished)
+                polished_text = _strip_markdown_artifacts(polished)
+                if _looks_like_target_lang(polished_text, target_lang):
+                    return polished_text
         except Exception:
             pass
         return _strip_markdown_artifacts(text)

@@ -16,6 +16,12 @@ INTENTS = {
 }
 
 BUSINESS_INTENTS = {"risk_analysis", "compare_risk", "stock_query", "news_query"}
+ALLOWED_REPLY_LANGS = {"zh", "en"}
+SPANISH_HINT_WORDS = {
+    "el", "la", "los", "las", "de", "del", "que", "por", "para", "con", "sin", "una", "uno",
+    "como", "pero", "muy", "más", "sus", "sobre", "entre", "cuando", "donde", "porque", "hola",
+    "gracias", "buenos", "buenas", "usted", "ustedes", "hoy", "mañana", "riesgo", "noticias",
+}
 
 
 def _strip_json_fences(text: str) -> str:
@@ -56,6 +62,165 @@ def _strip_markdown_artifacts(text: str) -> str:
 
 def _is_chinese_text(text: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", str(text or "")))
+
+
+def _word_tokens(text: str) -> List[str]:
+    return [x.lower() for x in re.findall(r"[A-Za-zÀ-ÿ']+", str(text or ""))]
+
+
+def _contains_explicit_en_request(text: str) -> bool:
+    q = _clean_text(text).lower()
+    return any(
+        x in q
+        for x in (
+            "in english",
+            "reply in english",
+            "speak english",
+            "use english",
+            "answer in english",
+            "respond in english",
+            "英文",
+            "英语",
+        )
+    )
+
+
+def _contains_explicit_zh_request(text: str) -> bool:
+    q = _clean_text(text).lower()
+    return any(
+        x in q
+        for x in (
+            "in chinese",
+            "reply in chinese",
+            "speak chinese",
+            "use chinese",
+            "answer in chinese",
+            "respond in chinese",
+            "请用中文",
+            "用中文",
+            "中文回答",
+            "中文回复",
+            "汉语",
+            "中文",
+        )
+    )
+
+
+def _detect_target_lang(user_query: str, history: List[dict], context: dict) -> str:
+    q = _clean_text(user_query)
+    if _contains_explicit_zh_request(q):
+        return "zh"
+    if _contains_explicit_en_request(q):
+        return "en"
+    if _is_chinese_text(q):
+        return "zh"
+    if q:
+        return "en"
+
+    for row in reversed(history or []):
+        if not isinstance(row, dict):
+            continue
+        if _clean_text(row.get("role")).lower() != "user":
+            continue
+        t = _clean_text(row.get("text"))
+        if not t:
+            continue
+        if _contains_explicit_zh_request(t):
+            return "zh"
+        if _contains_explicit_en_request(t):
+            return "en"
+        if _is_chinese_text(t):
+            return "zh"
+        return "en"
+
+    preferred = _clean_text((context or {}).get("preferred_lang")).lower()
+    return preferred if preferred in ALLOWED_REPLY_LANGS else "en"
+
+
+def _is_spanish_like(text: str) -> bool:
+    t = _clean_text(text).lower()
+    if not t:
+        return False
+    accent_hits = len(re.findall(r"[áéíóúñ¿¡]", t))
+    if accent_hits >= 2:
+        return True
+    tokens = _word_tokens(t)
+    if len(tokens) < 6:
+        return False
+    hits = sum(1 for tok in tokens if tok in SPANISH_HINT_WORDS)
+    return hits >= 3 and (hits / max(1, len(tokens))) >= 0.18
+
+
+def _looks_like_target_lang(text: str, target_lang: str) -> bool:
+    t = _clean_text(text)
+    if not t:
+        return True
+    if target_lang == "zh":
+        cjk_count = len(re.findall(r"[\u4e00-\u9fff]", t))
+        latin_count = len(re.findall(r"[A-Za-z]", t))
+        if cjk_count >= 1:
+            return True
+        if latin_count <= 4 and len(t) <= 8:
+            return True
+        return False
+    if target_lang == "en":
+        if _is_chinese_text(t):
+            return False
+        if _is_spanish_like(t):
+            return False
+        return True
+    return True
+
+
+def _rewrite_in_language(
+    text: str,
+    target_lang: str,
+    user_query: str,
+    llm_invoke: Callable[[str, int], str],
+) -> str:
+    source = _clean_text(text)
+    if not source:
+        return source
+    lang_label = "Simplified Chinese" if target_lang == "zh" else "English"
+    prompt = f"""Rewrite the answer in {lang_label} only.
+Rules:
+- Keep the same meaning and facts.
+- Keep tickers, company names, and numbers unchanged.
+- Do not use Spanish or any third language.
+- Output plain text only.
+
+User query:
+{_clean_text(user_query)}
+
+Answer:
+{source}
+"""
+    try:
+        rewritten = _clean_text(llm_invoke(prompt, 700))
+        if rewritten:
+            return _strip_markdown_artifacts(rewritten)
+    except Exception:
+        pass
+    return _strip_markdown_artifacts(source)
+
+
+def _enforce_output_language(
+    text: str,
+    target_lang: str,
+    user_query: str,
+    llm_invoke: Callable[[str, int], str],
+) -> str:
+    cleaned = _strip_markdown_artifacts(_clean_text(text))
+    if not cleaned:
+        return cleaned
+    if target_lang not in ALLOWED_REPLY_LANGS:
+        return cleaned
+    if _looks_like_target_lang(cleaned, target_lang):
+        return cleaned
+    rewritten = _rewrite_in_language(cleaned, target_lang, user_query, llm_invoke=llm_invoke)
+    if rewritten and _looks_like_target_lang(rewritten, target_lang):
+        return rewritten
+    return cleaned
 
 
 def _is_model_question(text: str) -> bool:
@@ -253,15 +418,18 @@ def _general_chat_answer(
     user_query: str,
     history: List[dict],
     context: dict,
+    target_lang: str,
     llm_invoke: Callable[[str, int], str],
 ) -> str:
     model_id = _clean_text((context or {}).get("model_id")) or "us.amazon.nova-pro-v1:0"
+    lang_rule = "Simplified Chinese" if target_lang == "zh" else "English"
     prompt = f"""You are a helpful assistant similar to ChatGPT.
 You are RiskLens AI assistant.
 Current model backend: Amazon Bedrock model `{model_id}`.
 Style requirements:
 - Be natural, warm, and concise.
-- Answer in the same language as the user.
+- You must answer in {lang_rule} only.
+- Do not use Spanish or any third language.
 - If user asks conceptual 10-K questions (like Risk Factors vs MD&A), explain clearly with practical framing.
 - Do not sound robotic or refuse being an LLM when asked; answer directly and honestly.
 
@@ -274,7 +442,7 @@ Context JSON:
 User query:
 {_clean_text(user_query)}
 
-Write a direct, concise answer in the user's language.
+Write a direct, concise answer in {lang_rule}.
 Do not output JSON."""
     try:
         text = _clean_text(llm_invoke(prompt, 900))
@@ -338,13 +506,21 @@ def run_chat_agent(
     query = _clean_text(user_query)
     memory = _normalize_history(history)
     ctx = dict(context or {})
+    target_lang = _detect_target_lang(query, memory, ctx)
+    ctx["preferred_lang"] = target_lang
 
     tool_trace: List[dict] = []
 
     if _is_model_question(query):
         response = {"type": "text", "content": _model_identity_answer(query, ctx)}
         normalized_response = _normalize_response(response)
-        reply_text = _clean_text(normalized_response.get("content"))
+        reply_text = _enforce_output_language(
+            _clean_text(normalized_response.get("content")),
+            target_lang,
+            query,
+            llm_invoke=llm_invoke,
+        )
+        normalized_response["content"] = reply_text
         return {
             "agent_version": "router_v2",
             "intent": "general_chat",
@@ -392,11 +568,25 @@ def run_chat_agent(
 
     if response is None:
         intent = "general_chat"
-        text = _general_chat_answer(query, memory, ctx, llm_invoke=llm_invoke)
+        text = _general_chat_answer(query, memory, ctx, target_lang=target_lang, llm_invoke=llm_invoke)
         response = {"type": "text", "content": text}
         tool_trace.append({"tool": "general_chat", "status": "ok"})
 
     normalized_response = _normalize_response(response)
+    if normalized_response.get("type") == "text":
+        normalized_response["content"] = _enforce_output_language(
+            _clean_text(normalized_response.get("content")),
+            target_lang,
+            query,
+            llm_invoke=llm_invoke,
+        )
+    elif normalized_response.get("type") == "action":
+        normalized_response["message"] = _enforce_output_language(
+            _clean_text(normalized_response.get("message")),
+            target_lang,
+            query,
+            llm_invoke=llm_invoke,
+        )
     reply_text = (
         _clean_text(normalized_response.get("content"))
         if normalized_response.get("type") == "text"
@@ -413,6 +603,7 @@ def run_chat_agent(
         "memory": {
             "turns_used": len(memory),
             "recent_history": memory[-8:],
+            "preferred_lang": target_lang,
         },
         "tool_trace": tool_trace,
         "direct_answer": reply_text,
