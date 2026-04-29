@@ -835,6 +835,7 @@ export default function AppShell({ children }) {
                       ) : null}
                     </div>
                     <textarea
+                      rows={1}
                       value={query}
                       onChange={(e) => {
                         if (error) clearError()
@@ -945,6 +946,7 @@ export default function AppShell({ children }) {
                   ) : null}
                 </div>
               <textarea
+                rows={1}
                 value={query}
                 onChange={(e) => {
                   if (error) clearError()
