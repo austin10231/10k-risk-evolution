@@ -4,8 +4,48 @@ import { post } from './api'
 import { useGlobalConfig } from './globalConfig'
 import { useChatMemory } from './chatMemory'
 
+const MAX_CHAT_UPLOAD_BYTES = 40 * 1024 * 1024
+const CHAT_UPLOAD_ACCEPT_EXT = new Set(['html', 'htm'])
+
 function detectLang(text) {
   return /[\u4e00-\u9fff]/.test(text || '') ? 'Chinese' : 'English'
+}
+
+function toBase64DataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function fileExt(name = '') {
+  const n = String(name || '').trim().toLowerCase()
+  const idx = n.lastIndexOf('.')
+  return idx >= 0 ? n.slice(idx + 1) : ''
+}
+
+function inferYearFromName(name = '') {
+  const m = String(name || '').match(/\b(19|20)\d{2}\b/)
+  if (!m) return 0
+  const y = Number(m[0])
+  return Number.isFinite(y) ? y : 0
+}
+
+function inferCompanyFromName(name = '') {
+  const base = String(name || '').replace(/\.[^.]+$/, '')
+  const cleaned = base
+    .replace(/[_\-]+/g, ' ')
+    .replace(/\b(10k|10-k|annual report|form)\b/gi, ' ')
+    .replace(/\b(19|20)\d{2}\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return ''
+  return cleaned
+    .split(' ')
+    .map((token) => token.slice(0, 1).toUpperCase() + token.slice(1))
+    .join(' ')
 }
 
 function plannedTools(query, hasConfig, pathname) {
@@ -90,17 +130,21 @@ const WorkspaceChatContext = createContext({
   isConversationStarted: false,
   lastAssistantMessage: null,
   startNewThread: () => '',
+  pendingAttachment: null,
+  attachFile: () => ({ ok: false, error: '' }),
+  clearPendingAttachment: () => {},
 })
 
 export function WorkspaceChatProvider({ children }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { config } = useGlobalConfig()
-  const { currentThread, currentThreadId, appendMessage, createThread } = useChatMemory()
+  const { currentThread, currentThreadId, appendMessage, createThread, addThreadRecordId } = useChatMemory()
 
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [pendingAttachment, setPendingAttachment] = useState(null)
 
   const messages = currentThread?.messages || []
 
@@ -118,6 +162,29 @@ export function WorkspaceChatProvider({ children }) {
 
   const clearError = () => setError('')
 
+  const attachFile = (file) => {
+    if (!file) return { ok: false, error: 'No file selected.' }
+    const size = Number(file.size || 0)
+    const ext = fileExt(file.name)
+    if (!CHAT_UPLOAD_ACCEPT_EXT.has(ext)) {
+      return { ok: false, error: 'Chat upload currently supports HTML/HTM files only. Use Tables for PDF extraction.' }
+    }
+    if (size <= 0) return { ok: false, error: 'File is empty.' }
+    if (size > MAX_CHAT_UPLOAD_BYTES) {
+      return { ok: false, error: 'File too large for chat upload (max 40MB).' }
+    }
+    setPendingAttachment({
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      name: String(file.name || 'upload.html'),
+      size,
+      ext,
+    })
+    return { ok: true, error: '' }
+  }
+
+  const clearPendingAttachment = () => setPendingAttachment(null)
+
   const send = async (forcedQuery, options = {}) => {
     const userText = String(forcedQuery ?? query).trim()
     if (!userText || loading) return null
@@ -127,22 +194,61 @@ export function WorkspaceChatProvider({ children }) {
     const routePath = options.pathname || location.pathname || '/agent'
     const routeSearch = options.search ?? location.search ?? ''
     const context = parseContextFromSearch(routeSearch)
+    const threadRecordId = String(currentThread?.context?.recordIds?.[0] || '').trim()
     const tools = plannedTools(userText, hasGlobalConfig, routePath)
+    const attachment = options.attachment || pendingAttachment
 
     const createdId = !currentThreadId ? createThread() : ''
     const targetThreadId = currentThreadId || currentThread?.id || createdId
     if (!targetThreadId) return null
 
-    appendMessage(targetThreadId, {
-      role: 'user',
-      text: userText,
-      report: null,
-      meta: { lang, timestamp: Date.now(), route: routePath },
-    })
+    let uploadedRecordId = ''
+    let uploadedAttachmentMeta = null
 
     setQuery('')
     setLoading(true)
     setError('')
+
+    if (attachment?.file) {
+      try {
+        const companyGuess = String(config.company || inferCompanyFromName(attachment.name) || '').trim()
+        const company = companyGuess || 'Uploaded Filing'
+        const yearGuess = Number(config.year || inferYearFromName(attachment.name) || new Date().getFullYear())
+        const industry = String(config.industry || 'Other').trim() || 'Other'
+        const dataUrl = await toBase64DataUrl(attachment.file)
+        const fileB64 = dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : dataUrl
+        const uploadRes = await post('/api/upload/manual', {
+          company,
+          ticker: String(config.ticker || '').trim().toUpperCase(),
+          industry,
+          year: yearGuess,
+          filing_type: '10-K',
+          file_name: attachment.name,
+          file_b64: fileB64,
+        })
+        uploadedRecordId = String(uploadRes?.record?.record_id || '').trim()
+        if (uploadedRecordId) addThreadRecordId(targetThreadId, uploadedRecordId)
+        uploadedAttachmentMeta = {
+          name: attachment.name,
+          size: Number(attachment.size || 0),
+          ext: attachment.ext,
+          recordId: uploadedRecordId,
+          company: String(uploadRes?.record?.company || company),
+          year: Number(uploadRes?.record?.year || yearGuess),
+        }
+      } catch (uploadErr) {
+        setError(uploadErr?.message || 'File upload failed')
+      } finally {
+        clearPendingAttachment()
+      }
+    }
+
+    appendMessage(targetThreadId, {
+      role: 'user',
+      text: userText,
+      report: null,
+      meta: { lang, timestamp: Date.now(), route: routePath, attachment: uploadedAttachmentMeta },
+    })
 
     try {
       const historyPayload = [...messages, { role: 'user', text: userText }]
@@ -154,7 +260,7 @@ export function WorkspaceChatProvider({ children }) {
         user_query: userText,
         company: config.company || '',
         year: config.year ? Number(config.year) : 0,
-        record_id: options.recordId || context.recordId || '',
+        record_id: options.recordId || uploadedRecordId || context.recordId || threadRecordId || '',
         compare_record_id: options.compareRecordId || context.compareRecordId || '',
         history: historyPayload,
         source_page: routePath,
@@ -199,6 +305,7 @@ export function WorkspaceChatProvider({ children }) {
     const id = createThread()
     setQuery('')
     setError('')
+    clearPendingAttachment()
     return id
   }
 
@@ -212,6 +319,9 @@ export function WorkspaceChatProvider({ children }) {
     isConversationStarted,
     lastAssistantMessage,
     startNewThread,
+    pendingAttachment,
+    attachFile,
+    clearPendingAttachment,
   }
 
   return <WorkspaceChatContext.Provider value={value}>{children}</WorkspaceChatContext.Provider>

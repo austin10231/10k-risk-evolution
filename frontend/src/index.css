@@ -828,12 +828,22 @@ select.input {
   line-height: 1.4;
 }
 
+.rl-landing-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+}
+
+.rl-landing-input-row textarea {
+  min-height: 56px;
+}
+
 .rl-landing-composer textarea::placeholder {
   color: rgba(100, 116, 139, 0.78);
 }
 
 .rl-landing-send {
-  justify-self: end;
+  justify-self: auto;
 }
 
 .rl-landing-support {
@@ -941,6 +951,8 @@ select.input {
   align-items: flex-end;
   gap: 9px;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, padding 0.16s ease;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .rl-global-dock.agent .rl-global-dock-composer {
@@ -965,6 +977,130 @@ select.input {
   font-size: 0.9rem;
   line-height: 1.45;
   transition: min-height 0.16s ease, max-height 0.16s ease, font-size 0.16s ease;
+}
+
+.rl-hidden-file-input {
+  display: none;
+}
+
+.rl-global-dock-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+}
+
+.rl-dock-attach-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.rl-dock-attach-trigger {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.46);
+  background: rgba(241, 245, 249, 0.88);
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.rl-dock-attach-trigger:hover {
+  border-color: rgba(100, 116, 139, 0.72);
+  background: rgba(226, 232, 240, 0.84);
+}
+
+.rl-dock-attach-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.rl-dock-attach-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  min-width: 148px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.95);
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.34);
+  z-index: 65;
+}
+
+.rl-dock-attach-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 8px 9px;
+  cursor: pointer;
+}
+
+.rl-dock-attach-menu-item:hover {
+  background: rgba(30, 41, 59, 0.8);
+}
+
+.rl-dock-attachment-chip {
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.84);
+  padding: 7px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rl-dock-attachment-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.rl-dock-attachment-copy span {
+  color: #0f172a;
+  font-size: 0.79rem;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rl-dock-attachment-copy em {
+  color: #64748b;
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.rl-dock-attachment-remove {
+  border: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.88);
+  color: #334155;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rl-dock-attachment-remove:hover {
+  background: rgba(203, 213, 225, 0.92);
 }
 
 .rl-global-dock.compact .rl-global-dock-composer {
@@ -6186,6 +6322,21 @@ select.input {
     border-radius: 15px;
     padding: 7px 9px;
     gap: 8px;
+  }
+
+  .rl-global-dock-row {
+    gap: 8px;
+  }
+
+  .rl-dock-attach-trigger {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+  }
+
+  .rl-dock-attach-trigger svg {
+    width: 14px;
+    height: 14px;
   }
 
   .rl-global-dock-composer textarea {

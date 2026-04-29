@@ -124,6 +124,19 @@ function dockPlaceholder(pathname) {
   return 'Ask any risk question…'
 }
 
+function formatBytes(bytes) {
+  const n = Number(bytes || 0)
+  if (!Number.isFinite(n) || n <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let idx = 0
+  let value = n
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024
+    idx += 1
+  }
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[idx]}`
+}
+
 function buildAgentHref(search = '') {
   const src = new URLSearchParams(search || '')
   const next = new URLSearchParams()
@@ -164,6 +177,9 @@ export default function AppShell({ children }) {
     clearError,
     isConversationStarted,
     startNewThread,
+    pendingAttachment,
+    attachFile,
+    clearPendingAttachment,
   } = useWorkspaceChat()
 
   const workspaceAppRef = useRef(null)
@@ -180,6 +196,11 @@ export default function AppShell({ children }) {
   const [editingTitle, setEditingTitle] = useState('')
   const [dockFocused, setDockFocused] = useState(false)
   const [dockInlineStyle, setDockInlineStyle] = useState(null)
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false)
+  const [attachError, setAttachError] = useState('')
+  const fileInputRef = useRef(null)
+  const attachMenuRef = useRef(null)
+  const attachBtnRef = useRef(null)
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -316,6 +337,21 @@ export default function AppShell({ children }) {
   }, [mobileNavOpen])
 
   useEffect(() => {
+    if (!attachMenuOpen || typeof document === 'undefined') return undefined
+    const closeMenu = (event) => {
+      const target = event.target
+      if (!(target instanceof Element)) {
+        setAttachMenuOpen(false)
+        return
+      }
+      if (target.closest('.rl-dock-attach-menu') || target.closest('.rl-dock-attach-trigger')) return
+      setAttachMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', closeMenu)
+    return () => document.removeEventListener('pointerdown', closeMenu)
+  }, [attachMenuOpen])
+
+  useEffect(() => {
     const host = workspaceAppRef.current
     if (!host) return undefined
 
@@ -430,6 +466,8 @@ export default function AppShell({ children }) {
     setActiveMenuThreadId('')
     setEditingThreadId('')
     setEditingTitle('')
+    clearPendingAttachment()
+    setAttachError('')
   }
 
   const openThread = (threadId) => {
@@ -439,6 +477,8 @@ export default function AppShell({ children }) {
     setMobileNavOpen(false)
     setActiveMenuThreadId('')
     setEditingThreadId('')
+    clearPendingAttachment()
+    setAttachError('')
   }
 
   const startRenameThread = (thread) => {
@@ -489,6 +529,27 @@ export default function AppShell({ children }) {
     }
     await send(text, { pathname: originPath, search: originSearch })
     setDockFocused(false)
+    setAttachMenuOpen(false)
+    setAttachError('')
+  }
+
+  const triggerFilePicker = () => {
+    if (!fileInputRef.current) return
+    fileInputRef.current.click()
+  }
+
+  const handleAttachmentPicked = (event) => {
+    const file = event?.target?.files?.[0]
+    if (!file) return
+    const attached = attachFile(file)
+    if (!attached?.ok) {
+      setAttachError(attached?.error || 'Failed to attach file.')
+    } else {
+      setAttachError('')
+      if (error) clearError()
+    }
+    event.target.value = ''
+    setAttachMenuOpen(false)
   }
 
   const handleBrandClick = () => {
@@ -677,6 +738,13 @@ export default function AppShell({ children }) {
       <aside className={`rl-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <SidebarContent />
       </aside>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".html,.htm,.pdf"
+        className="rl-hidden-file-input"
+        onChange={handleAttachmentPicked}
+      />
 
       <main className={`rl-main rl-workspace-main ${showLandingComposer ? 'landing' : ''}`}>
         <div className="rl-workspace-tabs-wrap">
@@ -710,34 +778,79 @@ export default function AppShell({ children }) {
                     submitQuery()
                   }}
                 >
-                  <textarea
-                    value={query}
-                    onChange={(e) => {
-                      if (error) clearError()
-                      setQuery(e.target.value)
-                    }}
-                    onCompositionStart={markCompositionStart}
-                    onCompositionEnd={markCompositionEnd}
-                    placeholder="Ask about any company, filing, comparison, stock, or news signal…"
-                    onKeyDown={(e) => {
-                      if (shouldIgnoreEnterSubmit(e)) {
-                        if (e.key === 'Enter' && !e.shiftKey) e.preventDefault()
-                        return
-                      }
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        submitQuery()
-                      }
-                    }}
-                  />
-                  <button
-                    className={`rl-chat-submit-btn rl-landing-send ${loading ? 'loading' : ''}`}
-                    type="submit"
-                    disabled={!String(query || '').trim() || loading}
-                    aria-label={loading ? 'Thinking' : 'Send'}
-                  >
-                    <SubmitArrowIcon />
-                  </button>
+                  {pendingAttachment ? (
+                    <div className="rl-dock-attachment-chip">
+                      <div className="rl-dock-attachment-copy">
+                        <span>{pendingAttachment.name}</span>
+                        <em>{String(pendingAttachment.ext || '').toUpperCase()} · {formatBytes(pendingAttachment.size)}</em>
+                      </div>
+                      <button
+                        type="button"
+                        className="rl-dock-attachment-remove"
+                        onClick={() => {
+                          clearPendingAttachment()
+                          setAttachError('')
+                        }}
+                        aria-label="Remove attached file"
+                        title="Remove attached file"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="rl-landing-input-row">
+                    <div className="rl-dock-attach-wrap">
+                      <button
+                        ref={attachBtnRef}
+                        type="button"
+                        className="rl-dock-attach-trigger"
+                        onClick={() => setAttachMenuOpen((v) => !v)}
+                        aria-label="Open upload menu"
+                        title="Add file"
+                      >
+                        <NavIcon name="plus" />
+                      </button>
+                      {attachMenuOpen ? (
+                        <div ref={attachMenuRef} className="rl-dock-attach-menu" role="menu">
+                          <button
+                            type="button"
+                            className="rl-dock-attach-menu-item"
+                            onClick={triggerFilePicker}
+                          >
+                            Add file
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    <textarea
+                      value={query}
+                      onChange={(e) => {
+                        if (error) clearError()
+                        setQuery(e.target.value)
+                      }}
+                      onCompositionStart={markCompositionStart}
+                      onCompositionEnd={markCompositionEnd}
+                      placeholder="Ask about any company, filing, comparison, stock, or news signal…"
+                      onKeyDown={(e) => {
+                        if (shouldIgnoreEnterSubmit(e)) {
+                          if (e.key === 'Enter' && !e.shiftKey) e.preventDefault()
+                          return
+                        }
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          submitQuery()
+                        }
+                      }}
+                    />
+                    <button
+                      className={`rl-chat-submit-btn rl-landing-send ${loading ? 'loading' : ''}`}
+                      type="submit"
+                      disabled={!String(query || '').trim() || loading}
+                      aria-label={loading ? 'Thinking' : 'Send'}
+                    >
+                      <SubmitArrowIcon />
+                    </button>
+                  </div>
                 </form>
                 <div className="rl-landing-support">
                   <div className="rl-landing-chips" aria-label="Quick prompt suggestions">
@@ -749,6 +862,7 @@ export default function AppShell({ children }) {
                   </div>
                 </div>
                 {error ? <p className="rl-global-dock-error">{error}</p> : null}
+                {attachError ? <p className="rl-global-dock-error">{attachError}</p> : null}
               </section>
             </>
           ) : null}
@@ -764,6 +878,7 @@ export default function AppShell({ children }) {
         >
           <div className="rl-global-dock-inner">
             {error ? <p className="rl-global-dock-error">{error}</p> : null}
+            {attachError ? <p className="rl-global-dock-error">{attachError}</p> : null}
 
             <form
               className="rl-global-dock-composer"
@@ -772,6 +887,50 @@ export default function AppShell({ children }) {
                 submitQuery()
               }}
             >
+              {pendingAttachment ? (
+                <div className="rl-dock-attachment-chip">
+                  <div className="rl-dock-attachment-copy">
+                    <span>{pendingAttachment.name}</span>
+                    <em>{String(pendingAttachment.ext || '').toUpperCase()} · {formatBytes(pendingAttachment.size)}</em>
+                  </div>
+                  <button
+                    type="button"
+                    className="rl-dock-attachment-remove"
+                    onClick={() => {
+                      clearPendingAttachment()
+                      setAttachError('')
+                    }}
+                    aria-label="Remove attached file"
+                    title="Remove attached file"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : null}
+              <div className="rl-global-dock-row">
+                <div className="rl-dock-attach-wrap">
+                  <button
+                    ref={attachBtnRef}
+                    type="button"
+                    className="rl-dock-attach-trigger"
+                    onClick={() => setAttachMenuOpen((v) => !v)}
+                    aria-label="Open upload menu"
+                    title="Add file"
+                  >
+                    <NavIcon name="plus" />
+                  </button>
+                  {attachMenuOpen ? (
+                    <div ref={attachMenuRef} className="rl-dock-attach-menu" role="menu">
+                      <button
+                        type="button"
+                        className="rl-dock-attach-menu-item"
+                        onClick={triggerFilePicker}
+                      >
+                        Add file
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               <textarea
                 value={query}
                 onChange={(e) => {
@@ -802,6 +961,7 @@ export default function AppShell({ children }) {
               >
                 <SubmitArrowIcon />
               </button>
+              </div>
             </form>
             {isAgentRoute ? (
               <p className="rl-global-dock-note">RiskLens may make mistakes. Please verify important information.</p>

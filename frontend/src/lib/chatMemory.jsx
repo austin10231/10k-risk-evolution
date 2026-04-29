@@ -15,6 +15,24 @@ function createSeedThread() {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     messages: [],
+    context: { recordIds: [] },
+  }
+}
+
+function normalizeThread(raw) {
+  const base = raw && typeof raw === 'object' ? raw : {}
+  const context = base.context && typeof base.context === 'object' ? base.context : {}
+  const recordIds = Array.isArray(context.recordIds)
+    ? context.recordIds.map((v) => String(v || '').trim()).filter(Boolean)
+    : []
+  return {
+    ...base,
+    id: String(base.id || uid()),
+    title: String(base.title || 'New conversation'),
+    createdAt: Number(base.createdAt || Date.now()),
+    updatedAt: Number(base.updatedAt || Date.now()),
+    messages: Array.isArray(base.messages) ? base.messages : [],
+    context: { ...context, recordIds },
   }
 }
 
@@ -28,6 +46,7 @@ const ChatMemoryContext = createContext({
   appendMessage: () => {},
   replaceMessages: () => {},
   updateThreadTitle: () => {},
+  addThreadRecordId: () => {},
 })
 
 function deriveTitleFromMessages(messages) {
@@ -45,7 +64,7 @@ export function ChatMemoryProvider({ children }) {
       if (!raw) return [createSeedThread()]
       const parsed = JSON.parse(raw)
       if (!Array.isArray(parsed) || parsed.length === 0) return [createSeedThread()]
-      return parsed
+      return parsed.map(normalizeThread)
     } catch {
       return [createSeedThread()]
     }
@@ -119,6 +138,7 @@ export function ChatMemoryProvider({ children }) {
           updatedAt: Date.now(),
           title: deriveTitleFromMessages(nextMessages),
           messages: nextMessages,
+          context: t.context && typeof t.context === 'object' ? t.context : { recordIds: [] },
         }
       }),
     )
@@ -133,6 +153,7 @@ export function ChatMemoryProvider({ children }) {
           updatedAt: Date.now(),
           title: deriveTitleFromMessages(messages),
           messages,
+          context: t.context && typeof t.context === 'object' ? t.context : { recordIds: [] },
         }
       }),
     )
@@ -147,6 +168,23 @@ export function ChatMemoryProvider({ children }) {
     )
   }
 
+  const addThreadRecordId = (threadId, recordId) => {
+    const nextId = String(recordId || '').trim()
+    if (!nextId) return
+    setThreads((prev) =>
+      prev.map((t) => {
+        if (t.id !== threadId) return t
+        const current = Array.isArray(t.context?.recordIds) ? t.context.recordIds : []
+        const merged = [nextId, ...current.filter((v) => String(v || '').trim() !== nextId)].slice(0, 8)
+        return {
+          ...t,
+          updatedAt: Date.now(),
+          context: { ...(t.context || {}), recordIds: merged },
+        }
+      }),
+    )
+  }
+
   const value = {
     threads,
     currentThreadId,
@@ -157,6 +195,7 @@ export function ChatMemoryProvider({ children }) {
     appendMessage,
     replaceMessages,
     updateThreadTitle,
+    addThreadRecordId,
   }
 
   return <ChatMemoryContext.Provider value={value}>{children}</ChatMemoryContext.Provider>
