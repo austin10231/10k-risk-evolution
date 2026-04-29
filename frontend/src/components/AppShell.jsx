@@ -735,6 +735,9 @@ export default function AppShell({ children }) {
                 <SubmitArrowIcon />
               </button>
             </form>
+            {isAgentRoute ? (
+              <p className="rl-global-dock-note">RiskLens may make mistakes. Please verify important information.</p>
+            ) : null}
           </div>
         </div>
       ) : null}

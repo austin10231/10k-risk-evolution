@@ -1008,6 +1008,14 @@ select.input {
   color: rgba(100, 116, 139, 0.76);
 }
 
+.rl-global-dock-note {
+  margin: 6px 2px 0;
+  text-align: center;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: rgba(71, 85, 105, 0.9);
+}
+
 .rl-chat-submit-btn {
   flex-shrink: 0;
   width: 34px;
@@ -6208,6 +6216,11 @@ select.input {
   .rl-global-dock.agent.expanded .rl-global-dock-composer textarea {
     min-height: 36px;
     max-height: 88px;
+  }
+
+  .rl-global-dock-note {
+    margin-top: 5px;
+    font-size: 0.64rem;
   }
 
   .rl-ask-shell {
