@@ -1205,8 +1205,8 @@ select.input {
 }
 
 .rl-chat-submit-btn svg {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 .rl-chat-submit-btn.loading svg {
