@@ -830,7 +830,7 @@ select.input {
 
 .rl-landing-input-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 11px;
 }
 
@@ -969,11 +969,11 @@ select.input {
   resize: none;
   border: 0;
   outline: 0;
-  min-height: 32px;
+  min-height: 34px;
   max-height: 104px;
   background: transparent;
   color: #0f172a;
-  padding: 7px 10px 6px;
+  padding: 7px 10px;
   font-size: 0.9rem;
   line-height: 1.45;
   transition: min-height 0.16s ease, max-height 0.16s ease, font-size 0.16s ease;
@@ -985,15 +985,15 @@ select.input {
 
 .rl-global-dock-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 11px;
 }
 
 .rl-dock-attach-wrap {
   position: relative;
   flex: 0 0 auto;
-  align-self: flex-end;
-  margin-bottom: 3px;
+  align-self: center;
+  margin-bottom: 0;
 }
 
 .rl-dock-attach-trigger {
@@ -1002,7 +1002,7 @@ select.input {
   min-width: 26px;
   border-radius: 999px;
   border: 0;
-  background: transparent;
+  background: rgba(203, 213, 225, 0.32);
   color: rgba(30, 41, 59, 0.95);
   display: inline-flex;
   align-items: center;
@@ -1013,7 +1013,7 @@ select.input {
 }
 
 .rl-dock-attach-trigger:hover {
-  background: rgba(203, 213, 225, 0.44);
+  background: rgba(203, 213, 225, 0.6);
   color: #0f172a;
   transform: translateY(-0.5px);
 }
@@ -1134,13 +1134,13 @@ select.input {
 }
 
 .rl-global-dock.compact .rl-global-dock-composer textarea {
-  min-height: 30px;
+  min-height: 34px;
   max-height: 72px;
   font-size: 0.86rem;
 }
 
 .rl-global-dock.agent.compact .rl-global-dock-composer textarea {
-  min-height: 30px;
+  min-height: 34px;
   max-height: 72px;
   font-size: 0.86rem;
 }
