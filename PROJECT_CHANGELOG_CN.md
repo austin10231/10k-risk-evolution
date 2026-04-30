@@ -255,3 +255,12 @@
 - 明确默认主栈是 `frontend/src + agentcore_deploy`，并标注 `views/* + app.py` 为旧 Streamlit 路径，默认不优先阅读。  
 - 新增“按需求类型 -> 优先文件”的入口索引（agent逻辑、聊天体验、前端页面、API、landing page）。  
 - 新增“页面到文件映射”和“API到文件映射”，减少后续全仓扫描时间。
+
+### 8) 页面加载提速（records / compare / news / dashboard）
+- 后端 Runtime 改为 `ThreadingHTTPServer`，避免单线程请求排队导致页面互相阻塞。  
+- 增加运行时缓存：`index`、`record result`、`ticker map`、`agent reports`、`records list`、`dashboard summary`（带 TTL 与自动失效）。  
+- 统一在 S3 写入/删除后触发缓存失效，避免脏数据长期停留。  
+- `dashboard` 支持后端 `force=1` 强制重算；前端点击 refresh 时会触发该模式。  
+- `records` 首屏改为轻量列表请求（不再默认 `include_result=1` 全量拉取每条结果），详情保持按需加载。  
+- `compare` / `records` / `upload` / `news hot quotes` 增加请求超时，避免长时间无反馈。  
+- 新增记录元信息回填：新写入的 record 在 index 中保存 `risk_items/risk_categories/has_ai_summary`，减少后续列表页计算压力。

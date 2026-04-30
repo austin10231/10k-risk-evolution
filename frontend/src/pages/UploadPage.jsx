@@ -179,7 +179,7 @@ export default function UploadPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await get('/api/records?include_result=1')
+      const res = await get('/api/records', { timeoutMs: 15000 })
       const next = Array.isArray(res?.items) ? res.items : []
       setRecords(next)
       const fallbackId = preferId || selectedId || next[0]?.record_id || ''
@@ -213,7 +213,7 @@ export default function UploadPage() {
     if (!selectedId) return
     let mounted = true
     setLoadingSelected(true)
-    get(`/api/records/${encodeURIComponent(selectedId)}`)
+    get(`/api/records/${encodeURIComponent(selectedId)}`, { timeoutMs: 15000 })
       .then((res) => {
         if (!mounted) return
         setSelectedResult(res?.result || null)
@@ -666,8 +666,8 @@ export default function UploadPage() {
                           <td>{r.year || '—'}</td>
                           <td>{r.industry || 'Other'}</td>
                           <td>{r.filing_type || '10-K'}</td>
-                          <td>{r.risk_items ?? 0}</td>
-                          <td>{r.risk_categories ?? 0}</td>
+                          <td>{r.risk_items ?? '—'}</td>
+                          <td>{r.risk_categories ?? '—'}</td>
                           <td>{formatDate(r.created_at)}</td>
                           <td className="text-right">
                             <button

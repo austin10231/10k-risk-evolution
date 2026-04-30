@@ -103,7 +103,8 @@ export default function DashboardPage() {
     if (!background) setLoading(!hasCache)
     setError('')
 
-    dashboardSummaryCache.inFlight = get('/api/dashboard/summary', { timeoutMs: 20000 }).then((summaryRes) => {
+    const path = force ? '/api/dashboard/summary?force=1' : '/api/dashboard/summary'
+    dashboardSummaryCache.inFlight = get(path, { timeoutMs: 20000 }).then((summaryRes) => {
       const nextData = summaryRes?.data || null
       if (!nextData || typeof nextData !== 'object') {
         throw new Error('Dashboard summary returned empty payload.')

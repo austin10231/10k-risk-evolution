@@ -394,7 +394,7 @@ export default function NewsPage() {
         const rows = await Promise.all(
           HOT_COMPANY_TICKERS.map(async (sym) => {
             try {
-              const res = await get(`/api/stock/quote?ticker=${encodeURIComponent(sym)}`)
+              const res = await get(`/api/stock/quote?ticker=${encodeURIComponent(sym)}`, { timeoutMs: 9000 })
               const data = res?.data || {}
               return {
                 ticker: sym,

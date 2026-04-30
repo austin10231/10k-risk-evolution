@@ -115,7 +115,7 @@ export default function LibraryPage() {
     let mounted = true
     setLoading(true)
     setError('')
-    get('/api/records?include_result=1')
+    get('/api/records', { timeoutMs: 15000 })
       .then((res) => {
         if (!mounted) return
         const next = Array.isArray(res?.items) ? res.items : []
@@ -150,7 +150,7 @@ export default function LibraryPage() {
     if (!selectedId) return
     let mounted = true
     setLoadingSelected(true)
-    get(`/api/records/${encodeURIComponent(selectedId)}`)
+    get(`/api/records/${encodeURIComponent(selectedId)}`, { timeoutMs: 15000 })
       .then((res) => {
         if (!mounted) return
         setSelectedResult(res?.result || null)
@@ -304,7 +304,7 @@ export default function LibraryPage() {
                   {r.industry || 'Other'} · {r.filing_type || '10-K'} · {r.year || '—'}
                 </p>
                 <p className="rl-record-submeta">
-                  {r.risk_items ?? 0} risk items · {r.risk_categories ?? 0} categories
+                  {r.risk_items ?? '—'} risk items · {r.risk_categories ?? '—'} categories
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button

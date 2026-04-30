@@ -49,7 +49,7 @@ export default function ComparePage() {
   useEffect(() => {
     let mounted = true
     setLoadingRecords(true)
-    get('/api/records')
+    get('/api/records', { timeoutMs: 15000 })
       .then((res) => {
         if (!mounted) return
         const items = res?.items || []
@@ -175,7 +175,7 @@ export default function ComparePage() {
       const res = await post('/api/compare', {
         latest_record_id: latestId,
         prior_record_id: priorId,
-      })
+      }, { timeoutMs: 20000 })
       setData(res?.data || null)
     } catch (e) {
       setError(e.message || 'Compare failed')

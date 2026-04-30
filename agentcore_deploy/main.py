@@ -8,10 +8,11 @@ import os
 import re
 import sys
 import time
+import threading
 import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, List, Optional, Set
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
@@ -79,6 +80,21 @@ _STOCK_PROVIDER_DEFAULT_COOLDOWN_SECONDS = 70
 _STOCK_QUOTE_CACHE: Dict[str, Dict[str, Any]] = {}
 _STOCK_QUOTE_CACHE_TTL_SECONDS = 600
 _STOCK_QUOTE_CACHE_PREFIX = "stock_quote_cache_v1"
+_S3_CLIENT = None
+_S3_CLIENT_LOCK = threading.Lock()
+_INDEX_CACHE: Dict[str, Any] = {"ts": 0.0, "data": []}
+_INDEX_CACHE_TTL_SECONDS = 20
+_RESULT_CACHE: Dict[str, Dict[str, Any]] = {}
+_RESULT_CACHE_TTL_SECONDS = 300
+_RESULT_CACHE_MAX_ENTRIES = 600
+_TICKER_MAP_CACHE: Dict[str, Any] = {"ts": 0.0, "data": {}}
+_TICKER_MAP_CACHE_TTL_SECONDS = 60
+_AGENT_REPORTS_CACHE: Dict[str, Any] = {"ts": 0.0, "data": []}
+_AGENT_REPORTS_CACHE_TTL_SECONDS = 90
+_RECORDS_LIST_CACHE: Dict[str, Dict[str, Any]] = {}
+_RECORDS_LIST_CACHE_TTL_SECONDS = 30
+_DASHBOARD_SUMMARY_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
+_DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 120
 
 
 def _env(name: str, default: str = "") -> str:
@@ -94,16 +110,61 @@ def _aws_region() -> str:
 
 
 def _s3_client():
-    kwargs = {"region_name": _aws_region()}
-    access_key = _env("AWS_ACCESS_KEY_ID", "").strip()
-    secret_key = _env("AWS_SECRET_ACCESS_KEY", "").strip()
-    session_token = _env("AWS_SESSION_TOKEN", "").strip()
-    if access_key and secret_key:
-        kwargs["aws_access_key_id"] = access_key
-        kwargs["aws_secret_access_key"] = secret_key
-        if session_token:
-            kwargs["aws_session_token"] = session_token
-    return boto3.client("s3", **kwargs)
+    global _S3_CLIENT
+    if _S3_CLIENT is not None:
+        return _S3_CLIENT
+    with _S3_CLIENT_LOCK:
+        if _S3_CLIENT is not None:
+            return _S3_CLIENT
+        kwargs = {"region_name": _aws_region()}
+        access_key = _env("AWS_ACCESS_KEY_ID", "").strip()
+        secret_key = _env("AWS_SECRET_ACCESS_KEY", "").strip()
+        session_token = _env("AWS_SESSION_TOKEN", "").strip()
+        if access_key and secret_key:
+            kwargs["aws_access_key_id"] = access_key
+            kwargs["aws_secret_access_key"] = secret_key
+            if session_token:
+                kwargs["aws_session_token"] = session_token
+        _S3_CLIENT = boto3.client("s3", **kwargs)
+        return _S3_CLIENT
+
+
+def _invalidate_runtime_caches(storage_key: str = "") -> None:
+    key = str(storage_key or "").strip()
+    now = 0.0
+    if not key:
+        _INDEX_CACHE["ts"] = now
+        _TICKER_MAP_CACHE["ts"] = now
+        _AGENT_REPORTS_CACHE["ts"] = now
+        _DASHBOARD_SUMMARY_CACHE["ts"] = now
+        _RECORDS_LIST_CACHE.clear()
+        _RESULT_CACHE.clear()
+        return
+
+    if key == INDEX_KEY:
+        _INDEX_CACHE["ts"] = now
+        _RECORDS_LIST_CACHE.clear()
+        _DASHBOARD_SUMMARY_CACHE["ts"] = now
+        return
+
+    if key == TICKER_MAP_KEY:
+        _TICKER_MAP_CACHE["ts"] = now
+        _RECORDS_LIST_CACHE.clear()
+        _DASHBOARD_SUMMARY_CACHE["ts"] = now
+        return
+
+    if key.startswith(f"{RESULTS_PREFIX}/"):
+        rid = key.rsplit("/", 1)[-1].replace(".json", "")
+        if rid:
+            _RESULT_CACHE.pop(rid, None)
+        _RECORDS_LIST_CACHE.clear()
+        _DASHBOARD_SUMMARY_CACHE["ts"] = now
+        return
+
+    if key.startswith(f"{AGENT_PREFIX}/"):
+        _AGENT_REPORTS_CACHE["ts"] = now
+        _DASHBOARD_SUMMARY_CACHE["ts"] = now
+        return
 
 
 def _read_s3_bytes(key: str) -> Optional[bytes]:
@@ -131,6 +192,7 @@ def _write_s3_bytes(key: str, data: bytes) -> None:
     if not bucket:
         raise RuntimeError("S3_BUCKET is not configured.")
     _s3_client().put_object(Bucket=bucket, Key=key, Body=data)
+    _invalidate_runtime_caches(key)
 
 
 def _delete_s3_key(key: str) -> None:
@@ -139,6 +201,7 @@ def _delete_s3_key(key: str) -> None:
         return
     try:
         _s3_client().delete_object(Bucket=bucket, Key=key)
+        _invalidate_runtime_caches(key)
     except Exception:
         return
 
@@ -171,24 +234,53 @@ def _json_from_bytes(data: Optional[bytes], fallback: Any):
 
 
 def _load_index() -> List[dict]:
+    now = time.time()
+    cached_ts = float(_INDEX_CACHE.get("ts", 0.0) or 0.0)
+    cached_data = _INDEX_CACHE.get("data", [])
+    if (now - cached_ts) <= _INDEX_CACHE_TTL_SECONDS and isinstance(cached_data, list):
+        return [r for r in cached_data if isinstance(r, dict)]
+
     raw = _json_from_bytes(_read_s3_bytes(INDEX_KEY), [])
+    out: List[dict] = []
     if isinstance(raw, list):
-        return [r for r in raw if isinstance(r, dict)]
-    if isinstance(raw, dict):
+        out = [r for r in raw if isinstance(r, dict)]
+    elif isinstance(raw, dict):
         candidates = raw.get("items")
         if isinstance(candidates, list):
-            return [r for r in candidates if isinstance(r, dict)]
-    return []
+            out = [r for r in candidates if isinstance(r, dict)]
+    _INDEX_CACHE["ts"] = now
+    _INDEX_CACHE["data"] = out
+    return out
 
 
 def _load_result(record_id: str) -> Optional[dict]:
     rid = str(record_id or "").strip()
     if not rid:
         return None
-    return _json_from_bytes(_read_s3_bytes(f"{RESULTS_PREFIX}/{rid}.json"), None)
+    cached = _RESULT_CACHE.get(rid)
+    now = time.time()
+    if isinstance(cached, dict):
+        ts = float(cached.get("ts", 0.0) or 0.0)
+        if now - ts <= _RESULT_CACHE_TTL_SECONDS:
+            payload = cached.get("data")
+            if isinstance(payload, dict):
+                return payload
+    payload = _json_from_bytes(_read_s3_bytes(f"{RESULTS_PREFIX}/{rid}.json"), None)
+    if isinstance(payload, dict):
+        _RESULT_CACHE[rid] = {"ts": now, "data": payload}
+        if len(_RESULT_CACHE) > _RESULT_CACHE_MAX_ENTRIES:
+            oldest_key = min(_RESULT_CACHE.items(), key=lambda kv: float(kv[1].get("ts", 0.0) or 0.0))[0]
+            _RESULT_CACHE.pop(oldest_key, None)
+    return payload
 
 
 def _load_company_ticker_map() -> Dict[str, str]:
+    now = time.time()
+    cached_ts = float(_TICKER_MAP_CACHE.get("ts", 0.0) or 0.0)
+    cached_data = _TICKER_MAP_CACHE.get("data", {})
+    if (now - cached_ts) <= _TICKER_MAP_CACHE_TTL_SECONDS and isinstance(cached_data, dict):
+        return {str(k): str(v) for k, v in cached_data.items()}
+
     raw = _json_from_bytes(_read_s3_bytes(TICKER_MAP_KEY), {})
     if not isinstance(raw, dict):
         return {}
@@ -198,6 +290,8 @@ def _load_company_ticker_map() -> Dict[str, str]:
         t = str(ticker or "").strip().upper()
         if c and t:
             out[c] = t
+    _TICKER_MAP_CACHE["ts"] = now
+    _TICKER_MAP_CACHE["data"] = out
     return out
 
 
@@ -654,6 +748,25 @@ def _add_record(
         json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
     )
 
+    risk_items = 0
+    risk_categories = 0
+    has_ai_summary = False
+    try:
+        extracted = _extract_sub_risks(result_json) if isinstance(result_json, dict) else []
+        risk_items = len(extracted)
+        risk_categories = len(
+            {
+                str(x.get("category", "") or "").strip()
+                for x in extracted
+                if str(x.get("category", "") or "").strip()
+            }
+        )
+        has_ai_summary = bool(str((result_json or {}).get("ai_summary", "") or "").strip()) if isinstance(result_json, dict) else False
+    except Exception:
+        risk_items = 0
+        risk_categories = 0
+        has_ai_summary = False
+
     record = {
         "record_id": rid,
         "company": company,
@@ -662,6 +775,9 @@ def _add_record(
         "year": year,
         "filing_type": filing_type,
         "file_ext": ext,
+        "risk_items": int(risk_items),
+        "risk_categories": int(risk_categories),
+        "has_ai_summary": bool(has_ai_summary),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     index.append(record)
@@ -670,6 +786,12 @@ def _add_record(
 
 
 def _load_agent_reports() -> List[dict]:
+    now = time.time()
+    cached_ts = float(_AGENT_REPORTS_CACHE.get("ts", 0.0) or 0.0)
+    cached_data = _AGENT_REPORTS_CACHE.get("data", [])
+    if (now - cached_ts) <= _AGENT_REPORTS_CACHE_TTL_SECONDS and isinstance(cached_data, list):
+        return [r for r in cached_data if isinstance(r, dict)]
+
     reports: List[dict] = []
     try:
         for key in _list_s3_keys(f"{AGENT_PREFIX}/"):
@@ -680,6 +802,8 @@ def _load_agent_reports() -> List[dict]:
                 reports.append(payload)
     except Exception:
         return []
+    _AGENT_REPORTS_CACHE["ts"] = now
+    _AGENT_REPORTS_CACHE["data"] = reports
     return reports
 
 
@@ -1191,6 +1315,9 @@ def _record_summary(
         "year": rec.get("year"),
         "filing_type": rec.get("filing_type"),
         "file_ext": rec.get("file_ext"),
+        "risk_items": rec.get("risk_items"),
+        "risk_categories": rec.get("risk_categories"),
+        "has_ai_summary": rec.get("has_ai_summary"),
         "created_at": rec.get("created_at"),
     }
     if include_result:
@@ -1482,6 +1609,37 @@ def _dashboard_summary() -> dict:
         "industry_options": industry_options,
         "scopes": scopes_payload,
     }
+
+
+def _dashboard_summary_cached(force: bool = False) -> dict:
+    now = time.time()
+    cached_ts = float(_DASHBOARD_SUMMARY_CACHE.get("ts", 0.0) or 0.0)
+    cached_data = _DASHBOARD_SUMMARY_CACHE.get("data")
+    if (not force) and isinstance(cached_data, dict) and (now - cached_ts) <= _DASHBOARD_SUMMARY_CACHE_TTL_SECONDS:
+        return cached_data
+    fresh = _dashboard_summary()
+    _DASHBOARD_SUMMARY_CACHE["ts"] = now
+    _DASHBOARD_SUMMARY_CACHE["data"] = fresh
+    return fresh
+
+
+def _records_list_cache_key(
+    *,
+    company: str,
+    industry: str,
+    filing_type: str,
+    year: str,
+    include_result: bool,
+) -> str:
+    return "|".join(
+        [
+            str(company or "").strip().lower(),
+            str(industry or "").strip().lower(),
+            str(filing_type or "").strip().lower(),
+            str(year or "").strip(),
+            "1" if include_result else "0",
+        ]
+    )
 
 
 def _yahoo_json(url: str) -> dict:
@@ -3815,6 +3973,22 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 year = str((query.get("year", [""]) or [""])[0]).strip()
                 include_result = str((query.get("include_result", ["0"]) or ["0"])[0]).strip() == "1"
 
+                cache_key = _records_list_cache_key(
+                    company=company,
+                    industry=industry,
+                    filing_type=filing_type,
+                    year=year,
+                    include_result=include_result,
+                )
+                cached = _RECORDS_LIST_CACHE.get(cache_key)
+                now = time.time()
+                if isinstance(cached, dict):
+                    ts = float(cached.get("ts", 0.0) or 0.0)
+                    payload = cached.get("payload")
+                    if (now - ts) <= _RECORDS_LIST_CACHE_TTL_SECONDS and isinstance(payload, dict):
+                        self._send_json(200, payload)
+                        return
+
                 recs = _load_index()
                 out = []
                 for r in recs:
@@ -3831,7 +4005,12 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 out.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
                 ticker_lookup = _build_ticker_lookup()
                 items = [_record_summary(r, include_result=include_result, ticker_lookup=ticker_lookup) for r in out]
-                self._send_json(200, {"ok": True, "count": len(items), "items": items})
+                payload = {"ok": True, "count": len(items), "items": items}
+                _RECORDS_LIST_CACHE[cache_key] = {"ts": now, "payload": payload}
+                if len(_RECORDS_LIST_CACHE) > 120:
+                    oldest_key = min(_RECORDS_LIST_CACHE.items(), key=lambda kv: float(kv[1].get("ts", 0.0) or 0.0))[0]
+                    _RECORDS_LIST_CACHE.pop(oldest_key, None)
+                self._send_json(200, payload)
                 return
 
             if path.startswith("/api/records/"):
@@ -3860,7 +4039,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/api/dashboard/summary":
-                self._send_json(200, {"ok": True, "data": _dashboard_summary()})
+                force = str((query.get("force", ["0"]) or ["0"])[0]).strip() == "1"
+                self._send_json(200, {"ok": True, "data": _dashboard_summary_cached(force=force)})
                 return
 
             if path == "/api/stock/quote":
@@ -4223,6 +4403,6 @@ handle_request = handler
 if __name__ == "__main__":
     host = "0.0.0.0"
     port = int(os.getenv("PORT", "8080"))
-    print(f"[runtime] starting HTTP server on {host}:{port}")
-    server = HTTPServer((host, port), _RequestHandler)
+    print(f"[runtime] starting threaded HTTP server on {host}:{port}")
+    server = ThreadingHTTPServer((host, port), _RequestHandler)
     server.serve_forever()
