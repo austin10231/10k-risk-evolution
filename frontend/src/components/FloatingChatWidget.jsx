@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import { useChatMemory } from '../lib/chatMemory'
-import { useWorkspaceChat } from '../lib/workspaceChat'
-import { stashPendingChat } from '../lib/pendingChat'
+import { post } from '../lib/api'
 
 const MAX_MESSAGES = 30
 const FAB_KEY = 'risklens_chat_fab_pos_v1'
 const PANEL_KEY = 'risklens_chat_panel_pos_v1'
+const CHATBOT_MESSAGES_KEY = 'risklens_product_chat_messages_v1'
+const PANEL_WIDTH = 360
+const PANEL_HEIGHT = 500
 
 function clamp(v, min, max) {
   return Math.min(Math.max(v, min), max)
@@ -21,8 +21,8 @@ function getDefaultFabPos() {
 function getDefaultPanelPos(fabPos) {
   const w = typeof window !== 'undefined' ? window.innerWidth : 1440
   const h = typeof window !== 'undefined' ? window.innerHeight : 900
-  const pw = 390
-  const ph = 560
+  const pw = PANEL_WIDTH
+  const ph = PANEL_HEIGHT
   return {
     x: clamp((fabPos?.x ?? w - 80) - 320, 12, Math.max(12, w - pw - 12)),
     y: clamp((fabPos?.y ?? h - 88) - 420, 12, Math.max(12, h - ph - 12)),
@@ -32,24 +32,14 @@ function getDefaultPanelPos(fabPos) {
 function defaultMessage() {
   return {
     role: 'assistant',
-    text: 'Hi, I am your RiskLens assistant. Ask me in English or Chinese.',
+    text: 'Hi, I am your RiskLens product assistant. I can help you use this app. Ask in English or 中文.',
+    meta: { timestamp: Date.now() },
   }
-}
-
-function buildAgentHref(search = '') {
-  const src = new URLSearchParams(search || '')
-  const next = new URLSearchParams()
-  const recordId = String(src.get('record_id') || '').trim()
-  const compareRecordId = String(src.get('compare_record_id') || '').trim()
-  if (recordId) next.set('record_id', recordId)
-  if (compareRecordId) next.set('compare_record_id', compareRecordId)
-  const query = next.toString()
-  return `/agent${query ? `?${query}` : ''}`
 }
 
 function SendArrowIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 17V7" />
       <path d="M7.5 11.5L12 7L16.5 11.5" />
     </svg>
@@ -57,12 +47,9 @@ function SendArrowIcon() {
 }
 
 export default function FloatingChatWidget() {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const { currentThread } = useChatMemory()
-  const { send, loading, error, clearError, startNewThread } = useWorkspaceChat()
-
   const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [fabPos, setFabPos] = useState(() => {
     if (typeof window === 'undefined') return { x: 0, y: 0 }
     try {
@@ -92,6 +79,27 @@ export default function FloatingChatWidget() {
     }
   })
   const [query, setQuery] = useState('')
+  const [messages, setMessages] = useState(() => {
+    if (typeof window === 'undefined') return [defaultMessage()]
+    try {
+      const raw = window.localStorage.getItem(CHATBOT_MESSAGES_KEY)
+      if (!raw) return [defaultMessage()]
+      const parsed = JSON.parse(raw)
+      if (!Array.isArray(parsed) || !parsed.length) return [defaultMessage()]
+      const rows = parsed
+        .filter((m) => m && typeof m === 'object')
+        .map((m) => ({
+          role: String(m.role || '').toLowerCase() === 'user' ? 'user' : 'assistant',
+          text: String(m.text || '').trim(),
+          meta: m.meta && typeof m.meta === 'object' ? m.meta : {},
+        }))
+        .filter((m) => m.text)
+      return rows.length ? rows.slice(-MAX_MESSAGES) : [defaultMessage()]
+    } catch {
+      return [defaultMessage()]
+    }
+  })
+
   const bottomRef = useRef(null)
   const fabDragRef = useRef(null)
   const panelDragRef = useRef(null)
@@ -100,13 +108,10 @@ export default function FloatingChatWidget() {
   const ignoreNextEnterRef = useRef(false)
   const compositionEndTimerRef = useRef(0)
 
-  const threadMessages = currentThread?.messages || []
-  const messages = threadMessages.length ? threadMessages.slice(-MAX_MESSAGES) : [defaultMessage()]
-
   useEffect(() => {
     if (!open) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [threadMessages.length, open, loading])
+  }, [messages.length, open, loading])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -119,6 +124,11 @@ export default function FloatingChatWidget() {
   }, [panelPos])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(CHATBOT_MESSAGES_KEY, JSON.stringify(messages.slice(-MAX_MESSAGES)))
+  }, [messages])
+
+  useEffect(() => {
     const onResize = () => {
       const w = window.innerWidth
       const h = window.innerHeight
@@ -127,8 +137,8 @@ export default function FloatingChatWidget() {
         y: clamp(prev.y, 8, Math.max(8, h - 72)),
       }))
       setPanelPos((prev) => ({
-        x: clamp(prev.x, 8, Math.max(8, w - 390)),
-        y: clamp(prev.y, 8, Math.max(8, h - 560)),
+        x: clamp(prev.x, 8, Math.max(8, w - PANEL_WIDTH)),
+        y: clamp(prev.y, 8, Math.max(8, h - PANEL_HEIGHT)),
       }))
     }
     window.addEventListener('resize', onResize)
@@ -195,31 +205,48 @@ export default function FloatingChatWidget() {
     }
   }, [])
 
-  const clearChat = () => {
-    startNewThread()
-    clearError()
-    setQuery('')
-  }
-
   const sendFromWidget = async () => {
     const text = query.trim()
     if (!text || loading) return
 
-    const originPath = location.pathname || '/agent'
-    const originSearch = location.search || ''
-    const targetHref = buildAgentHref(originSearch)
-    const needsJump = `${location.pathname || ''}${location.search || ''}` !== targetHref
-    if (needsJump) {
-      stashPendingChat({ text, originPath, originSearch })
-      setQuery('')
-      setOpen(false)
-      navigate(targetHref)
-      return
+    const userMsg = {
+      role: 'user',
+      text,
+      meta: { timestamp: Date.now() },
     }
-    await send(text, { pathname: originPath, search: originSearch })
+    const historyPayload = [...messages, userMsg]
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && String(m.text || '').trim())
+      .slice(-16)
+      .map((m) => ({ role: m.role, text: String(m.text || '').trim() }))
 
+    setMessages((prev) => [...prev, userMsg].slice(-MAX_MESSAGES))
     setQuery('')
-    setOpen(false)
+    setLoading(true)
+    setError('')
+
+    try {
+      const res = await post('/api/chatbot/help', {
+        user_query: text,
+        history: historyPayload,
+      })
+      const answer = String(res?.answer || '').trim() || 'I can help explain how to use this app. Ask me about pages or workflow steps.'
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', text: answer, meta: { timestamp: Date.now() } },
+      ].slice(-MAX_MESSAGES))
+    } catch (e) {
+      const msg = e?.message || 'Chatbot request failed'
+      setError(msg)
+      const failText = /[\u4e00-\u9fff]/.test(text)
+        ? `我暂时无法完成这次回答：${msg}。请稍后重试。`
+        : `I could not complete this help request: ${msg}. Please try again.`
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', text: failText, meta: { timestamp: Date.now() } },
+      ].slice(-MAX_MESSAGES))
+    } finally {
+      setLoading(false)
+    }
   }
 
   const startFabDrag = (e) => {
@@ -284,8 +311,8 @@ export default function FloatingChatWidget() {
     const w = window.innerWidth
     const h = window.innerHeight
     setPanelPos({
-      x: clamp(d.origX + dx, 8, Math.max(8, w - 390)),
-      y: clamp(d.origY + dy, 8, Math.max(8, h - 560)),
+      x: clamp(d.origX + dx, 8, Math.max(8, w - PANEL_WIDTH)),
+      y: clamp(d.origY + dy, 8, Math.max(8, h - PANEL_HEIGHT)),
     })
   }
 
@@ -301,7 +328,7 @@ export default function FloatingChatWidget() {
         <section className="rl-chat-panel" style={{ left: `${panelPos.x}px`, top: `${panelPos.y}px` }}>
           <header className="rl-chat-header" onPointerDown={startPanelDrag}>
             <div>
-              <p className="rl-chat-title">RiskLens AI Assistant</p>
+              <p className="rl-chat-title">RiskLens Product Assistant</p>
             </div>
             <button className="rl-chat-close" onClick={() => setOpen(false)} aria-label="Close chat">
               ×
@@ -316,7 +343,7 @@ export default function FloatingChatWidget() {
             ))}
             {loading && (
               <div className="rl-chat-row assistant">
-                <div className="rl-chat-bubble">Thinking...</div>
+                <div className="rl-chat-bubble">Thinking... / 正在整理使用建议...</div>
               </div>
             )}
             <div ref={bottomRef} />
@@ -325,31 +352,28 @@ export default function FloatingChatWidget() {
           {error && <p className="rl-chat-error">{error}</p>}
 
           <footer className="rl-chat-footer">
-            <textarea
-              className="rl-chat-input"
-              value={query}
-              placeholder="Ask anything about company risk..."
-              onChange={(e) => {
-                if (error) clearError()
-                setQuery(e.target.value)
-              }}
-              onCompositionStart={markCompositionStart}
-              onCompositionEnd={markCompositionEnd}
-              onKeyDown={(e) => {
-                if (shouldIgnoreEnterSubmit(e)) {
-                  if (e.key === 'Enter' && !e.shiftKey) e.preventDefault()
-                  return
-                }
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  sendFromWidget()
-                }
-              }}
-            />
-            <div className="rl-chat-actions">
-              <button className="btn-secondary text-xs" onClick={clearChat} disabled={loading}>
-                New Chat
-              </button>
+            <div className="rl-chat-input-wrap">
+              <textarea
+                className="rl-chat-input"
+                value={query}
+                placeholder="Ask how to use RiskLens features..."
+                onChange={(e) => {
+                  if (error) setError('')
+                  setQuery(e.target.value)
+                }}
+                onCompositionStart={markCompositionStart}
+                onCompositionEnd={markCompositionEnd}
+                onKeyDown={(e) => {
+                  if (shouldIgnoreEnterSubmit(e)) {
+                    if (e.key === 'Enter' && !e.shiftKey) e.preventDefault()
+                    return
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    sendFromWidget()
+                  }
+                }}
+              />
               <button
                 className={`rl-chat-send-round ${loading ? 'loading' : ''}`}
                 onClick={sendFromWidget}
@@ -369,7 +393,7 @@ export default function FloatingChatWidget() {
           onPointerDown={startFabDrag}
           style={{ left: `${fabPos.x}px`, top: `${fabPos.y}px` }}
           aria-label="Open chat"
-          title="Drag me anywhere"
+          title="Drag to move"
         >
           <span className="rl-chat-fab-inner" aria-hidden="true">💬</span>
         </button>

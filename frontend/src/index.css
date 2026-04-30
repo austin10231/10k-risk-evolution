@@ -1811,7 +1811,7 @@ select.input {
 }
 
 .rl-chat-panel {
-  @apply fixed flex h-[560px] w-[390px] flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-2xl;
+  @apply fixed flex h-[500px] w-[360px] flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-2xl;
   pointer-events: auto;
 }
 
@@ -1878,8 +1878,13 @@ select.input {
   @apply border-t border-slate-200 bg-slate-50 p-3;
 }
 
+.rl-chat-input-wrap {
+  position: relative;
+}
+
 .rl-chat-input {
-  @apply min-h-[92px] w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
+  @apply min-h-[88px] w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
+  padding-right: 56px;
   font-size: 0.95rem;
   line-height: 1.52;
 }
@@ -1893,10 +1898,14 @@ select.input {
 }
 
 .rl-chat-send-round {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0 !important;
   border-radius: 9999px !important;
   border: 0;
@@ -1918,8 +1927,8 @@ select.input {
 }
 
 .rl-chat-send-round svg {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
 }
 
 .rl-chat-send-round.loading svg {

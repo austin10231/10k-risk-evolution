@@ -3549,6 +3549,81 @@ def _looks_like_target_lang(text: str, target_lang: str) -> bool:
     return True
 
 
+def _chatbot_help_query(payload: dict) -> dict:
+    user_query = str(payload.get("user_query", "") or "").strip()
+    history = _coerce_chat_history(payload.get("history", []))
+    target_lang = _detect_target_lang(user_query, history)
+    lang_label = "Simplified Chinese" if target_lang == "zh" else "English"
+
+    if not user_query:
+        empty_reply = (
+            "你可以问我如何使用 RiskLens 的页面和功能，比如：上传 10-K、做风险对比、看 Dashboard。"
+            if target_lang == "zh"
+            else "You can ask me how to use RiskLens pages and workflows, such as upload, compare, and dashboard."
+        )
+        return {"ok": True, "mode": "product_help", "answer": empty_reply, "target_lang": target_lang}
+
+    history_text = "\n".join(
+        f"{str(row.get('role', '')).strip()}: {str(row.get('text', '')).strip()}"
+        for row in history[-10:]
+        if isinstance(row, dict)
+    ) or "(none)"
+
+    prompt = f"""You are the RiskLens Product Assistant.
+Primary purpose: help users understand how to use this app.
+
+Product modules you can explain:
+- Upload & Records
+- Stock
+- News
+- Dashboard
+- Compare
+- Tables
+- Agent (main analysis chat)
+
+Rules:
+- Answer in {lang_label} only.
+- Be concise, practical, and friendly.
+- Focus on product usage guidance and workflows (what to click, where to go next, typical sequence).
+- Do not claim that you already ran analysis or fetched live market/news data in this chat.
+- If user asks for actual risk/stock/news analysis, redirect them to the main Agent chat or the relevant page with one clear next step.
+- Avoid mentioning internal implementation details unless user asks directly.
+
+Recent conversation:
+{history_text}
+
+User question:
+{user_query}
+
+Return plain text only."""
+
+    try:
+        llm_invoke = _get_llm_invoke()
+        answer = str(llm_invoke(prompt, 700) or "").strip()
+    except Exception as exc:
+        fallback = (
+            f"我暂时无法回答这个使用问题：{exc}。请稍后重试，或直接告诉我你当前页面和目标，我给你步骤。"
+            if target_lang == "zh"
+            else f"I could not answer this product-help question right now: {exc}. Please retry, or tell me your current page and goal for step-by-step guidance."
+        )
+        return {"ok": True, "mode": "product_help", "answer": fallback, "target_lang": target_lang}
+
+    cleaned = _strip_markdown_artifacts(answer)
+    if not cleaned:
+        cleaned = (
+            "你可以告诉我你的目标（例如：上传 10-K 并对比两年风险），我会按页面给你最短操作路径。"
+            if target_lang == "zh"
+            else "Tell me your goal (for example: upload a 10-K and compare risk across years), and I will give you the shortest page-by-page path."
+        )
+
+    return {
+        "ok": True,
+        "mode": "product_help",
+        "answer": cleaned,
+        "target_lang": target_lang,
+    }
+
+
 def _agent_query(payload: dict) -> dict:
     user_query = str(payload.get("user_query", "") or "").strip()
     company = str(payload.get("company", "") or "").strip()
@@ -3958,6 +4033,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "/api/tables/result?company=Apple&year=2024&filing_type=10-K",
                             "/api/tables/extract/manual (POST)",
                             "/api/tables/extract/auto-fetch (POST)",
+                            "/api/chatbot/help (POST)",
                             "/api/agent/query (POST)",
                             "/api/compare (POST)",
                             "/invocations (POST)",
@@ -4364,6 +4440,12 @@ class _RequestHandler(BaseHTTPRequestHandler):
             if path == "/api/agent/query":
                 body = self._read_json_body()
                 payload = _agent_query(body)
+                self._send_json(200, payload)
+                return
+
+            if path == "/api/chatbot/help":
+                body = self._read_json_body()
+                payload = _chatbot_help_query(body)
                 self._send_json(200, payload)
                 return
 

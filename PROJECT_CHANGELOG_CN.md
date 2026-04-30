@@ -264,3 +264,16 @@
 - `records` 首屏改为轻量列表请求（不再默认 `include_result=1` 全量拉取每条结果），详情保持按需加载。  
 - `compare` / `records` / `upload` / `news hot quotes` 增加请求超时，避免长时间无反馈。  
 - 新增记录元信息回填：新写入的 record 在 index 中保存 `risk_items/risk_categories/has_ai_summary`，减少后续列表页计算压力。
+
+### 9) Chatbot 与主 Agent 解耦（React 主链路）
+- 右下角 `FloatingChatWidget` 改为独立产品助手：
+  - 不再复用 `workspaceChat/chatMemory`，不再共享主 Agent 线程与上下文。
+  - 不再跳转 `/agent` 页面后再发消息，改为本地面板内直接对话。
+  - 移除 `New Chat` 按钮，保留单一输入发送体验。
+- 新增后端接口 `POST /api/chatbot/help`：
+  - 专门用于“如何使用 RiskLens”问答，不走主 Agent 的意图路由与工具链。
+  - 对“想要实时分析/行情/新闻结论”的问题会引导到主 Agent 或对应页面。
+- 补充：
+  - `api/meta` 增加 `/api/chatbot/help (POST)` 暴露。
+  - 本次未继续修改 Streamlit 旧路径（`views/*` / `app.py`）。
+  - chatbot UI 微调：聊天框缩小（`360x500`）、发送按钮嵌入输入框右侧、按钮箭头加大便于识别。
