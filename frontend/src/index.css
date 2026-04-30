@@ -1883,7 +1883,7 @@ select.input {
 }
 
 .rl-chat-input {
-  @apply min-h-[88px] w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
+  @apply min-h-[80px] w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
   padding-right: 56px;
   font-size: 0.95rem;
   line-height: 1.52;
