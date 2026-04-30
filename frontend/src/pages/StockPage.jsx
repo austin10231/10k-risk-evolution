@@ -29,8 +29,8 @@ const TABLE_SECTIONS = [
 
 const STOCK_LAST_TICKER_KEY = 'rl_stock_last_ticker_v1'
 const STOCK_RECENT_TICKERS_KEY = 'rl_stock_recent_tickers_v1'
-const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v2_'
-const STOCK_BUNDLE_LEGACY_PREFIXES = ['rl_stock_bundle_v1_']
+const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v3_'
+const STOCK_BUNDLE_LEGACY_PREFIXES = ['rl_stock_bundle_v2_', 'rl_stock_bundle_v1_']
 const STOCK_BUNDLE_TTL_MS = 1000 * 60 * 60 * 12
 const UNIVERSE_PREFETCH_LIMIT = 100
 
@@ -258,28 +258,45 @@ function writeRecentTickers(list) {
   writeLocalJson(STOCK_RECENT_TICKERS_KEY, mergeTickers(list).slice(0, 12))
 }
 
-function cacheKeyForTicker(ticker) {
-  return `${STOCK_BUNDLE_PREFIX}${normalizeTicker(ticker)}`
+function cacheKeyForTicker(ticker, lite = false) {
+  const sym = normalizeTicker(ticker)
+  if (!sym) return ''
+  return `${STOCK_BUNDLE_PREFIX}${sym}${lite ? '__LITE' : '__FULL'}`
 }
 
-function readBundleCache(ticker) {
+function readBundleCache(ticker, lite = false) {
   const sym = normalizeTicker(ticker)
   if (!sym) return null
-  const keys = [cacheKeyForTicker(sym), ...STOCK_BUNDLE_LEGACY_PREFIXES.map((prefix) => `${prefix}${sym}`)]
+  const requestedKey = cacheKeyForTicker(sym, lite)
+  const keys = lite
+    ? [
+      requestedKey,
+      cacheKeyForTicker(sym, false),
+      ...STOCK_BUNDLE_LEGACY_PREFIXES.map((prefix) => `${prefix}${sym}`),
+    ]
+    : [
+      requestedKey,
+      ...STOCK_BUNDLE_LEGACY_PREFIXES.map((prefix) => `${prefix}${sym}`),
+    ]
   for (const key of keys) {
+    if (!key) continue
     const payload = readLocalJson(key, null)
     if (!payload || typeof payload !== 'object') continue
     const savedAt = Number(payload.saved_at || 0)
     const data = payload.data && typeof payload.data === 'object' ? payload.data : null
     if (!data) continue
+    const isLitePayload = Boolean(data?.lite)
+    if (!lite && isLitePayload) continue
     return { savedAt: Number.isFinite(savedAt) ? savedAt : 0, data }
   }
   return null
 }
 
-function writeBundleCache(ticker, data) {
+function writeBundleCache(ticker, data, lite = false) {
   if (!ticker || !data || typeof data !== 'object') return
-  writeLocalJson(cacheKeyForTicker(ticker), { saved_at: Date.now(), data })
+  const key = cacheKeyForTicker(ticker, lite)
+  if (!key) return
+  writeLocalJson(key, { saved_at: Date.now(), data })
 }
 
 function isBundleStale(savedAt) {
@@ -1239,6 +1256,7 @@ export default function StockPage() {
   const initializedRef = useRef(false)
   const heatmapWrapRef = useRef(null)
   const tickerResolveTriedRef = useRef(new Set())
+  const detailRefreshTriedRef = useRef(new Set())
   const unsupportedTickerSet = useMemo(
     () => new Set((Array.isArray(unsupportedTickers) ? unsupportedTickers : []).map((t) => normalizeTicker(t)).filter(Boolean)),
     [unsupportedTickers],
@@ -1247,10 +1265,18 @@ export default function StockPage() {
   const upsertBundle = useCallback((ticker, data, savedAt = Date.now(), source = 'live') => {
     const sym = normalizeTicker(ticker)
     if (!sym || !data || typeof data !== 'object') return
-    setBundleMap((prev) => ({
-      ...prev,
-      [sym]: { data, savedAt, source },
-    }))
+    setBundleMap((prev) => {
+      const existing = prev[sym]?.data
+      let nextData = data
+      // Preserve richer profile fields when a lite refresh arrives later.
+      if (data?.lite && existing && !existing?.lite) {
+        nextData = { ...existing, ...data, lite: false }
+      }
+      return {
+        ...prev,
+        [sym]: { data: nextData, savedAt, source },
+      }
+    })
   }, [])
 
   const rememberTicker = useCallback((ticker) => {
@@ -1282,7 +1308,7 @@ export default function StockPage() {
       let hasCached = false
       let cachedPayload = null
       if (preferCache) {
-        const cached = readBundleCache(sym)
+        const cached = readBundleCache(sym, lite)
         if (cached?.data) {
           hasCached = true
           cachedPayload = cached
@@ -1304,7 +1330,7 @@ export default function StockPage() {
         const payload = res?.data || null
         if (!payload || typeof payload !== 'object') throw new Error('No stock payload returned')
 
-        writeBundleCache(sym, payload)
+        writeBundleCache(sym, payload, Boolean(payload?.lite) || lite)
         upsertBundle(sym, payload, Date.now(), 'live')
         if (remember) rememberTicker(sym)
         if (!muteError) setError('')
@@ -1445,6 +1471,30 @@ export default function StockPage() {
     if (!selectedTicker) return
     fetchBundle(selectedTicker, { preferCache: true, skipIfFresh: true })
   }, [selectedTicker, fetchBundle])
+
+  useEffect(() => {
+    if (!routeSymbol) return
+    const sym = normalizeTicker(routeSymbol || selectedTicker)
+    if (!sym) return
+    const payload = bundleMap[sym]?.data || null
+    const needsEnrich = Boolean(payload?.lite) || Boolean(payload && !payload?.ceo && !payload?.ipo_date && !payload?.country)
+    if (!needsEnrich) {
+      detailRefreshTriedRef.current.delete(sym)
+      return
+    }
+    if (detailRefreshTriedRef.current.has(sym)) return
+    detailRefreshTriedRef.current.add(sym)
+    fetchBundle(sym, {
+      preferCache: true,
+      silent: true,
+      skipIfFresh: false,
+      force: true,
+      remember: false,
+      muteError: true,
+      muteStatus: true,
+      lite: false,
+    })
+  }, [routeSymbol, selectedTicker, bundleMap, fetchBundle])
 
   useEffect(() => {
     const selected = normalizeTicker(selectedTicker)
@@ -1779,14 +1829,17 @@ export default function StockPage() {
   }, [loadedRows, boardTab])
 
   const popularRows = useMemo(() => {
-    const merged = [...trackedRows].sort((a, b) => {
-      const aData = a.data ? 1 : 0
-      const bData = b.data ? 1 : 0
-      if (aData !== bData) return bData - aData
+    const ranked = [...loadedRows].sort((a, b) => {
+      const capDiff = Number(b.market_cap || 0) - Number(a.market_cap || 0)
+      if (capDiff !== 0) return capDiff
+      const volDiff = Number(b.volume || 0) - Number(a.volume || 0)
+      if (volDiff !== 0) return volDiff
+      const pctDiff = Math.abs(Number(b.change_percent || 0)) - Math.abs(Number(a.change_percent || 0))
+      if (pctDiff !== 0) return pctDiff
       return String(a.company).localeCompare(String(b.company))
     })
-    return uniqueRowsByCompany(merged, 5)
-  }, [trackedRows])
+    return uniqueRowsByCompany(ranked, 5)
+  }, [loadedRows])
 
   const uploadedSectorAgg = useMemo(() => {
     const buckets = {}

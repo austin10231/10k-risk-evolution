@@ -2802,6 +2802,7 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
         "cache_hit": False,
         "cache_age_s": 0,
         "error": "",
+        "lite": False,
     }
     if errors and (price is not None or bool(history)):
         out["warning"] = "Live refresh partially degraded; showing best available merged data."
