@@ -193,3 +193,65 @@
   - 用户侧能看到什么变化
 - 备注（可选）：
   - 已知问题 / 后续计划
+
+---
+
+## 2026-04-29 外部 API 调用清单（按当前项目实现）
+
+说明：以下是项目里“真实在调用”的外部 API。免费额度以各官方套餐页当天为准，若官方未给固定日额度，则标注为“未公开固定日配额”。
+
+### 1) 新闻相关
+- `Marketaux`（`/v1/news/all`）  
+  - 用途：新闻主数据源（news 页面 + agent runtime）。  
+  - 免费额度：`100 requests/day`（free tier，且单次返回条数有限）。  
+- `TheNewsAPI`（`/v1/news/all`）  
+  - 用途：新闻 fallback（agent runtime）。  
+  - 免费额度：按其 free plan 计费口径执行（项目未硬编码日上限；以控制台/官方套餐页为准）。  
+- `Currents API`（`/v1/search`, `/v1/latest-news`）  
+  - 用途：新闻 fallback（agent runtime），空关键词时走 latest-news。  
+  - 免费额度：按其 free plan 计费口径执行（项目未硬编码日上限；以控制台/官方套餐页为准）。
+
+### 2) 股票相关
+- `TwelveData`（quote/time_series）  
+  - 用途：股票主数据源之一（agent runtime）。  
+  - 免费额度：`800 credits/day`（free/basic 口径）。  
+- `Financial Modeling Prep (FMP)`（quote/historical-price-full）  
+  - 用途：股票 fallback 数据源（agent runtime）。  
+  - 免费额度：按其免费套餐口径执行（项目未硬编码日上限；以官方套餐页/控制台为准）。  
+- `Yahoo Finance`（query1/query2 endpoints，经 yfinance 或直接请求）  
+  - 用途：股票 fallback 与页面行情数据。  
+  - 免费额度：未公开固定“每天 N 次”配额，实际受限流策略影响。  
+- `Stooq`（CSV 历史价格）  
+  - 用途：lite 行情 fallback。  
+  - 免费额度：未公开固定日配额（项目侧未硬编码上限）。
+
+### 3) 报告抓取与解析相关
+- `SEC EDGAR`（`efts.sec.gov`, `data.sec.gov`, `www.sec.gov/Archives`）  
+  - 用途：10-K 检索、元数据与原文下载。  
+  - 免费额度：公开接口，无项目内配额硬编码（需遵守 SEC 访问规范）。
+
+### 4) 模型与云能力相关
+- `AWS Bedrock Runtime`（模型推理）  
+  - 用途：聊天与分析生成。  
+  - 额度：非“免费固定日额度”模式，按云侧账单/配额策略。  
+- `AWS Textract / S3 / AgentCore Runtime`  
+  - 用途：文档抽取、存储、agent runtime 调用。  
+  - 额度：按 AWS 账户配额与计费策略。
+
+### 5) 其他外部服务（前端辅助）
+- `Open-Meteo`（天气）  
+  - 用途：news 侧栏天气。  
+  - 免费额度：按官方 fair-use/套餐口径，项目未硬编码上限。  
+- `ipwho.is`、`ipapi.co`（地理定位）  
+  - 用途：天气定位 fallback。  
+  - 免费额度：按各自免费套餐口径，项目未硬编码上限。
+
+### 6) 本次修复记录（news / dashboard）
+- 修复 `news`：空查询时增加“双阶段热点回退”（7天失败后自动扩到30天并扩展热门 ticker）；若全部 provider 失败，明确展示错误，不再静默空白。  
+- 修复 `dashboard`：`/api/dashboard/summary` 增加前端请求超时，避免页面长期停留在 `Refreshing…` 无反馈状态。
+
+### 7) Codex 导航手册更新（agent.md）
+- 重写 `agent.md` 为“快速定位手册”，明确每次改代码前的最短读取路径。  
+- 明确默认主栈是 `frontend/src + agentcore_deploy`，并标注 `views/* + app.py` 为旧 Streamlit 路径，默认不优先阅读。  
+- 新增“按需求类型 -> 优先文件”的入口索引（agent逻辑、聊天体验、前端页面、API、landing page）。  
+- 新增“页面到文件映射”和“API到文件映射”，减少后续全仓扫描时间。

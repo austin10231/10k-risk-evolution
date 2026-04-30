@@ -34,19 +34,19 @@
     </div>
 
     <section class="mt-6 bg-white border border-blue-100 rounded-2xl p-6 shadow-sm">
-      <p class="text-slate-600">Follow this path to onboard quickly and ensure users authenticate before entering the app workspace.</p>
+      <p class="text-slate-600">Use this quick path to start from authentication, enter the unified chat workflow, and run business tools only when needed.</p>
 
       <div class="mt-5 grid md:grid-cols-2 gap-4 text-sm">
         <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 1 · Sign In / Sign Up</p><p class="text-slate-600 mt-1">Use the website Sign in or Sign up button first. Authentication is managed by AWS Cognito.</p></div>
-        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 2 · Upload Filing</p><p class="text-slate-600 mt-1">Choose manual upload or SEC auto-fetch to ingest 10-K data.</p></div>
-        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 3 · Extract + Save</p><p class="text-slate-600 mt-1">Run risk extraction and store structured records for reuse.</p></div>
-        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 4 · Compare & Agent</p><p class="text-slate-600 mt-1">Detect year-over-year changes and generate AI findings.</p></div>
-        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 5 · Dashboard / Stock / News</p><p class="text-slate-600 mt-1">Monitor cross-company risk, market response, and headline pressure.</p></div>
-        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 6 · Team Review</p><p class="text-slate-600 mt-1">Share outputs and prioritize deep-dive work with analysts.</p></div>
+        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 2 · Open or Continue Conversation</p><p class="text-slate-600 mt-1">Create a new chat or continue the current one. Empty new conversations remain reusable when you navigate across pages.</p></div>
+        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 3 · Ask in Natural Language</p><p class="text-slate-600 mt-1">General questions go through normal chat. Business questions are routed by intent to risk, compare, stock, or news tools.</p></div>
+        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 4 · Optional File Attachment</p><p class="text-slate-600 mt-1">Use the + button in the composer to attach files. HTML supports filing-risk extraction; PDF currently focuses on table extraction.</p></div>
+        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 5 · Review Structured Results</p><p class="text-slate-600 mt-1">The assistant answers in-chat and can trigger upload/extraction flow so records and dashboards stay in sync.</p></div>
+        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p class="font-semibold text-blue-900">Step 6 · Iterate with Memory</p><p class="text-slate-600 mt-1">Follow-up questions reuse conversation context. Stock/news queries are answered in chat without forcing page navigation.</p></div>
       </div>
 
       <div class="mt-6 p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm">
-        Note: Direct app access still requires valid Cognito session. Start from Sign in / Sign up if you are not authenticated.
+        Note: Direct app access still requires a valid Cognito session. If IME composition is active, confirm composition first, then send.
       </div>
 
       <div class="mt-5 flex flex-wrap gap-3">
@@ -62,6 +62,7 @@
       "Quick Start": "快速开始",
       "Back to Home": "返回首页",
       "Follow this path to onboard quickly and ensure users authenticate before entering the app workspace.": "按照以下流程可以快速上手，并确保用户在进入应用前完成身份认证。",
+      "Use this quick path to start from authentication, enter the unified chat workflow, and run business tools only when needed.": "按照该路径可从认证快速进入统一聊天工作流，并在需要时自动调用业务工具。",
       "Step 1 · Sign In / Sign Up": "步骤 1 · 登录 / 注册",
       "Use the website Sign in or Sign up button first. Authentication is managed by AWS Cognito.": "先通过官网的登录/注册入口进入。身份认证由 AWS Cognito 管理。",
       "Step 2 · Upload Filing": "步骤 2 · 上传文件",
@@ -74,7 +75,18 @@
       "Monitor cross-company risk, market response, and headline pressure.": "监控跨公司风险、市场反馈与新闻压力。",
       "Step 6 · Team Review": "步骤 6 · 团队复核",
       "Share outputs and prioritize deep-dive work with analysts.": "与分析师共享输出结果并安排重点深挖任务。",
+      "Step 2 · Open or Continue Conversation": "步骤 2 · 打开或继续对话",
+      "Create a new chat or continue the current one. Empty new conversations remain reusable when you navigate across pages.": "可新建对话或继续当前对话；即使新建对话尚未发消息，跨页面返回后也会复用该会话。",
+      "Step 3 · Ask in Natural Language": "步骤 3 · 自然语言提问",
+      "General questions go through normal chat. Business questions are routed by intent to risk, compare, stock, or news tools.": "普通问题走聊天模式；业务问题会按意图自动路由到风险、对比、股票或新闻工具。",
+      "Step 4 · Optional File Attachment": "步骤 4 · 可选文件附件",
+      "Use the + button in the composer to attach files. HTML supports filing-risk extraction; PDF currently focuses on table extraction.": "在输入框使用 + 按钮添加文件。HTML 支持风险提取流程，PDF 目前主要支持表格提取。",
+      "Step 5 · Review Structured Results": "步骤 5 · 查看结构化结果",
+      "The assistant answers in-chat and can trigger upload/extraction flow so records and dashboards stay in sync.": "助手会在聊天中回答，并可触发上传/提取流程，让 records 与 dashboard 保持同步。",
+      "Step 6 · Iterate with Memory": "步骤 6 · 基于记忆继续追问",
+      "Follow-up questions reuse conversation context. Stock/news queries are answered in chat without forcing page navigation.": "后续追问会复用上下文记忆；股票/新闻问题将在聊天内回答，不会强制跳转页面。",
       "Note: Direct app access still requires valid Cognito session. Start from Sign in / Sign up if you are not authenticated.": "说明：直接访问应用仍需要有效 Cognito 会话。若未认证，请先从登录/注册入口进入。",
+      "Note: Direct app access still requires a valid Cognito session. If IME composition is active, confirm composition first, then send.": "说明：直接访问应用仍需有效 Cognito 会话。若处于输入法组词状态，请先确认组词再发送。",
       "Sign in": "登录",
       "Sign up": "注册",
       "Language": "语言"

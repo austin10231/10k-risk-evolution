@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { get } from '../lib/api'
 
 const FIXED_WINDOW_DAYS = 7
+const HOT_FALLBACK_WINDOW_DAYS = 30
 const DEFAULT_LIMIT = 8
 const LOAD_STEP = 4
 const HOT_COMPANY_TICKERS = ['NVDA', 'MSFT', 'AMZN', 'AAPL', 'AVGO']
@@ -323,6 +324,17 @@ function timelineVariant(idx) {
   return 'wide'
 }
 
+function settledItems(result) {
+  if (!result || result.status !== 'fulfilled') return []
+  const items = result.value?.items
+  return Array.isArray(items) ? items : []
+}
+
+function settledErrorText(result) {
+  if (!result || result.status !== 'rejected') return ''
+  return String(result.reason?.message || result.reason || '').trim()
+}
+
 export default function NewsPage() {
   const cacheBoot = React.useMemo(() => readNewsCache(), [])
   const [company, setCompany] = useState('')
@@ -419,25 +431,50 @@ export default function NewsPage() {
       const tickerNorm = String(ticker || '').trim().toUpperCase()
 
       if (!companyNorm && !tickerNorm) {
-        const generalQ = new URLSearchParams({
-          days: String(FIXED_WINDOW_DAYS),
-          limit: String(nextLimit),
-        })
-        const perTickerLimit = Math.max(4, Math.ceil(nextLimit / 2))
-        const hotTasks = TRENDING_NEWS_TICKERS.map((sym) => {
-          const qHot = new URLSearchParams({
-            company: '',
-            ticker: sym,
-            days: String(FIXED_WINDOW_DAYS),
-            limit: String(perTickerLimit),
+        const runHotQuery = async ({ days, tickerList }) => {
+          const generalQ = new URLSearchParams({
+            days: String(days),
+            limit: String(nextLimit),
           })
-          return get(`/api/news?${qHot.toString()}`)
-        })
-        const settled = await Promise.allSettled([get(`/api/news?${generalQ.toString()}`), ...hotTasks])
-        const mergedRaw = settled.flatMap((res) =>
-          res.status === 'fulfilled' && Array.isArray(res.value?.items) ? res.value.items : [],
-        )
-        const merged = mergeNews(mergedRaw, [], nextLimit)
+          const perTickerLimit = Math.max(4, Math.ceil(nextLimit / 2))
+          const hotTasks = tickerList.map((sym) => {
+            const qHot = new URLSearchParams({
+              company: '',
+              ticker: sym,
+              days: String(days),
+              limit: String(perTickerLimit),
+            })
+            return get(`/api/news?${qHot.toString()}`, { timeoutMs: 18000 })
+          })
+          const settled = await Promise.allSettled([get(`/api/news?${generalQ.toString()}`, { timeoutMs: 18000 }), ...hotTasks])
+          const mergedRaw = settled.flatMap((res) => settledItems(res))
+          const merged = mergeNews(mergedRaw, [], nextLimit)
+          const errors = settled.map((res) => settledErrorText(res)).filter(Boolean)
+          return { merged, errors }
+        }
+
+        const primaryHot = await runHotQuery({ days: FIXED_WINDOW_DAYS, tickerList: TRENDING_NEWS_TICKERS })
+        let merged = primaryHot.merged
+        let hotErrors = primaryHot.errors
+
+        if (!merged.length) {
+          const fallbackTickerSet = Array.from(new Set([...TRENDING_NEWS_TICKERS, ...HOT_COMPANY_TICKERS, 'GOOGL', 'META']))
+          const fallbackHot = await runHotQuery({ days: HOT_FALLBACK_WINDOW_DAYS, tickerList: fallbackTickerSet })
+          merged = fallbackHot.merged
+          hotErrors = [...hotErrors, ...fallbackHot.errors]
+        }
+
+        if (!merged.length) {
+          const cached = readNewsCache()
+          if (cached?.items?.length) {
+            merged = cached.items.slice(0, Math.max(1, Number(nextLimit || DEFAULT_LIMIT)))
+            setError('Live news providers returned no headlines. Showing cached headlines.')
+          } else {
+            const detail = hotErrors[0] || ''
+            setError(detail ? `No recent headlines returned: ${detail}` : 'No recent headlines available right now. Please retry shortly.')
+          }
+        }
+
         setItems(merged)
         writeNewsCache({
           ts: Date.now(),
@@ -455,7 +492,7 @@ export default function NewsPage() {
           limit: String(nextLimit),
         })
         const shouldRunFallback = Boolean(companyNorm && tickerNorm)
-        const tasks = [get(`/api/news?${qPrimary.toString()}`)]
+        const tasks = [get(`/api/news?${qPrimary.toString()}`, { timeoutMs: 18000 })]
 
         if (shouldRunFallback) {
           const qFallback = new URLSearchParams({
@@ -464,7 +501,7 @@ export default function NewsPage() {
             days: String(FIXED_WINDOW_DAYS),
             limit: String(Math.max(nextLimit * 2, 12)),
           })
-          tasks.push(get(`/api/news?${qFallback.toString()}`))
+          tasks.push(get(`/api/news?${qFallback.toString()}`, { timeoutMs: 18000 }))
         }
 
         const settled = await Promise.allSettled(tasks)
@@ -474,6 +511,10 @@ export default function NewsPage() {
           settled[1]?.status === 'fulfilled' && Array.isArray(settled[1].value?.items) ? settled[1].value.items : []
 
         const merged = mergeNews(primaryItems, fallbackItems, nextLimit)
+        if (!merged.length) {
+          const errs = settled.map((res) => settledErrorText(res)).filter(Boolean)
+          if (errs.length) setError(errs[0])
+        }
         setItems(merged)
         writeNewsCache({
           ts: Date.now(),

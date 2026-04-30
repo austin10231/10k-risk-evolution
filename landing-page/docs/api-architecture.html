@@ -34,30 +34,34 @@
     </div>
 
     <section class="mt-6 bg-white border border-blue-100 rounded-2xl p-6 shadow-sm">
-      <p class="text-slate-600">This page documents the service flow across ingestion, extraction, intelligence, and monitoring. You can add your architecture diagram below.</p>
+      <p class="text-slate-600">This page summarizes the current production flow from unified chat input to tool routing, extraction, storage, and analytical delivery.</p>
 
-      <div class="mt-5 grid md:grid-cols-4 gap-3 text-sm">
+      <div class="mt-5 grid md:grid-cols-5 gap-3 text-sm">
         <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-          <p class="font-semibold text-blue-900">Ingestion</p>
-          <p class="text-slate-600 mt-1">Manual upload / SEC auto-fetch</p>
+          <p class="font-semibold text-blue-900">Input Layer</p>
+          <p class="text-slate-600 mt-1">Global chat composer + optional file attachment</p>
         </div>
         <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-          <p class="font-semibold text-blue-900">Extraction</p>
-          <p class="text-slate-600 mt-1">Risk parsing + Textract tables</p>
+          <p class="font-semibold text-blue-900">Intent Router</p>
+          <p class="text-slate-600 mt-1">general_chat / risk / compare / stock / news</p>
         </div>
         <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-          <p class="font-semibold text-blue-900">Intelligence</p>
-          <p class="text-slate-600 mt-1">Bedrock agent scoring & reasoning</p>
+          <p class="font-semibold text-blue-900">Tool Execution</p>
+          <p class="text-slate-600 mt-1">Upload, extraction, compare, market/news retrieval</p>
         </div>
         <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-          <p class="font-semibold text-blue-900">Delivery</p>
-          <p class="text-slate-600 mt-1">Dashboard / Stock / News</p>
+          <p class="font-semibold text-blue-900">Model + Memory</p>
+          <p class="text-slate-600 mt-1">Bedrock model response + AgentCore orchestration + multi-turn conversation context</p>
+        </div>
+        <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+          <p class="font-semibold text-blue-900">Persistence & Delivery</p>
+          <p class="text-slate-600 mt-1">S3/records sync + dashboard + in-chat structured output</p>
         </div>
       </div>
 
       <div class="mt-6 rounded-2xl border border-blue-200 bg-blue-50/40 p-5">
         <p class="text-sm uppercase tracking-wide text-blue-700 font-semibold">System Architecture</p>
-        <p class="mt-2 text-slate-600">Full workflow diagram for ingestion, AI analysis, storage, and delivery layers.</p>
+        <p class="mt-2 text-slate-600">End-to-end architecture view including routing policy, tool chain, and response contracts.</p>
         <div class="mt-4 rounded-xl border border-blue-200 bg-white p-3">
           <img
             src="../assets/architecture/system-architecture-cropped.svg"
@@ -72,7 +76,7 @@
       </div>
 
       <div class="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        Tip: Keep this page synced with deployment regions, Cognito auth flow, and external API dependencies.
+        Tip: Keep this page synced with deployment regions, Cognito auth flow, Bedrock model settings, and external data-provider dependencies.
       </div>
     </section>
   </main>
@@ -83,6 +87,18 @@
       "API Architecture": "API 架构",
       "Back to Home": "返回首页",
       "This page documents the service flow across ingestion, extraction, intelligence, and monitoring. You can add your architecture diagram below.": "本页用于说明从接入、提取、智能分析到监控的服务流程。你可以在下方放置系统架构图。",
+      "This page summarizes the current production flow from unified chat input to tool routing, extraction, storage, and analytical delivery.": "本页概述当前生产流程：从统一聊天输入到工具路由、提取、存储与分析交付。",
+      "Input Layer": "输入层",
+      "Global chat composer + optional file attachment": "全局聊天输入框 + 可选文件附件",
+      "Intent Router": "意图路由层",
+      "general_chat / risk / compare / stock / news": "general_chat / risk / compare / stock / news",
+      "Tool Execution": "工具执行层",
+      "Upload, extraction, compare, market/news retrieval": "上传、提取、对比、市场/新闻数据检索",
+      "Model + Memory": "模型与记忆层",
+      "Bedrock LLM response + multi-turn conversation context": "Bedrock 大模型回复 + 多轮会话上下文",
+      "Bedrock model response + AgentCore orchestration + multi-turn conversation context": "Bedrock 模型回复 + AgentCore 编排 + 多轮会话上下文",
+      "Persistence & Delivery": "存储与交付层",
+      "S3/records sync + dashboard + in-chat structured output": "S3/records 同步 + dashboard + 聊天内结构化输出",
       "Ingestion": "接入",
       "Manual upload / SEC auto-fetch": "手动上传 / SEC 自动抓取",
       "Extraction": "提取",
@@ -93,8 +109,10 @@
       "Dashboard / Stock / News": "看板 / 股票 / 新闻",
       "System Architecture": "系统架构图",
       "Full workflow diagram for ingestion, AI analysis, storage, and delivery layers.": "展示从接入、AI 分析、存储到结果交付的完整流程。",
+      "End-to-end architecture view including routing policy, tool chain, and response contracts.": "展示包含路由策略、工具链与响应协议的端到端架构视图。",
       "Diagram file not found at `landing-page/assets/architecture/system-architecture-cropped.svg`": "未找到架构图文件：landing-page/assets/architecture/system-architecture-cropped.svg",
       "Tip: Keep this page synced with deployment regions, Cognito auth flow, and external API dependencies.": "提示：请保持此页与部署区域、Cognito 认证流程及外部 API 依赖一致。",
+      "Tip: Keep this page synced with deployment regions, Cognito auth flow, Bedrock model settings, and external data-provider dependencies.": "提示：请保持此页与部署区域、Cognito 认证流程、Bedrock 模型配置及外部数据源依赖一致。",
       "Language": "语言"
     };
     window.RiskLensLang.mountSwitcher({

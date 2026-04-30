@@ -123,6 +123,11 @@
       margin-inline: auto;
       padding-inline: clamp(1rem, 1.6vw, 2.25rem);
     }
+    .content-shell {
+      width: min(88vw, 1380px);
+      margin-inline: auto;
+      padding-inline: clamp(1rem, 2.2vw, 2.75rem);
+    }
     .hero-preview-panel {
       background: linear-gradient(155deg, rgba(37, 99, 235, 0.08), rgba(6, 182, 212, 0.06));
     }
@@ -143,7 +148,7 @@
           <div class="hidden lg:flex items-center gap-2">
             <div class="nav-dropdown relative">
               <button class="px-3 py-2 rounded-lg text-sm font-semibold text-brand-800 hover:bg-brand-50">Product ▾</button>
-              <div class="nav-dropdown-menu absolute left-0 top-full mt-2 w-60 bg-white border border-brand-100 rounded-xl shadow-card p-2">
+              <div class="nav-dropdown-menu absolute left-0 top-full w-60 bg-white border border-brand-100 rounded-xl shadow-card p-2">
                 <a href="#product" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Platform Overview</a>
                 <a href="#features" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Core Features</a>
                 <a href="#use-cases" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Use Cases</a>
@@ -153,7 +158,7 @@
 
             <div class="nav-dropdown relative">
               <button class="px-3 py-2 rounded-lg text-sm font-semibold text-brand-800 hover:bg-brand-50">Pricing ▾</button>
-              <div class="nav-dropdown-menu absolute left-0 top-full mt-2 w-56 bg-white border border-brand-100 rounded-xl shadow-card p-2">
+              <div class="nav-dropdown-menu absolute left-0 top-full w-56 bg-white border border-brand-100 rounded-xl shadow-card p-2">
                 <a href="#pricing" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Plans</a>
                 <a href="#pricing" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Enterprise Contact</a>
               </div>
@@ -161,7 +166,7 @@
 
             <div class="nav-dropdown relative">
               <button class="px-3 py-2 rounded-lg text-sm font-semibold text-brand-800 hover:bg-brand-50">Docs ▾</button>
-              <div class="nav-dropdown-menu absolute left-0 top-full mt-2 w-56 bg-white border border-brand-100 rounded-xl shadow-card p-2">
+              <div class="nav-dropdown-menu absolute left-0 top-full w-56 bg-white border border-brand-100 rounded-xl shadow-card p-2">
                 <a href="./docs/quick-start.html" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">Quick Start</a>
                 <a href="./docs/faq.html" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">FAQ</a>
                 <a href="./docs/api-architecture.html" class="block px-3 py-2 text-sm rounded-lg hover:bg-brand-50 text-slate-700">API Architecture</a>
@@ -218,63 +223,50 @@
 
   <main id="top" class="relative z-10 pt-28 pb-16">
     <section class="page-shell" id="product">
-      <div class="relative ring-border rounded-3xl p-8 md:p-10 bg-white/90 border border-brand-100 shadow-soft" data-aos="fade-up">
+      <div class="relative ring-border rounded-3xl p-[43px] md:p-[65px] bg-white/88 border border-brand-100 shadow-soft" data-aos="fade-up">
         <div class="hero-glow"></div>
-        <div class="grid lg:grid-cols-[minmax(0,1.12fr)_minmax(320px,0.88fr)] gap-8 items-stretch">
+        <div class="grid lg:grid-cols-[minmax(0,1.04fr)_minmax(390px,0.96fr)] gap-7 md:gap-9 items-start">
           <div>
-            <span class="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 text-brand-700 px-3 py-1 text-xs font-semibold">Upgraded SEC 10-K Intelligence Platform</span>
-            <h1 class="font-display mt-4 text-4xl md:text-6xl leading-tight font-bold text-slate-900 max-w-4xl">
-              From filing ingestion to risk decisions, in one modern AI workspace.
+            <span class="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 text-brand-700 px-3 py-1 text-xs font-semibold">SEC 10-K Intelligence Platform</span>
+            <h1 class="font-display mt-6 text-3xl md:text-5xl leading-[1.12] md:leading-[1.16] font-bold text-slate-900 max-w-4xl tracking-[-0.01em]">
+              From complex filings to clear risk insights
             </h1>
-            <p class="mt-4 text-slate-600 text-lg leading-relaxed max-w-3xl">
-              RiskLens AI was rebuilt for end-to-end workflow speed: ingest filings, extract risk and table signals, compare across years, and answer natural-language questions with business-aware tools.
-            </p>
-            <p class="mt-3 text-sm font-medium text-brand-700">
-              Powered by AWS Bedrock, Textract, and secure cloud storage for production-ready reliability.
+            <p class="mt-8 text-slate-600 text-base md:text-[1.15rem] leading-9 max-w-3xl">
+              RiskLens AI is an end-to-end platform that transforms complex financial filings into actionable risk insights. It enables users to extract key signals, compare risks across time, and interact with data through intelligent, business-aware tools.
             </p>
 
-            <div class="mt-6 flex flex-wrap gap-2 text-xs">
+            <div class="mt-9 flex flex-wrap gap-2 text-xs">
               <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">AWS Bedrock</span>
+              <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">AWS AgentCore</span>
               <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Amazon Textract</span>
               <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">S3 Persistence</span>
               <span class="px-3 py-1 rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700 font-semibold">News + Market Linkage</span>
             </div>
 
-            <div class="mt-8 flex flex-wrap gap-3">
+            <div class="mt-11 flex flex-wrap gap-3">
               <a href="./auth/index.html?mode=signin" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-gradient-to-r from-brand-600 to-cyan-500 text-white font-semibold shadow-soft hover:opacity-95 transition">Get Started</a>
-              <a href="#demo-slot" class="inline-flex items-center justify-center px-6 py-3 rounded-xl border border-brand-200 text-brand-800 font-semibold hover:bg-brand-50 transition">Watch Demo</a>
-              <a href="./team/index.html" class="inline-flex items-center justify-center px-6 py-3 rounded-xl border border-brand-200 text-brand-800 font-semibold hover:bg-brand-50 transition">Know Our Team</a>
+              <a href="#demo-slot" class="inline-flex items-center justify-center px-6 py-3 rounded-xl border border-brand-300 bg-white/72 text-brand-800 font-semibold hover:bg-brand-50 transition">Watch Demo</a>
+              <a href="./team/index.html" class="inline-flex items-center justify-center px-6 py-3 rounded-xl border border-brand-300 bg-white/72 text-brand-800 font-semibold hover:bg-brand-50 transition">Know Our Team</a>
             </div>
           </div>
 
-          <aside id="demo-slot" class="hero-preview-panel rounded-2xl border border-brand-200/70 shadow-card p-4 md:p-5 flex flex-col">
-            <div class="flex items-center justify-between gap-3">
-              <p class="text-sm font-semibold text-slate-800">Product Feature Preview</p>
-              <span class="text-[11px] font-semibold text-brand-700 bg-white/80 border border-brand-200 rounded-full px-2.5 py-1">Reserved Slot</span>
-            </div>
-            <div class="mt-3 flex-1 min-h-[280px] rounded-xl border-2 border-dashed border-brand-200 bg-white/72 overflow-hidden">
-              <object data="./assets/demo.png" type="image/png" class="h-full w-full">
-                <div class="h-full w-full grid place-items-center text-center px-5">
-                  <div>
-                    <div class="mx-auto h-12 w-12 rounded-xl bg-brand-50 border border-brand-200 flex items-center justify-center text-xl">🖼️</div>
-                    <p class="mt-3 text-sm font-semibold text-slate-700">Place demo.png in landing-page/assets to show your screenshot.</p>
-                    <p class="mt-1 text-xs text-slate-500">Suggested ratio: 16:10 or 16:9 for best hero fit.</p>
-                  </div>
-                </div>
-              </object>
-            </div>
-            <p class="mt-3 text-xs text-slate-500">This area sits next to the title and Watch Demo CTA by design.</p>
+          <aside id="demo-slot" class="self-center w-full">
+            <img
+              src="./assets/demo.png"
+              alt="RiskLens product preview"
+              class="w-full aspect-[20/10] object-cover object-center rounded-2xl shadow-card"
+            />
           </aside>
         </div>
       </div>
     </section>
 
-    <section id="features" class="page-shell mt-20">
+    <section id="features" class="content-shell mt-20">
       <div class="flex items-center gap-3 mb-8" data-aos="fade-up">
         <div class="section-title-bar"></div>
         <div>
           <h2 class="font-display text-2xl font-bold text-slate-900">Core Features</h2>
-          <p class="text-slate-500 text-sm">Three connected layers designed for modern risk-intelligence operations.</p>
+          <p class="text-slate-500 text-sm">Three production layers matching the current RiskLens workflow and agent behavior.</p>
         </div>
       </div>
 
@@ -284,7 +276,7 @@
             <div>
               <p class="text-xs font-bold tracking-widest text-brand-700 uppercase">Layer 1 · Data Foundation</p>
               <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Ingestion & Structuring Pipeline</h3>
-              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Convert mixed-source filings into clean, queryable records with minimal analyst overhead.</p>
+              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Support manual/auto filing ingestion plus chat attachment flow, then persist normalized records for dashboard and history reuse.</p>
               <p class="mt-2 text-xs font-semibold text-amber-700">Powered by AWS S3 + Amazon Textract</p>
             </div>
             <div class="flex flex-wrap gap-2">
@@ -299,14 +291,14 @@
           <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
               <p class="text-xs font-bold tracking-widest text-cyan-700 uppercase">Layer 2 · Intelligence Engine</p>
-              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Risk Reasoning & Change Detection</h3>
-              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Route user intent, call the right tools, and prioritize material deltas through explainable AI scoring.</p>
-              <p class="mt-2 text-xs font-semibold text-amber-700">Powered by Amazon Bedrock</p>
+              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Intent Router, Agent Orchestration & Risk Reasoning</h3>
+              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Classify intents into chat/risk/compare/stock/news, orchestrate tool calls via agent runtime, and keep multi-turn memory consistent.</p>
+              <p class="mt-2 text-xs font-semibold text-amber-700">Powered by Amazon Bedrock + AWS AgentCore</p>
             </div>
             <div class="flex flex-wrap gap-2">
               <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">⚖️ Compare</span>
               <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">🤖 Agent</span>
-              <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">🧠 Bedrock</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">🧠 Bedrock + AgentCore</span>
             </div>
           </div>
         </article>
@@ -316,7 +308,7 @@
             <div>
               <p class="text-xs font-bold tracking-widest text-amber-700 uppercase">Layer 3 · Decision Interface</p>
               <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Monitoring with Market & News Context</h3>
-              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Translate filing-level findings into market-aware answers by combining stock and headline context in one interface.</p>
+              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Answer stock/news questions directly in chat without forced navigation, while keeping dashboard, records, and conversation state aligned.</p>
               <p class="mt-2 text-xs font-semibold text-amber-700">AWS-integrated data pipelines across market and news context</p>
             </div>
             <div class="flex flex-wrap gap-2">
@@ -329,7 +321,7 @@
       </div>
     </section>
 
-    <section id="use-cases" class="page-shell mt-20">
+    <section id="use-cases" class="content-shell mt-20">
       <div class="flex items-center gap-3 mb-8" data-aos="fade-up">
         <div class="section-title-bar"></div>
         <div>
@@ -357,7 +349,7 @@
       </div>
     </section>
 
-    <section id="pricing" class="page-shell mt-20">
+    <section id="pricing" class="content-shell mt-20">
       <div class="flex items-center gap-3 mb-8" data-aos="fade-up">
         <div class="section-title-bar"></div>
         <div>
@@ -408,7 +400,7 @@
       </div>
     </section>
 
-    <section id="docs" class="page-shell mt-20">
+    <section id="docs" class="content-shell mt-20">
       <div class="flex items-center gap-3 mb-8" data-aos="fade-up">
         <div class="section-title-bar"></div>
         <div>
@@ -445,7 +437,7 @@
   </main>
 
   <section class="relative z-10 mt-20 bg-slate-900 text-slate-300 border-t border-slate-800">
-    <div class="page-shell py-14">
+    <div class="content-shell py-14">
       <div class="grid lg:grid-cols-5 gap-8">
         <div class="lg:col-span-2">
           <img src="./assets/logo.svg" alt="RiskLens AI" class="h-10 w-auto object-contain opacity-95" onerror="this.outerHTML='<div class=&quot;text-3xl&quot;>📊</div>';" />
@@ -578,10 +570,16 @@
       "Upgraded SEC 10-K Intelligence Platform": "升级版 SEC 10-K 智能分析平台",
       "Turn 10-K filings into structured risk intelligence.": "将 10-K 文件转化为结构化风险智能。",
       "From filing ingestion to risk decisions, in one modern AI workspace.": "从文件接入到风险决策，在一个现代化 AI 工作台中完成。",
+      "From filings to risk decisions.": "从文件到风险决策。",
+      "Turn filing complexity into clear risk decisions.": "将披露复杂性转化为清晰的风险决策。",
+      "From complex filings to clear risk insights.": "从复杂披露到清晰风险洞察。",
+      "From complex filings to clear risk insights": "从复杂披露到清晰风险洞察",
       "Upload or auto-fetch filings, extract risk factors and financial tables, compare year-over-year changes, and connect risk with stock and news context in one analyst-ready workflow.": "支持上传或自动抓取文件，提取风险项与财务报表，对比年度变化，并将风险与股价及新闻联动，形成面向分析师的一体化工作流。",
       "RiskLens AI was rebuilt for end-to-end workflow speed: ingest filings, extract risk and table signals, compare across years, and answer natural-language questions with business-aware tools.": "RiskLens AI 已完成重构升级：更快完成文件接入、风险与表格信号提取、跨年对比，并通过业务工具路由回答自然语言问题。",
+      "RiskLens AI is an end-to-end platform that transforms complex financial filings into actionable risk insights. It enables users to extract key signals, compare risks across time, and interact with data through intelligent, business-aware tools.": "RiskLens AI 是一个端到端平台，可将复杂财务披露转化为可执行的风险洞察。它帮助用户提取关键信号、跨时间对比风险，并通过智能且具备业务语境的工具与数据交互。",
       "In collaboration with AWS technologies for AI, document extraction, and secure cloud persistence.": "依托 AWS 的 AI、文档提取与安全云存储能力协同构建。",
       "Powered by AWS Bedrock, Textract, and secure cloud storage for production-ready reliability.": "由 AWS Bedrock、Textract 与安全云存储提供支撑，满足生产级可靠性需求。",
+      "Powered by AWS Bedrock, AWS AgentCore, Textract, and secure cloud storage for production-ready reliability.": "由 AWS Bedrock、AWS AgentCore、Textract 与安全云存储提供支撑，满足生产级可靠性需求。",
       "Product Feature Preview": "产品功能预览",
       "Reserved Slot": "预留位置",
       "Drop your product screenshot here later.": "后续可在这里放置你的产品截图。",
@@ -589,6 +587,7 @@
       "Suggested ratio: 16:10 or 16:9 for best hero fit.": "建议比例：16:10 或 16:9，展示效果最佳。",
       "This area sits next to the title and Watch Demo CTA by design.": "该区域按设计与标题和 Watch Demo 按钮并排展示。",
       "AWS Bedrock": "AWS Bedrock",
+      "AWS AgentCore": "AWS AgentCore",
       "Amazon Textract": "Amazon Textract",
       "S3 Persistence": "S3 持久化",
       "News + Market Linkage": "新闻 + 市场联动",
@@ -596,10 +595,12 @@
       "Watch Demo": "观看演示",
       "Three capability layers from ingestion to market-aware decisions.": "从数据接入到市场决策的三层能力。",
       "Three connected layers designed for modern risk-intelligence operations.": "面向现代风险情报运营设计的三层联动能力。",
+      "Three production layers matching the current RiskLens workflow and agent behavior.": "与当前 RiskLens 工作流和智能体行为一致的三层生产能力。",
       "Layer 1 · Data Foundation": "第 1 层 · 数据基础",
       "Ingestion & Structuring Pipeline": "数据接入与结构化流水线",
       "Build clean, persistent filing datasets from mixed formats with minimal manual work.": "以最少人工操作，从多种格式构建可复用、可持久化的申报数据集。",
       "Convert mixed-source filings into clean, queryable records with minimal analyst overhead.": "将多来源文件转换为干净、可查询记录，显著降低分析师操作负担。",
+      "Support manual/auto filing ingestion plus chat attachment flow, then persist normalized records for dashboard and history reuse.": "支持手动/自动文件接入与聊天附件流程，并将标准化记录持久化供 dashboard 与历史会话复用。",
       "Powered by AWS S3 + Amazon Textract": "由 AWS S3 + Amazon Textract 提供支持",
       "📤 Upload": "📤 上传",
       "📊 Tables": "📊 报表",
@@ -609,13 +610,18 @@
       "Detect what changed across filings and prioritize what matters using multi-factor AI scoring.": "通过多因子 AI 评分识别申报变化并排序最关键风险。",
       "Route user intent, call the right tools, and prioritize material deltas through explainable AI scoring.": "自动识别用户意图并调用对应工具，通过可解释 AI 评分突出关键变化。",
       "Powered by Amazon Bedrock": "由 Amazon Bedrock 提供支持",
+      "Intent Router, Agent Orchestration & Risk Reasoning": "意图路由、智能体编排与风险推理",
+      "Classify intents into chat/risk/compare/stock/news, orchestrate tool calls via agent runtime, and keep multi-turn memory consistent.": "将意图分类为 chat/risk/compare/stock/news，通过智能体运行时编排工具调用，并保持多轮记忆一致。",
+      "Powered by Amazon Bedrock + AWS AgentCore": "由 Amazon Bedrock + AWS AgentCore 提供支持",
       "⚖️ Compare": "⚖️ 对比",
       "🤖 Agent": "🤖 智能体",
       "🧠 Bedrock": "🧠 Bedrock",
+      "🧠 Bedrock + AgentCore": "🧠 Bedrock + AgentCore",
       "Layer 3 · Decision Interface": "第 3 层 · 决策界面",
       "Monitoring with Market & News Context": "结合市场与新闻语境的监控",
       "Connect filing risk outputs with market movement and headline pressure for clearer decisions.": "将文件风险输出与市场波动、新闻压力联动，辅助更清晰的决策。",
       "Translate filing-level findings into market-aware answers by combining stock and headline context in one interface.": "在统一界面融合股票与新闻语境，把文件层风险结果转化为面向市场的可执行结论。",
+      "Answer stock/news questions directly in chat without forced navigation, while keeping dashboard, records, and conversation state aligned.": "在聊天中直接回答股票/新闻问题，不强制跳转页面，同时保持 dashboard、records 与会话状态一致。",
       "AWS-integrated data pipelines across market and news context": "覆盖市场与新闻语境的 AWS 集成数据管道",
       "📈 Dashboard": "📈 看板",
       "💹 Stock": "💹 股票",

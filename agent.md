@@ -1,143 +1,126 @@
-# AGENTS.md
+# RiskLens 快速定位手册（给 Codex）
 
-## Purpose
-This file defines how the agent (Codex) should work on this project, especially for frontend UI improvements.
-
----
-
-## General Rules
-
-- Do NOT change business logic unless explicitly requested.
-- Do NOT modify backend, API, or data flow unless clearly instructed.
-- Only focus on the requested scope.
-- Prefer minimal, clean, and maintainable changes.
-- Avoid unnecessary rewrites of unrelated files.
+目的：减少每次改代码前的全项目扫描时间，先看对的文件。
 
 ---
 
-## Workflow (MANDATORY)
+## 0) 每次开始前的最短路径（强制）
 
-When working on frontend UI:
+1. 先看本文件 `agent.md`（当前手册）。
+2. 再看 `AGENTS.md`（push 规则、分支规则）。
+3. 根据任务类型，只进入对应模块（见下文“任务入口索引”）。
 
-1. **Inspect first**
-   - Understand existing structure (components, layout, CSS, Tailwind, etc.)
-   - Identify current design issues
-
-2. **If design direction is unclear**
-   - Propose 2–3 UI design directions (e.g., modern SaaS, minimal, creative)
-   - Briefly describe each (layout, typography, spacing, colors)
-   - WAIT for confirmation before coding
-
-3. **Plan before coding**
-   - Provide a short improvement plan (what will be changed and why)
-
-4. **Then implement**
-   - Apply changes step-by-step
-   - Do NOT break functionality
-
-5. **After implementation**
-   - Review visual consistency
-   - Ensure responsive design
-   - Summarize what was changed
+默认不要全仓 `find + read`。
 
 ---
 
-## Frontend Design Principles
+## 1) 默认技术栈判断（非常重要）
 
-The UI should feel **production-ready**, not like a default template.
+当前线上主流程优先级：
 
-### Layout
-- Clear visual hierarchy (title → section → content)
-- Use spacing to separate sections
-- Avoid cluttered layouts
-- Align elements properly
+- 前端主界面：`frontend/src/*`（React）
+- 后端 API / Agent Runtime：`agentcore_deploy/main.py` + `agentcore_deploy/chat_agent.py`
 
-### Spacing
-- Use consistent spacing (prefer 8px system: 8, 16, 24, 32...)
-- Add enough padding inside cards and sections
-- Avoid elements being too close together
+历史遗留（默认不看）：
 
-### Typography
-- Use clear hierarchy:
-  - Large, bold headings
-  - Medium section titles
-  - Subtle secondary text
-- Avoid too many font styles
-- Keep text readable
-
-### Components
-- Cards should:
-  - Have padding
-  - Rounded corners
-  - Subtle shadows or borders
-- Buttons should:
-  - Have hover states
-  - Look clickable and polished
-- Inputs should:
-  - Be aligned and consistent
-  - Have focus states
-
-### Colors
-- Use a consistent color system
-- Avoid random or conflicting colors
-- Prefer:
-  - Neutral background
-  - One primary color
-  - Subtle accent colors
-
-### Visual Quality
-- Avoid default/plain HTML look
-- Avoid inconsistent styles
-- UI should look like a real product (SaaS-level quality)
+- `views/*`、`app.py` 这套是旧的 Streamlit 路径，除非用户明确说“改 Streamlit 版本”，否则不要优先进入。
 
 ---
 
-## Responsiveness
+## 2) 任务入口索引（按需求类型）
 
-- UI must work on different screen sizes
-- Avoid fixed widths when possible
-- Ensure layout adapts properly (mobile/tablet/desktop)
+### A. 改 Agent 逻辑（意图识别、tool 路由、输出结构）
+优先看：
+
+1. `agentcore_deploy/chat_agent.py`（intent/router/对话决策）
+2. `agentcore_deploy/main.py`（tool 实现、API 暴露、provider fallback）
+3. `frontend/src/lib/workspaceChat.jsx`（前端如何消费 agent 返回）
+
+### B. 改聊天体验（输入框、发送、IME、附件、消息样式）
+优先看：
+
+1. `frontend/src/components/FloatingChatWidget.jsx`
+2. `frontend/src/lib/workspaceChat.jsx`
+3. `frontend/src/lib/chatMemory.jsx`
+4. `frontend/src/index.css`
+5. `frontend/src/components/AppShell.jsx`（全局布局/底部 dock）
+
+### C. 改 API 请求、超时、错误处理
+优先看：
+
+1. `frontend/src/lib/api.js`
+2. `agentcore_deploy/main.py`（对应 `/api/*` 路由）
+
+### D. 改上传/记录/仪表盘数据链路
+优先看：
+
+1. `agentcore_deploy/main.py`（`/api/upload/*`、`/api/dashboard/*`）
+2. `frontend/src/pages/UploadPage.jsx`
+3. `frontend/src/pages/LibraryPage.jsx`
+4. `frontend/src/pages/DashboardPage.jsx`
+
+### E. 改 Landing Page（官网）
+优先看：
+
+1. `landing-page/index.html`
+2. `landing-page/docs/*`
+3. `landing-page/assets/*`
 
 ---
 
-## Code Quality
+## 3) 页面到文件映射（前端 React）
 
-- Prefer reusable components
-- Keep code clean and readable
-- Follow existing project structure
-- Do not introduce unnecessary dependencies
+- Home：`frontend/src/pages/HomePage.jsx`
+- Upload & Records：`frontend/src/pages/UploadPage.jsx`、`frontend/src/pages/LibraryPage.jsx`
+- Stock：`frontend/src/pages/StockPage.jsx`
+- News：`frontend/src/pages/NewsPage.jsx`
+- Dashboard：`frontend/src/pages/DashboardPage.jsx`
+- Compare：`frontend/src/pages/ComparePage.jsx`
+- Tables：`frontend/src/pages/TablesPage.jsx`
+- Agent Chat 主页：`frontend/src/pages/AgentPage.jsx`
+- 全局壳与导航：`frontend/src/components/AppShell.jsx`
+- 全局样式：`frontend/src/index.css`
 
----
+路由入口：
 
-## What NOT to do
-
-- Do NOT randomly redesign everything without a plan
-- Do NOT ignore existing styles/components
-- Do NOT break layout responsiveness
-- Do NOT introduce inconsistent design patterns
-- Do NOT overcomplicate the UI
-
----
-
-## When the user is unsure about UI
-
-If the user says things like:
-- "make it better"
-- "optimize UI"
-- "not good-looking"
-
-You MUST:
-1. Analyze current UI
-2. Propose multiple design directions
-3. Wait for user to choose
-4. Then implement
+- `frontend/src/App.jsx`
 
 ---
 
-## Goal
+## 4) 后端 API 到文件映射（AgentCore）
 
-The final result should:
-- Look modern and polished
-- Be clean and easy to use
-- Maintain consistency across the app
-- Feel like a real production product
+统一入口：
+
+- `agentcore_deploy/main.py`
+
+常用 API：
+
+- `/api/news`：新闻聚合与 fallback（Marketaux / TheNewsAPI / Currents）
+- `/api/stock/quote`：股票数据（TwelveData / FMP / Yahoo / Stooq fallback）
+- `/api/dashboard/summary`：Dashboard 聚合
+- `/api/upload/manual`、`/api/upload/auto-fetch`
+- `/api/agent/query`：聊天代理查询
+
+意图/对话编排：
+
+- `agentcore_deploy/chat_agent.py`
+
+---
+
+## 5) 默认排查顺序（避免走弯路）
+
+1. 先确认问题发生在哪一层：前端展示 vs API 返回 vs Agent 路由。
+2. 先看“页面文件 + 对应 API”这两个点，不要先扫全项目。
+3. 只在以下情况进入旧 Streamlit 代码：
+   - 用户明确点名 `views/*` 或 `app.py`
+   - React 页面查不到对应实现
+   - 需要对比历史逻辑迁移
+
+---
+
+## 6) 变更范围规则
+
+- 非需求范围文件不要改。
+- 能小改就不大改。
+- 每次完成后更新 `PROJECT_CHANGELOG_CN.md`（简明记录改了什么）。
+

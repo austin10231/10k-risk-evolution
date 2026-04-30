@@ -103,8 +103,11 @@ export default function DashboardPage() {
     if (!background) setLoading(!hasCache)
     setError('')
 
-    dashboardSummaryCache.inFlight = get('/api/dashboard/summary').then((summaryRes) => {
+    dashboardSummaryCache.inFlight = get('/api/dashboard/summary', { timeoutMs: 20000 }).then((summaryRes) => {
       const nextData = summaryRes?.data || null
+      if (!nextData || typeof nextData !== 'object') {
+        throw new Error('Dashboard summary returned empty payload.')
+      }
       dashboardSummaryCache.data = nextData
       dashboardSummaryCache.ts = Date.now()
       return nextData
@@ -192,7 +195,7 @@ export default function DashboardPage() {
     if (total <= 0 || withPriority >= total) return
 
     autoEnsuredRef.current = true
-    post('/api/dashboard/ensure-priority', {})
+    post('/api/dashboard/ensure-priority', {}, { timeoutMs: 30000 })
       .then((res) => {
         if (safeNumber(res?.updated) > 0) load({ force: true, background: true })
       })
