@@ -732,7 +732,7 @@ select.input {
 .rl-workspace-top-controls {
   position: absolute;
   right: 24px;
-  top: 12px;
+  top: 16px;
   display: inline-flex;
   gap: 7px;
   z-index: 3;
@@ -752,7 +752,7 @@ select.input {
   font-weight: 700;
   letter-spacing: 0.01em;
   cursor: pointer;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5), 0 6px 14px rgba(15, 23, 42, 0.07);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.07);
   transition: all 0.18s ease;
 }
 
@@ -761,7 +761,7 @@ select.input {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(241, 245, 249, 0.82));
   color: #0f172a;
   transform: translateY(-0.5px);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.62), 0 8px 18px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
 }
 
 .rl-top-mini-icon {
@@ -814,7 +814,7 @@ select.input {
     radial-gradient(120% 110% at 20% 0%, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0) 62%),
     linear-gradient(180deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.9));
   color: #dbeafe;
-  box-shadow: 0 1px 0 rgba(148, 163, 184, 0.16), 0 8px 20px rgba(2, 6, 23, 0.28);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.28);
 }
 
 .rl-workspace-app.rl-theme-dark .rl-top-mini-tab:hover {
@@ -823,7 +823,7 @@ select.input {
     radial-gradient(120% 110% at 20% 0%, rgba(56, 189, 248, 0.24), rgba(56, 189, 248, 0) 62%),
     linear-gradient(180deg, rgba(51, 65, 85, 0.96), rgba(22, 31, 49, 0.95));
   color: #f8fafc;
-  box-shadow: 0 1px 0 rgba(186, 230, 253, 0.2), 0 10px 22px rgba(2, 6, 23, 0.34);
+  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.34);
 }
 
 .rl-workspace-app.rl-theme-dark .card,
