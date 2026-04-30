@@ -4,6 +4,18 @@ import { get } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 
 const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL']
+const SP100_TICKERS = [
+  'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'GOOG', 'META', 'BRK.B', 'JPM', 'JNJ',
+  'V', 'XOM', 'UNH', 'MA', 'PG', 'HD', 'CVX', 'MRK', 'ABBV', 'COST',
+  'AVGO', 'KO', 'PEP', 'WMT', 'BAC', 'CSCO', 'ACN', 'ADBE', 'CRM', 'TMO',
+  'MCD', 'DHR', 'ABT', 'LIN', 'NKE', 'QCOM', 'TXN', 'AMGN', 'HON', 'PM',
+  'ORCL', 'IBM', 'CAT', 'RTX', 'UPS', 'LOW', 'SPGI', 'GS', 'MS', 'BLK',
+  'SBUX', 'AMD', 'INTU', 'NOW', 'INTC', 'MDT', 'DE', 'GE', 'BKNG', 'ADP',
+  'SYK', 'ISRG', 'LRCX', 'MU', 'AMAT', 'PLD', 'SCHW', 'CB', 'MMC', 'CI',
+  'C', 'COP', 'TMUS', 'CMI', 'GILD', 'AXP', 'EL', 'SO', 'DUK', 'ZTS',
+  'EQIX', 'PGR', 'T', 'VZ', 'NFLX', 'DIS', 'BA', 'MO', 'USB', 'PNC',
+  'AON', 'ADI', 'KLAC', 'PANW', 'MDLZ', 'REGN', 'NEE', 'PYPL', 'ANET', 'LMT',
+]
 const RANGE_OPTIONS = ['1W', '1M', '3M', '6M', '1Y']
 const RANGE_SIZE = { '1W': 5, '1M': 22, '3M': 66, '6M': 132, '1Y': 252 }
 const MINI_CARD_RANGE = '3M'
@@ -20,6 +32,7 @@ const STOCK_RECENT_TICKERS_KEY = 'rl_stock_recent_tickers_v1'
 const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v2_'
 const STOCK_BUNDLE_LEGACY_PREFIXES = ['rl_stock_bundle_v1_']
 const STOCK_BUNDLE_TTL_MS = 1000 * 60 * 60 * 12
+const UNIVERSE_PREFETCH_LIMIT = 100
 
 const LOGO_DOMAIN_BY_TICKER = {
   AAPL: 'apple.com',
@@ -1569,6 +1582,30 @@ export default function StockPage() {
 
   useEffect(() => {
     const timers = []
+    const universe = mergeTickers(SP100_TICKERS)
+      .filter((tk) => !unsupportedTickerSet.has(tk))
+      .slice(0, UNIVERSE_PREFETCH_LIMIT)
+
+    universe.forEach((ticker, idx) => {
+      const timer = window.setTimeout(() => {
+        fetchBundle(ticker, {
+          preferCache: true,
+          silent: true,
+          skipIfFresh: true,
+          remember: false,
+          muteError: true,
+          muteStatus: true,
+          lite: true,
+        })
+      }, 900 + idx * 450)
+      timers.push(timer)
+    })
+
+    return () => timers.forEach((id) => window.clearTimeout(id))
+  }, [fetchBundle, unsupportedTickerSet])
+
+  useEffect(() => {
+    const timers = []
     MARKET_OVERVIEW_TICKERS.forEach((item, idx) => {
       const timer = window.setTimeout(() => {
         fetchBundle(item.ticker, {
@@ -1700,9 +1737,9 @@ export default function StockPage() {
   }, [effectiveUploadedCompanies])
 
   const trackedRows = useMemo(() => {
-    const tickers = mergeTickers(effectiveUploadedCompanies.map((c) => c.ticker), watchlist)
+    const tickers = mergeTickers(effectiveUploadedCompanies.map((c) => c.ticker), watchlist, SP100_TICKERS)
       .filter((tk) => !unsupportedTickerSet.has(tk))
-      .slice(0, 18)
+      .slice(0, 130)
     return tickers.map((tk) => {
       const meta = companyMapByTicker[tk] || {}
       const payload = bundleMap[tk]?.data || null

@@ -2083,6 +2083,31 @@ def _fmp_quote(symbol: str, api_key: str) -> dict:
     }
 
 
+def _fmp_profile(symbol: str, api_key: str) -> dict:
+    sym = str(symbol or "").strip().upper()
+    url = f"https://financialmodelingprep.com/api/v3/profile/{quote(sym)}?apikey={quote(api_key)}"
+    payload = _fmp_json(url)
+    rows = payload if isinstance(payload, list) else []
+    if not rows:
+        raise RuntimeError("empty profile response")
+    row = rows[0] if isinstance(rows[0], dict) else {}
+
+    return {
+        "symbol": row.get("symbol") or sym,
+        "name": row.get("companyName") or row.get("name") or sym,
+        "market_cap": _to_float(row.get("mktCap")),
+        "industry": row.get("industry") or "",
+        "sector": row.get("sector") or "",
+        "country": row.get("country") or "",
+        "full_time_employees": _to_float(row.get("fullTimeEmployees")),
+        "ceo": row.get("ceo") or "",
+        "description": row.get("description") or "",
+        "ipo_date": row.get("ipoDate") or "",
+        "exchange": row.get("exchangeShortName") or row.get("exchange") or "",
+        "shares_outstanding": _to_float(row.get("sharesOutstanding")),
+    }
+
+
 def _fmp_history(symbol: str, api_key: str) -> List[dict]:
     sym = str(symbol or "").strip().upper()
     url = (
@@ -2381,6 +2406,18 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
     def _need_quote_fields() -> bool:
         return any(v is None for v in [price, change, change_percent, market_cap, pe_ratio, high_52, low_52]) or not exchange
 
+    def _need_profile_fields() -> bool:
+        return (
+            not sector
+            or not industry
+            or not country
+            or full_time_employees in (None, 0)
+            or not ceo
+            or not ipo_date
+            or not long_description
+            or shares_outstanding in (None, 0)
+        )
+
     twelvedata_key = _twelvedata_api_key()
 
     if twelvedata_key and _provider_available("twelvedata") and _need_quote_fields():
@@ -2441,6 +2478,20 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
             exc = RuntimeError("; ".join(fmp_quote_attempts) if fmp_quote_attempts else "no quote response")
             _provider_mark_failure("fmp", exc)
             errors.append(f"fmp quote: {exc}")
+
+    if fmp_key and _provider_available("fmp") and _need_profile_fields():
+        fmp_profile, _, fmp_profile_attempts = _try_symbol_variants(
+            sym,
+            lambda candidate: _fmp_profile(candidate, fmp_key),
+            require_truthy=True,
+        )
+        if fmp_profile:
+            _apply_quote_fields("fmp", fmp_profile)
+            _provider_mark_success("fmp")
+        else:
+            exc = RuntimeError("; ".join(fmp_profile_attempts) if fmp_profile_attempts else "no profile response")
+            _provider_mark_failure("fmp", exc)
+            errors.append(f"fmp profile: {exc}")
 
     if fmp_key and _provider_available("fmp") and not history:
         fmp_hist, _, fmp_hist_attempts = _try_symbol_variants(
