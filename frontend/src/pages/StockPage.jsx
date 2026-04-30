@@ -1224,6 +1224,8 @@ export default function StockPage() {
   const { config } = useGlobalConfig()
   const navigate = useNavigate()
   const { ticker: routeTicker = '' } = useParams()
+  const routeSymbol = normalizeTicker(routeTicker || '')
+  const isCompanyView = Boolean(routeSymbol)
 
   const [selectedTicker, setSelectedTicker] = useState('AAPL')
   const [watchlist, setWatchlist] = useState(DEFAULT_TICKERS)
@@ -2009,8 +2011,6 @@ export default function StockPage() {
   }, [loadedRows])
 
   const selectedFromUpload = companyMapByTicker[selectedTicker] || null
-  const routeSymbol = normalizeTicker(routeTicker || '')
-  const isCompanyView = Boolean(routeSymbol)
   const trackedRowByTicker = useMemo(() => {
     const map = {}
     trackedRows.forEach((row) => {

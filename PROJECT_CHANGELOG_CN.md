@@ -292,3 +292,4 @@
 - `bundleMap` 合并策略优化：若先有 full，再收到 lite，只更新行情字段，不覆盖 CEO/IPO/Country 等资料字段。  
 - `Popular Companies` 排序逻辑改为按 `market cap -> volume -> 波动幅度` 排序，不再按公司名字母顺序，展示更接近真实市场。  
 - 后端 full quote 显式返回 `lite: false`，便于前端明确区分数据类型。  
+- 紧急修复白屏：`routeSymbol`/`isCompanyView` 前置声明，避免在声明前被 `useEffect` 依赖读取导致运行时崩溃。  
