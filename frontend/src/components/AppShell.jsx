@@ -568,7 +568,7 @@ export default function AppShell({ children }) {
       setSidebarCollapsed(false)
       return
     }
-    navigate('/agent')
+    handleNewChat()
   }
 
   const openLandingPage = () => {
@@ -584,8 +584,8 @@ export default function AppShell({ children }) {
             <button
               className={`rl-brand-icon-btn ${sidebarCollapsed ? 'collapsed' : ''}`}
               onClick={handleBrandClick}
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Go to chat home'}
-              title={sidebarCollapsed ? 'Expand sidebar' : 'Go to chat home'}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Start new chat'}
+              title={sidebarCollapsed ? 'Expand sidebar' : 'Start new chat'}
             >
               <span className="rl-brand-icon" aria-hidden="true">
                 <img src={brandIcon} alt="" className="rl-brand-icon-image" />
