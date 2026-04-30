@@ -1207,6 +1207,159 @@ select.input {
   color: rgba(148, 163, 184, 0.78);
 }
 
+.rl-workspace-app.rl-theme-dark .rl-up-form,
+.rl-workspace-app.rl-theme-dark .rl-up-results,
+.rl-workspace-app.rl-theme-dark .rl-up-records,
+.rl-workspace-app.rl-theme-dark .rl-up-result-meta,
+.rl-workspace-app.rl-theme-dark .rl-up-records-table-wrap,
+.rl-workspace-app.rl-theme-dark .rl-tables-accordion,
+.rl-workspace-app.rl-theme-dark .rl-tables-table-scroll,
+.rl-workspace-app.rl-theme-dark .rl-compare-side-note,
+.rl-workspace-app.rl-theme-dark .rl-compare-filter-bar,
+.rl-workspace-app.rl-theme-dark .rl-compare-result-shell,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-command,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-tile-card,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-mix-card.tile,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-side-card,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-kpi-grid > div,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-source-list > div,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-weather-box,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-hot-list > div,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-query-box,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-load-row,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-empty,
+.rl-workspace-app.rl-theme-dark .rl-agent-side-card,
+.rl-workspace-app.rl-theme-dark .rl-agent-chat,
+.rl-workspace-app.rl-theme-dark .rl-agent-chat-head,
+.rl-workspace-app.rl-theme-dark .rl-agent-thread,
+.rl-workspace-app.rl-theme-dark .rl-agent-input-wrap,
+.rl-workspace-app.rl-theme-dark .rl-agent-config-grid > div,
+.rl-workspace-app.rl-theme-dark .rl-agent-chip,
+.rl-workspace-app.rl-theme-dark .rl-agent-link-grid a,
+.rl-workspace-app.rl-theme-dark .rl-agent-suggest-btn,
+.rl-workspace-app.rl-theme-dark .rl-agent-report-details,
+.rl-workspace-app.rl-theme-dark .rl-record-card,
+.rl-workspace-app.rl-theme-dark .rl-expander,
+.rl-workspace-app.rl-theme-dark .rl-info-box,
+.rl-workspace-app.rl-theme-dark .rl-mini-tile {
+  border-color: rgba(100, 116, 139, 0.58) !important;
+  background:
+    radial-gradient(120% 120% at 0% 0%, rgba(56, 189, 248, 0.08), rgba(56, 189, 248, 0) 58%),
+    rgba(15, 23, 42, 0.72) !important;
+  color: #dbe7ff;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-company-cell strong,
+.rl-workspace-app.rl-theme-dark .rl-up-result-head,
+.rl-workspace-app.rl-theme-dark .rl-up-result-meta strong,
+.rl-workspace-app.rl-theme-dark .rl-up-result-meta .rl-up-result-value,
+.rl-workspace-app.rl-theme-dark .rl-tables-result-headline,
+.rl-workspace-app.rl-theme-dark .rl-tables-accordion summary,
+.rl-workspace-app.rl-theme-dark .rl-tables-table-grid tbody td,
+.rl-workspace-app.rl-theme-dark .rl-compare-group-items,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-feature-copy h3,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-tile-body h4,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-row-body h4,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-mix-body h4,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-empty h4,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-kpi-grid strong,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-hot-list em,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-query-box strong,
+.rl-workspace-app.rl-theme-dark .rl-agent-hero h1,
+.rl-workspace-app.rl-theme-dark .rl-agent-chat-title,
+.rl-workspace-app.rl-theme-dark .rl-agent-empty h4,
+.rl-workspace-app.rl-theme-dark .rl-agent-msg-body p,
+.rl-workspace-app.rl-theme-dark .rl-agent-msg-top strong,
+.rl-workspace-app.rl-theme-dark .rl-agent-report-details summary,
+.rl-workspace-app.rl-theme-dark .rl-record-company,
+.rl-workspace-app.rl-theme-dark .rl-section-header,
+.rl-workspace-app.rl-theme-dark .rl-expander summary,
+.rl-workspace-app.rl-theme-dark .rl-body-text {
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-company-cell span,
+.rl-workspace-app.rl-theme-dark .rl-up-result-meta span,
+.rl-workspace-app.rl-theme-dark .rl-tables-result-sub,
+.rl-workspace-app.rl-theme-dark .rl-tables-empty-body,
+.rl-workspace-app.rl-theme-dark .rl-tables-unit,
+.rl-workspace-app.rl-theme-dark .rl-tables-download-meta,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-feature-copy p,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-tile-body p,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-row-body p,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-mix-body p,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-time,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-link-row span,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-load-row p,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-empty p,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-side-note,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-source-list span,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-weather-box p,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-hot-list span,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-query-box p,
+.rl-workspace-app.rl-theme-dark .rl-agent-hero p,
+.rl-workspace-app.rl-theme-dark .rl-agent-chat-sub,
+.rl-workspace-app.rl-theme-dark .rl-agent-head-status,
+.rl-workspace-app.rl-theme-dark .rl-agent-empty p,
+.rl-workspace-app.rl-theme-dark .rl-agent-msg-top span,
+.rl-workspace-app.rl-theme-dark .rl-agent-report-hint,
+.rl-workspace-app.rl-theme-dark .rl-agent-exec-summary,
+.rl-workspace-app.rl-theme-dark .rl-record-meta,
+.rl-workspace-app.rl-theme-dark .rl-record-submeta,
+.rl-workspace-app.rl-theme-dark .rl-note,
+.rl-workspace-app.rl-theme-dark .rl-count-label,
+.rl-workspace-app.rl-theme-dark .rl-mini-tile {
+  color: #94a3b8;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-news-v2-feature-card,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-mix-card.row,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-mix-card.row-reverse,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-mix-card.wide,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-row-card {
+  border-bottom-color: rgba(71, 85, 105, 0.58);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-news-v2-feature-image,
+.rl-workspace-app.rl-theme-dark .rl-news-v2-row-image {
+  border-color: rgba(100, 116, 139, 0.58);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-tables-accordion-body {
+  border-top-color: rgba(71, 85, 105, 0.58);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-tables-table-grid thead th {
+  background: rgba(30, 41, 59, 0.9);
+  color: #cbd5e1;
+  border-bottom-color: rgba(71, 85, 105, 0.58);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-tables-table-grid tbody td {
+  border-top-color: rgba(71, 85, 105, 0.52);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-agent-msg.assistant .rl-agent-msg-body {
+  border-color: rgba(71, 85, 105, 0.64);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.84));
+}
+
+.rl-workspace-app.rl-theme-dark .rl-agent-msg.assistant .rl-agent-msg-avatar {
+  border-color: rgba(125, 211, 252, 0.46);
+  background: rgba(30, 41, 59, 0.86);
+  color: #93c5fd;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-agent-input {
+  border-color: rgba(100, 116, 139, 0.62);
+  background: rgba(15, 23, 42, 0.78);
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-agent-input::placeholder {
+  color: rgba(148, 163, 184, 0.78);
+}
+
 .rl-workspace-content {
   padding-top: 22px;
   padding-bottom: calc(var(--dock-height, 0px) + 12px);
