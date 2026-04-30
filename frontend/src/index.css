@@ -732,7 +732,7 @@ select.input {
 .rl-workspace-top-controls {
   position: absolute;
   right: 24px;
-  top: 8px;
+  top: 12px;
   display: inline-flex;
   gap: 7px;
   z-index: 3;
@@ -744,21 +744,24 @@ select.input {
   gap: 6px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.44);
-  background: rgba(255, 255, 255, 0.62);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(241, 245, 249, 0.72));
   color: #334155;
   min-height: 28px;
-  padding: 0 9px;
+  padding: 0 10px;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5), 0 6px 14px rgba(15, 23, 42, 0.07);
   transition: all 0.18s ease;
 }
 
 .rl-top-mini-tab:hover {
   border-color: rgba(71, 85, 105, 0.5);
-  background: rgba(255, 255, 255, 0.86);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(241, 245, 249, 0.82));
   color: #0f172a;
+  transform: translateY(-0.5px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.62), 0 8px 18px rgba(15, 23, 42, 0.1);
 }
 
 .rl-top-mini-icon {
@@ -806,14 +809,21 @@ select.input {
 }
 
 .rl-workspace-app.rl-theme-dark .rl-top-mini-tab {
-  border-color: rgba(148, 163, 184, 0.36);
-  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(125, 211, 252, 0.32);
+  background:
+    radial-gradient(120% 110% at 20% 0%, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0) 62%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.9));
   color: #dbeafe;
+  box-shadow: 0 1px 0 rgba(148, 163, 184, 0.16), 0 8px 20px rgba(2, 6, 23, 0.28);
 }
 
 .rl-workspace-app.rl-theme-dark .rl-top-mini-tab:hover {
-  background: rgba(51, 65, 85, 0.95);
+  border-color: rgba(125, 211, 252, 0.48);
+  background:
+    radial-gradient(120% 110% at 20% 0%, rgba(56, 189, 248, 0.24), rgba(56, 189, 248, 0) 62%),
+    linear-gradient(180deg, rgba(51, 65, 85, 0.96), rgba(22, 31, 49, 0.95));
   color: #f8fafc;
+  box-shadow: 0 1px 0 rgba(186, 230, 253, 0.2), 0 10px 22px rgba(2, 6, 23, 0.34);
 }
 
 .rl-workspace-app.rl-theme-dark .card,
@@ -846,6 +856,89 @@ select.input {
   border-color: rgba(100, 116, 139, 0.62) !important;
   background: rgba(15, 23, 42, 0.78) !important;
   color: #e2e8f0 !important;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-landing-composer {
+  border-color: rgba(100, 116, 139, 0.56) !important;
+  background:
+    radial-gradient(120% 120% at 0% 0%, rgba(56, 189, 248, 0.12), rgba(56, 189, 248, 0) 58%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.9)) !important;
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.34);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-landing-composer textarea {
+  background: transparent !important;
+  border: 0 !important;
+  color: #e2e8f0 !important;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-landing-composer textarea::placeholder {
+  color: rgba(148, 163, 184, 0.78);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-landing-chip {
+  border-color: rgba(125, 211, 252, 0.32);
+  background: rgba(30, 41, 59, 0.72);
+  color: #cbd5e1;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-landing-chip:hover {
+  border-color: rgba(125, 211, 252, 0.52);
+  background: rgba(51, 65, 85, 0.85);
+  color: #f8fafc;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-global-dock-composer,
+.rl-workspace-app.rl-theme-dark .rl-global-dock.agent .rl-global-dock-composer,
+.rl-workspace-app.rl-theme-dark .rl-global-dock.news .rl-global-dock-composer {
+  border-color: rgba(100, 116, 139, 0.58) !important;
+  background:
+    radial-gradient(120% 120% at 0% 0%, rgba(56, 189, 248, 0.1), rgba(56, 189, 248, 0) 56%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)) !important;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.34);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-global-dock-composer textarea {
+  background: transparent !important;
+  border: 0 !important;
+  color: #e2e8f0 !important;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-global-dock-composer textarea::placeholder {
+  color: rgba(148, 163, 184, 0.78);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-dock-attach-trigger {
+  background: rgba(71, 85, 105, 0.46);
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-dock-attach-trigger:hover {
+  background: rgba(100, 116, 139, 0.64);
+  color: #f8fafc;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-dock-attachment-chip {
+  border-color: rgba(100, 116, 139, 0.58);
+  background: rgba(30, 41, 59, 0.8);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-dock-attachment-copy span {
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-dock-attachment-copy em {
+  color: #94a3b8;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-dock-attachment-remove {
+  background: rgba(51, 65, 85, 0.88);
+  color: #cbd5e1;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-dock-attachment-remove:hover {
+  background: rgba(71, 85, 105, 0.95);
+  color: #f8fafc;
 }
 
 .rl-workspace-app.rl-theme-dark .btn-secondary {
