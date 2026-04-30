@@ -947,6 +947,266 @@ select.input {
   color: #e2e8f0 !important;
 }
 
+/* Dark mode module-level readability fixes (keep light mode untouched). */
+.rl-workspace-app.rl-theme-dark .rl-up-page,
+.rl-workspace-app.rl-theme-dark .rl-stock-page,
+.rl-workspace-app.rl-theme-dark .rl-compare-page,
+.rl-workspace-app.rl-theme-dark .rl-tables-page {
+  color: #dbe7ff;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-right-group {
+  border-color: rgba(100, 116, 139, 0.58);
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.86), rgba(15, 23, 42, 0.82));
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-config-inline-label,
+.rl-workspace-app.rl-theme-dark .rl-up-chip,
+.rl-workspace-app.rl-theme-dark .rl-field-label,
+.rl-workspace-app.rl-theme-dark .rl-upload-file-text {
+  color: #cbd5e1;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-chip.violet {
+  border-color: rgba(196, 181, 253, 0.5);
+  background: rgba(76, 29, 149, 0.22);
+  color: #ddd6fe;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-chip.blue {
+  border-color: rgba(96, 165, 250, 0.5);
+  background: rgba(29, 78, 216, 0.2);
+  color: #bfdbfe;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-chip.green {
+  border-color: rgba(74, 222, 128, 0.5);
+  background: rgba(22, 101, 52, 0.24);
+  color: #bbf7d0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-header-edit {
+  border-color: rgba(100, 116, 139, 0.58);
+  background: rgba(30, 41, 59, 0.82);
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-config-popover {
+  border-color: rgba(100, 116, 139, 0.62);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.96) 100%);
+  box-shadow: 0 14px 32px rgba(2, 6, 23, 0.42);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-pill-nav,
+.rl-workspace-app.rl-theme-dark .rl-up-pill-subnav {
+  border-color: rgba(100, 116, 139, 0.56);
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-strip-tab {
+  color: #9fb0ca;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-strip-tab:hover {
+  background: rgba(51, 65, 85, 0.7);
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-strip-tab.active {
+  color: #f8fafc;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-upload-btn-row {
+  border-color: rgba(100, 116, 139, 0.58);
+  background: rgba(30, 41, 59, 0.76);
+  color: #cbd5e1;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-upload-file-text.has-file,
+.rl-workspace-app.rl-theme-dark .rl-up-result-placeholder h4 {
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-upload-clear-btn {
+  color: #94a3b8;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-upload-clear-btn:hover {
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-result-placeholder {
+  border-color: rgba(100, 116, 139, 0.6);
+  background: rgba(30, 41, 59, 0.7);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-result-placeholder span {
+  color: #94a3b8;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-record-table thead th {
+  color: #cbd5e1;
+  border-bottom-color: rgba(100, 116, 139, 0.54);
+  background: rgba(30, 41, 59, 0.82);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-up-record-table tbody td {
+  color: #dbe7ff;
+  border-top-color: rgba(71, 85, 105, 0.6);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-command,
+.rl-workspace-app.rl-theme-dark .rl-stock-metric-card,
+.rl-workspace-app.rl-theme-dark .rl-stock-chart-tile,
+.rl-workspace-app.rl-theme-dark .rl-stock-focus-card,
+.rl-workspace-app.rl-theme-dark .rl-stock-summary-card,
+.rl-workspace-app.rl-theme-dark .rl-stock-fin-table-wrap,
+.rl-workspace-app.rl-theme-dark .rl-stock-board-tabs {
+  border-color: rgba(100, 116, 139, 0.58) !important;
+  background:
+    radial-gradient(120% 120% at 0% 0%, rgba(56, 189, 248, 0.09), rgba(56, 189, 248, 0) 58%),
+    rgba(15, 23, 42, 0.72) !important;
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.28);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-kpi-table > div {
+  border-top-color: rgba(71, 85, 105, 0.58);
+  border-left-color: rgba(71, 85, 105, 0.58);
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-detail-main-tabs,
+.rl-workspace-app.rl-theme-dark .rl-stock-detail-chart-shell,
+.rl-workspace-app.rl-theme-dark .rl-stock-quote-cell,
+.rl-workspace-app.rl-theme-dark .rl-stock-profile-list > div,
+.rl-workspace-app.rl-theme-dark .rl-stock-profile-desc,
+.rl-workspace-app.rl-theme-dark .rl-stock-company-item,
+.rl-workspace-app.rl-theme-dark .rl-stock-board-item,
+.rl-workspace-app.rl-theme-dark .rl-stock-sector-item {
+  border-color: rgba(71, 85, 105, 0.58);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-chart-tile-top p,
+.rl-workspace-app.rl-theme-dark .rl-stock-chart-tile-top span,
+.rl-workspace-app.rl-theme-dark .rl-stock-company-mini p,
+.rl-workspace-app.rl-theme-dark .rl-stock-company-price strong,
+.rl-workspace-app.rl-theme-dark .rl-stock-quote-price,
+.rl-workspace-app.rl-theme-dark .rl-stock-kpi-table strong,
+.rl-workspace-app.rl-theme-dark .rl-stock-profile-list strong,
+.rl-workspace-app.rl-theme-dark .rl-stock-sector-item strong,
+.rl-workspace-app.rl-theme-dark .rl-stock-market-news-head strong,
+.rl-workspace-app.rl-theme-dark .rl-stock-market-news-body p {
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-chart-tile small,
+.rl-workspace-app.rl-theme-dark .rl-stock-company-mini span,
+.rl-workspace-app.rl-theme-dark .rl-stock-metric-sub,
+.rl-workspace-app.rl-theme-dark .rl-stock-cache-note,
+.rl-workspace-app.rl-theme-dark .rl-stock-status-note,
+.rl-workspace-app.rl-theme-dark .rl-stock-side-head span,
+.rl-workspace-app.rl-theme-dark .rl-stock-side-metrics span,
+.rl-workspace-app.rl-theme-dark .rl-stock-side-item span,
+.rl-workspace-app.rl-theme-dark .rl-stock-muted,
+.rl-workspace-app.rl-theme-dark .rl-stock-quote-cell > span,
+.rl-workspace-app.rl-theme-dark .rl-stock-kpi-table span,
+.rl-workspace-app.rl-theme-dark .rl-stock-profile-list span,
+.rl-workspace-app.rl-theme-dark .rl-stock-profile-desc,
+.rl-workspace-app.rl-theme-dark .rl-stock-fin-unit,
+.rl-workspace-app.rl-theme-dark .rl-stock-fin-year-select-row label,
+.rl-workspace-app.rl-theme-dark .rl-stock-sector-item span,
+.rl-workspace-app.rl-theme-dark .rl-stock-market-item span,
+.rl-workspace-app.rl-theme-dark .rl-stock-market-news-head span,
+.rl-workspace-app.rl-theme-dark .rl-stock-market-news-body em,
+.rl-workspace-app.rl-theme-dark .rl-stock-spotlight-note {
+  color: #94a3b8;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-fin-year-select,
+.rl-workspace-app.rl-theme-dark .rl-stock-fin-section-tabs button,
+.rl-workspace-app.rl-theme-dark .rl-stock-detail-main-tabs button,
+.rl-workspace-app.rl-theme-dark .rl-stock-board-tabs button {
+  border-color: rgba(100, 116, 139, 0.56);
+  background: rgba(30, 41, 59, 0.8);
+  color: #cbd5e1;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-fin-section-tabs button.active,
+.rl-workspace-app.rl-theme-dark .rl-stock-detail-main-tabs button.active,
+.rl-workspace-app.rl-theme-dark .rl-stock-board-tabs button.active {
+  background: rgba(37, 99, 235, 0.85);
+  border-color: rgba(59, 130, 246, 0.92);
+  color: #ffffff;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-fin-table th {
+  color: #cbd5e1;
+  border-bottom-color: rgba(71, 85, 105, 0.58);
+  background: rgba(30, 41, 59, 0.94);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-fin-table td {
+  color: #dbe7ff;
+  border-top-color: rgba(71, 85, 105, 0.52);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-fin-table tbody tr:nth-child(even) td {
+  background: rgba(30, 41, 59, 0.42);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-panel {
+  border-color: rgba(100, 116, 139, 0.62);
+  background: rgba(15, 23, 42, 0.95);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-header,
+.rl-workspace-app.rl-theme-dark .rl-chat-footer {
+  border-color: rgba(71, 85, 105, 0.58);
+  background: rgba(30, 41, 59, 0.88);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-title {
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-subtitle,
+.rl-workspace-app.rl-theme-dark .rl-chat-close {
+  color: #94a3b8;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-close:hover {
+  background: rgba(51, 65, 85, 0.8);
+  color: #f8fafc;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-messages {
+  background: rgba(15, 23, 42, 0.78);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-row.user .rl-chat-bubble {
+  border-color: rgba(59, 130, 246, 0.62);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.34), rgba(29, 78, 216, 0.3));
+  color: #dbeafe;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-row.assistant .rl-chat-bubble {
+  border-color: rgba(71, 85, 105, 0.64);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.84));
+  color: #dbe7ff;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-input {
+  border-color: rgba(100, 116, 139, 0.62);
+  background: rgba(15, 23, 42, 0.78);
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-chat-input::placeholder {
+  color: rgba(148, 163, 184, 0.78);
+}
+
 .rl-workspace-content {
   padding-top: 22px;
   padding-bottom: calc(var(--dock-height, 0px) + 12px);
