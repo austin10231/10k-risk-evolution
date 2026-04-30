@@ -7,20 +7,31 @@ import { stashPendingChat } from '../lib/pendingChat'
 import brandIcon from '../assets/logo-icon.svg'
 
 const WORKSPACE_TABS = [
-  { to: '/upload', label: 'Upload & Records' },
-  { to: '/stock', label: 'Stock' },
-  { to: '/news', label: 'News' },
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/compare', label: 'Compare' },
-  { to: '/tables', label: 'Tables' },
+  { to: '/upload', label_en: 'Upload & Records', label_zh: '上传与记录' },
+  { to: '/stock', label_en: 'Stock', label_zh: '股票' },
+  { to: '/news', label_en: 'News', label_zh: '新闻' },
+  { to: '/dashboard', label_en: 'Dashboard', label_zh: '仪表盘' },
+  { to: '/compare', label_en: 'Compare', label_zh: '对比' },
+  { to: '/tables', label_en: 'Tables', label_zh: '表格' },
 ]
 
-const LANDING_QUICK_PROMPTS = [
-  'Summarize the biggest risk changes for AAPL this year',
-  'Compare NVDA vs AMD risk exposure in one table',
-  'What signals matter most for Tesla this week?',
-  'Find red flags in the latest 10-K filing quickly',
-]
+const LANDING_QUICK_PROMPTS = {
+  en: [
+    'Summarize the biggest risk changes for AAPL this year',
+    'Compare NVDA vs AMD risk exposure in one table',
+    'What signals matter most for Tesla this week?',
+    'Find red flags in the latest 10-K filing quickly',
+  ],
+  zh: [
+    '总结一下 AAPL 今年最大的风险变化',
+    '用一张表对比 NVDA 和 AMD 的风险暴露',
+    '本周 Tesla 最关键的风险信号是什么？',
+    '快速找出最新 10-K 里的风险红旗',
+  ],
+}
+
+const UI_LANG_KEY = 'risklens_ui_lang_v1'
+const UI_THEME_KEY = 'risklens_ui_theme_v1'
 
 const ICONS = {
   plus: (
@@ -85,6 +96,32 @@ const ICONS = {
       <path d="M11.8 4.2V19.8" />
     </>
   ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="8.2" />
+      <path d="M3.8 12H20.2" />
+      <path d="M12 3.8C14.5 6.1 15.9 9.1 15.9 12C15.9 14.9 14.5 17.9 12 20.2" />
+      <path d="M12 3.8C9.5 6.1 8.1 9.1 8.1 12C8.1 14.9 9.5 17.9 12 20.2" />
+    </>
+  ),
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4.1" />
+      <path d="M12 2.7V5" />
+      <path d="M12 19V21.3" />
+      <path d="M2.7 12H5" />
+      <path d="M19 12H21.3" />
+      <path d="M5.4 5.4L7 7" />
+      <path d="M17 17L18.6 18.6" />
+      <path d="M17 7L18.6 5.4" />
+      <path d="M5.4 18.6L7 17" />
+    </>
+  ),
+  moon: (
+    <>
+      <path d="M15.7 3.6C13.2 4.2 11.2 6.8 11.2 10C11.2 13.7 13.8 16.7 17.1 17.1C16 18.9 14 20 11.7 20C7.9 20 4.8 16.9 4.8 13.1C4.8 8.9 8.1 5.3 12 5.3C13.4 5.3 14.6 5.8 15.7 6.6V3.6Z" />
+    </>
+  ),
 }
 
 function NavIcon({ name, className = '', strokeWidth = 1.8 }) {
@@ -124,15 +161,16 @@ function AttachmentFileIcon() {
   )
 }
 
-function dockPlaceholder(pathname) {
-  if (pathname === '/compare') return 'Ask about comparison changes, deltas, or risk shifts…'
-  if (String(pathname || '').startsWith('/stock')) return 'Ask about this ticker movement or risk implications…'
-  if (pathname === '/news') return 'Ask how this headline changes risk outlook…'
-  if (pathname === '/tables') return 'Ask what this financial table implies for risk…'
-  if (pathname === '/upload') return 'Ask how to ingest or parse a filing quickly…'
-  if (pathname === '/dashboard') return 'Ask what to prioritize from this dashboard snapshot…'
-  if (pathname === '/library') return 'Ask what this filing history suggests…'
-  return 'Ask any risk question…'
+function dockPlaceholder(pathname, lang = 'en') {
+  const zh = lang === 'zh'
+  if (pathname === '/compare') return zh ? '可问对比变化、差异和风险迁移…' : 'Ask about comparison changes, deltas, or risk shifts…'
+  if (String(pathname || '').startsWith('/stock')) return zh ? '可问该股票波动或风险影响…' : 'Ask about this ticker movement or risk implications…'
+  if (pathname === '/news') return zh ? '可问这条新闻如何影响风险判断…' : 'Ask how this headline changes risk outlook…'
+  if (pathname === '/tables') return zh ? '可问财务表格反映了哪些风险信号…' : 'Ask what this financial table implies for risk…'
+  if (pathname === '/upload') return zh ? '可问如何快速上传和解析 filing…' : 'Ask how to ingest or parse a filing quickly…'
+  if (pathname === '/dashboard') return zh ? '可问仪表盘里应该优先关注什么…' : 'Ask what to prioritize from this dashboard snapshot…'
+  if (pathname === '/library') return zh ? '可问历史 filing 反映了什么趋势…' : 'Ask what this filing history suggests…'
+  return zh ? '问任何风险问题…' : 'Ask any risk question…'
 }
 
 function formatBytes(bytes) {
@@ -217,6 +255,58 @@ export default function AppShell({ children }) {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem('risklens_sidebar_collapsed_v2') === '1'
   })
+  const [uiLang, setUiLang] = useState(() => {
+    if (typeof window === 'undefined') return 'en'
+    const saved = String(window.localStorage.getItem(UI_LANG_KEY) || '').trim().toLowerCase()
+    return saved === 'zh' ? 'zh' : 'en'
+  })
+  const [uiTheme, setUiTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'light'
+    const saved = String(window.localStorage.getItem(UI_THEME_KEY) || '').trim().toLowerCase()
+    return saved === 'dark' ? 'dark' : 'light'
+  })
+
+  const i18n = useMemo(() => (uiLang === 'zh'
+    ? {
+      newChat: '新建聊天',
+      history: '历史会话',
+      searchConversations: '搜索会话',
+      noMatch: '没有匹配会话',
+      noConversation: '暂无会话',
+      rename: '重命名',
+      delete: '删除',
+      addFile: '添加文件',
+      modelNote: 'RiskLens 可能会犯错，请核实关键信息。',
+      topLang: '中文',
+      topThemeLight: '浅色',
+      topThemeDark: '深色',
+      topExpandSidebar: '展开侧栏',
+      topCollapseSidebar: '收起侧栏',
+      topStartNewChat: '新建聊天',
+      askLanding: '可问公司、filing、对比、股票或新闻信号…',
+      quickPromptsLabel: '快捷问题建议',
+      quickPrompts: LANDING_QUICK_PROMPTS.zh,
+    }
+    : {
+      newChat: 'New Chat',
+      history: 'History',
+      searchConversations: 'Search conversations',
+      noMatch: 'No matching conversations',
+      noConversation: 'No conversations yet',
+      rename: 'Rename',
+      delete: 'Delete',
+      addFile: 'Add file',
+      modelNote: 'RiskLens may make mistakes. Please verify important information.',
+      topLang: 'EN',
+      topThemeLight: 'Light',
+      topThemeDark: 'Dark',
+      topExpandSidebar: 'Expand sidebar',
+      topCollapseSidebar: 'Collapse sidebar',
+      topStartNewChat: 'Start new chat',
+      askLanding: 'Ask about any company, filing, comparison, stock, or news signal…',
+      quickPromptsLabel: 'Quick prompt suggestions',
+      quickPrompts: LANDING_QUICK_PROMPTS.en,
+    }), [uiLang])
 
   const historyItems = useMemo(
     () =>
@@ -230,8 +320,8 @@ export default function AppShell({ children }) {
   const filteredHistoryItems = useMemo(() => {
     const needle = String(threadQuery || '').trim().toLowerCase()
     if (!needle) return historyItems
-    return historyItems.filter((t) => String(t.title || 'New conversation').toLowerCase().includes(needle))
-  }, [historyItems, threadQuery])
+    return historyItems.filter((t) => String(t.title || i18n.newChat).toLowerCase().includes(needle))
+  }, [historyItems, threadQuery, i18n.newChat])
 
   const isAgentRoute = location.pathname === '/agent'
   const isNewsRoute = location.pathname === '/news'
@@ -302,6 +392,22 @@ export default function AppShell({ children }) {
     if (typeof window === 'undefined') return
     window.localStorage.setItem('risklens_sidebar_collapsed_v2', sidebarCollapsed ? '1' : '0')
   }, [sidebarCollapsed])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(UI_LANG_KEY, uiLang)
+    try {
+      document.documentElement.setAttribute('lang', uiLang === 'zh' ? 'zh-CN' : 'en')
+    } catch {}
+  }, [uiLang])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(UI_THEME_KEY, uiTheme)
+    try {
+      document.body.classList.toggle('rl-dark-mode', uiTheme === 'dark')
+    } catch {}
+  }, [uiTheme])
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -494,7 +600,7 @@ export default function AppShell({ children }) {
 
   const startRenameThread = (thread) => {
     setEditingThreadId(thread.id)
-    setEditingTitle(thread.title || 'New conversation')
+    setEditingTitle(thread.title || i18n.newChat)
     setActiveMenuThreadId('')
   }
 
@@ -505,7 +611,7 @@ export default function AppShell({ children }) {
 
   const saveRenameThread = (threadId) => {
     const nextTitle = String(editingTitle || '').trim()
-    updateThreadTitle(threadId, nextTitle || 'New conversation')
+    updateThreadTitle(threadId, nextTitle || i18n.newChat)
     cancelRenameThread()
   }
 
@@ -571,6 +677,14 @@ export default function AppShell({ children }) {
     handleNewChat()
   }
 
+  const toggleUiLang = () => {
+    setUiLang((prev) => (prev === 'en' ? 'zh' : 'en'))
+  }
+
+  const toggleUiTheme = () => {
+    setUiTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
+  }
+
   const openLandingPage = () => {
     if (typeof window === 'undefined') return
     window.location.assign('https://risklens.pages.dev/')
@@ -584,8 +698,8 @@ export default function AppShell({ children }) {
             <button
               className={`rl-brand-icon-btn ${sidebarCollapsed ? 'collapsed' : ''}`}
               onClick={handleBrandClick}
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Start new chat'}
-              title={sidebarCollapsed ? 'Expand sidebar' : 'Start new chat'}
+              aria-label={sidebarCollapsed ? i18n.topExpandSidebar : i18n.topStartNewChat}
+              title={sidebarCollapsed ? i18n.topExpandSidebar : i18n.topStartNewChat}
             >
               <span className="rl-brand-icon" aria-hidden="true">
                 <img src={brandIcon} alt="" className="rl-brand-icon-image" />
@@ -601,38 +715,38 @@ export default function AppShell({ children }) {
           <button
             className="rl-sidebar-toggle-inline"
             onClick={() => setSidebarCollapsed((v) => !v)}
-            aria-label="Toggle conversation sidebar"
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={sidebarCollapsed ? i18n.topExpandSidebar : i18n.topCollapseSidebar}
+            title={sidebarCollapsed ? i18n.topExpandSidebar : i18n.topCollapseSidebar}
           >
             <NavIcon name="panelSplit" strokeWidth={1.6} />
           </button>
         </div>
 
-        <button className="rl-primary-action" onClick={handleNewChat} title={sidebarCollapsed ? 'New chat' : undefined}>
+        <button className="rl-primary-action" onClick={handleNewChat} title={sidebarCollapsed ? i18n.newChat : undefined}>
           <span className="rl-primary-action-icon">
             <NavIcon name="plus" />
           </span>
-          <span className="rl-primary-action-text">New Chat</span>
+          <span className="rl-primary-action-text">{i18n.newChat}</span>
         </button>
 
         <div className="rl-chat-nav-block">
           <div className="rl-chat-nav-head">
-            <p>History</p>
+            <p>{i18n.history}</p>
           </div>
 
-          <label className="rl-chat-search" aria-label="Search conversations">
+          <label className="rl-chat-search" aria-label={i18n.searchConversations}>
             <NavIcon name="search" className="rl-chat-search-icon" />
             <input
               type="text"
               value={threadQuery}
               onChange={(e) => setThreadQuery(e.target.value)}
-              placeholder="Search conversations"
+              placeholder={i18n.searchConversations}
             />
           </label>
 
           <div className="rl-history-list">
             {filteredHistoryItems.length === 0 && (
-              <p className="rl-history-empty">{threadQuery ? 'No matching conversations' : 'No conversations yet'}</p>
+              <p className="rl-history-empty">{threadQuery ? i18n.noMatch : i18n.noConversation}</p>
             )}
             {filteredHistoryItems.map((t) => {
               const isCurrent = currentThreadId === t.id
@@ -662,7 +776,7 @@ export default function AppShell({ children }) {
                   ) : (
                     <button className="rl-history-main" onClick={() => openThread(t.id)}>
                       <span className="dot" />
-                      <span className="text">{t.title || 'New conversation'}</span>
+                      <span className="text">{t.title || i18n.newChat}</span>
                     </button>
                   )}
 
@@ -712,7 +826,10 @@ export default function AppShell({ children }) {
   )
 
   return (
-    <div ref={workspaceAppRef} className={`rl-app rl-workspace-app ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <div
+      ref={workspaceAppRef}
+      className={`rl-app rl-workspace-app ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${uiTheme === 'dark' ? 'rl-theme-dark' : 'rl-theme-light'}`}
+    >
       <div className="rl-mobile-topbar">
         <button className="rl-mobile-icon-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open conversation menu">
           <NavIcon name="menu" />
@@ -723,7 +840,7 @@ export default function AppShell({ children }) {
           </span>
           <span>RiskLens AI</span>
         </button>
-        <button className="rl-mobile-icon-btn" onClick={handleNewChat} aria-label="Start new chat">
+        <button className="rl-mobile-icon-btn" onClick={handleNewChat} aria-label={i18n.topStartNewChat}>
           <NavIcon name="plus" />
         </button>
       </div>
@@ -765,12 +882,34 @@ export default function AppShell({ children }) {
                 key={tab.to}
                 to={tab.to}
                 className={({ isActive }) => `rl-workspace-tab ${isActive ? 'active' : ''}`}
-                aria-label={tab.label}
+                aria-label={uiLang === 'zh' ? tab.label_zh : tab.label_en}
               >
-                {tab.label}
+                {uiLang === 'zh' ? tab.label_zh : tab.label_en}
               </NavLink>
             ))}
           </nav>
+          <div className="rl-workspace-top-controls">
+            <button
+              className="rl-top-mini-tab"
+              type="button"
+              onClick={toggleUiLang}
+              aria-label={uiLang === 'zh' ? '切换到英文' : 'Switch to Chinese'}
+              title={uiLang === 'zh' ? '切换语言' : 'Switch language'}
+            >
+              <NavIcon name="globe" className="rl-top-mini-icon" strokeWidth={1.85} />
+              <span>{i18n.topLang}</span>
+            </button>
+            <button
+              className="rl-top-mini-tab"
+              type="button"
+              onClick={toggleUiTheme}
+              aria-label={uiTheme === 'dark' ? (uiLang === 'zh' ? '切换浅色' : 'Switch to light') : (uiLang === 'zh' ? '切换深色' : 'Switch to dark')}
+              title={uiTheme === 'dark' ? i18n.topThemeLight : i18n.topThemeDark}
+            >
+              <NavIcon name={uiTheme === 'dark' ? 'moon' : 'sun'} className="rl-top-mini-icon" strokeWidth={1.85} />
+              <span>{uiTheme === 'dark' ? i18n.topThemeDark : i18n.topThemeLight}</span>
+            </button>
+          </div>
         </div>
 
         <div className={`rl-main-inner rl-workspace-content ${showLandingComposer ? 'landing' : ''}`}>
@@ -817,8 +956,8 @@ export default function AppShell({ children }) {
                         type="button"
                         className="rl-dock-attach-trigger"
                         onClick={() => setAttachMenuOpen((v) => !v)}
-                        aria-label="Open upload menu"
-                        title="Add file"
+                        aria-label={i18n.addFile}
+                        title={i18n.addFile}
                       >
                         <NavIcon name="plus" strokeWidth={2.35} />
                       </button>
@@ -829,7 +968,7 @@ export default function AppShell({ children }) {
                             className="rl-dock-attach-menu-item"
                             onClick={triggerFilePicker}
                           >
-                            Add file
+                            {i18n.addFile}
                           </button>
                         </div>
                       ) : null}
@@ -843,7 +982,7 @@ export default function AppShell({ children }) {
                       }}
                       onCompositionStart={markCompositionStart}
                       onCompositionEnd={markCompositionEnd}
-                      placeholder="Ask about any company, filing, comparison, stock, or news signal…"
+                      placeholder={i18n.askLanding}
                       onKeyDown={(e) => {
                         if (shouldIgnoreEnterSubmit(e)) {
                           if (e.key === 'Enter' && !e.shiftKey) e.preventDefault()
@@ -866,8 +1005,8 @@ export default function AppShell({ children }) {
                   </div>
                 </form>
                 <div className="rl-landing-support">
-                  <div className="rl-landing-chips" aria-label="Quick prompt suggestions">
-                    {LANDING_QUICK_PROMPTS.map((prompt) => (
+                  <div className="rl-landing-chips" aria-label={i18n.quickPromptsLabel}>
+                    {i18n.quickPrompts.map((prompt) => (
                       <button key={prompt} type="button" className="rl-landing-chip" onClick={() => submitQuery(prompt)} disabled={loading}>
                         {prompt}
                       </button>
@@ -928,8 +1067,8 @@ export default function AppShell({ children }) {
                     type="button"
                     className="rl-dock-attach-trigger"
                     onClick={() => setAttachMenuOpen((v) => !v)}
-                    aria-label="Open upload menu"
-                    title="Add file"
+                    aria-label={i18n.addFile}
+                    title={i18n.addFile}
                   >
                     <NavIcon name="plus" strokeWidth={2.35} />
                   </button>
@@ -940,7 +1079,7 @@ export default function AppShell({ children }) {
                         className="rl-dock-attach-menu-item"
                         onClick={triggerFilePicker}
                       >
-                        Add file
+                        {i18n.addFile}
                       </button>
                     </div>
                   ) : null}
@@ -956,7 +1095,7 @@ export default function AppShell({ children }) {
                 onCompositionEnd={markCompositionEnd}
                 onFocus={() => setDockFocused(true)}
                 onBlur={() => setDockFocused(false)}
-                placeholder={dockPlaceholder(location.pathname)}
+                placeholder={dockPlaceholder(location.pathname, uiLang)}
                 onKeyDown={(e) => {
                   if (shouldIgnoreEnterSubmit(e)) {
                     if (e.key === 'Enter' && !e.shiftKey) e.preventDefault()
@@ -979,7 +1118,7 @@ export default function AppShell({ children }) {
               </div>
             </form>
             {isAgentRoute ? (
-              <p className="rl-global-dock-note">RiskLens may make mistakes. Please verify important information.</p>
+              <p className="rl-global-dock-note">{i18n.modelNote}</p>
             ) : null}
           </div>
         </div>
@@ -994,11 +1133,11 @@ export default function AppShell({ children }) {
             >
               <button className="rl-history-menu-item" onClick={() => startRenameThread(activeMenuThread)}>
                 <NavIcon name="edit" />
-                <span>Rename</span>
+                <span>{i18n.rename}</span>
               </button>
               <button className="rl-history-menu-item danger" onClick={() => handleDeleteThread(activeMenuThread.id)}>
                 <NavIcon name="trash" />
-                <span>Delete</span>
+                <span>{i18n.delete}</span>
               </button>
             </div>,
             document.body,
