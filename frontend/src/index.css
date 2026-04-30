@@ -1856,8 +1856,8 @@ select.input {
 
 .rl-chat-bubble {
   @apply max-w-[88%] whitespace-pre-wrap rounded-2xl border px-3 py-2 text-sm leading-6;
-  font-size: 0.98rem;
-  line-height: 1.68;
+  font-size: 0.9rem;
+  line-height: 1.58;
 }
 
 .rl-chat-row.user .rl-chat-bubble {

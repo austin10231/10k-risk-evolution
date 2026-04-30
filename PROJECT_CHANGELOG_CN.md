@@ -277,3 +277,4 @@
   - `api/meta` 增加 `/api/chatbot/help (POST)` 暴露。
   - 本次未继续修改 Streamlit 旧路径（`views/*` / `app.py`）。
   - chatbot UI 微调：聊天框缩小（`360x500`）、发送按钮嵌入输入框右侧、按钮箭头加大便于识别。
+  - chatbot 文本微调：发送与回复气泡字体下调约 1-2 号（更紧凑、阅读负担更低）。
