@@ -399,7 +399,7 @@
 - `_add_record`：当 `USE_NEW_LAYOUT=1` 且 ext 是 html 时，新写入分流到 `10k_filings/<industry>/<company_dir>/<year>_10K.{html,json}` 并 mutating-update `10k_filings/index.json`，返回的合成 `record_id` 与读路径自洽；PDF 仍走旧路径不动。
 - 行为变化：默认 `USE_NEW_S3_LAYOUT` 未设置 → 全走旧路径，零行为变化；只有显式设 `USE_NEW_S3_LAYOUT=1` 才切到新结构。回滚只需删除该环境变量重启即可。
 - 验证：在 mock `_read_s3_bytes` 返回伪造的 `10k_filings/index.json` + 单条 risks JSON 时，`_load_index` 输出 2 条合成 record（`Apple_AAPL_2024_10K` / `Chevron_CVX_2023_10K`），`_load_result("Apple_AAPL_2024_10K")` 命中新分层 json_key，旧 rid `Apple_2024_10-K_d69b` 自动回退到 `risk_analysis_results/`，ticker map 反构出 `{"Apple":"AAPL","Chevron":"CVX"}`；关掉 flag 后 `_load_index` 重新走 legacy `filing_records_index.json` 路径。
-- 提交：`(本次 commit)`
+- 提交：`208de25`
 
 ### 29) S3 重组工具集：Part 1 迁移脚本 + Part 2 批量摄入脚本
 - 新增 `scripts/industry_mapping.py`：硬编码 11 个行业 × ~80 家公司的映射（GICS 2024-09），统一目录命名（`<DisplayName>_<TICKER>`），并修正历史数据的拼写错误（`ConocoPhilllips → ConocoPhillips_COP`、`lockheed → Lockheed_Martin_LMT`、`Exxon_Mobil → ExxonMobil_XOM`、`Motorola_Solutions_Inc → Motorola_Solutions_MSI`）。BRK.B 因 SEC ticker map 不区分 A/B 类，硬编码 CIK `0001067983`；PXD 因 2024-05 被 Exxon 收购退市，写入 `last_year=2023` 自动封顶。
