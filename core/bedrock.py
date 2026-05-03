@@ -1,5 +1,6 @@
 """AWS Bedrock runtime helpers for shared extraction code."""
 
+import json
 import os
 import boto3
 
@@ -33,3 +34,66 @@ def _invoke(prompt, max_tokens=1024):
         inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0, "topP": 1.0},
     )
     return response["output"]["message"]["content"][0]["text"].strip()
+
+
+def _strip_json_fences(text: str) -> str:
+    return str(text or "").replace("```json", "").replace("```", "").strip()
+
+
+def _extract_json_from_text(text: str):
+    stripped = _strip_json_fences(text)
+    try:
+        return json.loads(stripped)
+    except Exception:
+        pass
+    for left, right in (("{", "}"), ("[", "]")):
+        start = stripped.find(left)
+        end = stripped.rfind(right)
+        if start >= 0 and end > start:
+            try:
+                return json.loads(stripped[start : end + 1])
+            except Exception:
+                pass
+    return None
+
+
+def invoke_with_schema(
+    prompt: str,
+    schema: dict,
+    max_tokens: int = 1024,
+    *,
+    tool_name: str = "structured_output",
+    tool_description: str = "Return the requested structured JSON payload.",
+):
+    client = _get_bedrock()
+    response = client.converse(
+        modelId=MODEL_ID,
+        messages=[{"role": "user", "content": [{"text": prompt}]}],
+        inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0, "topP": 1.0},
+        toolConfig={
+            "tools": [
+                {
+                    "toolSpec": {
+                        "name": tool_name,
+                        "description": tool_description,
+                        "inputSchema": {"json": schema},
+                    }
+                }
+            ],
+            "toolChoice": {"tool": {"name": tool_name}},
+        },
+    )
+
+    content = response.get("output", {}).get("message", {}).get("content", [])
+    for block in content:
+        tool_use = block.get("toolUse") if isinstance(block, dict) else None
+        if isinstance(tool_use, dict) and tool_use.get("name") == tool_name:
+            return tool_use.get("input")
+
+    for block in content:
+        text = block.get("text") if isinstance(block, dict) else ""
+        parsed = _extract_json_from_text(text)
+        if parsed is not None:
+            return parsed
+
+    raise RuntimeError("Bedrock Converse did not return structured tool output")

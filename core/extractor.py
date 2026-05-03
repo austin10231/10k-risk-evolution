@@ -25,7 +25,7 @@ import copy
 import hashlib
 import boto3
 from bs4 import BeautifulSoup, Tag
-from core.bedrock import _invoke
+from core.bedrock import _invoke, invoke_with_schema
 from core.sec_sections import (
     SectionNotFound,
     locate_item1_overview_with_edgartools,
@@ -698,6 +698,39 @@ def extract_item1a_risks_bedrock(
             return fallback
         item1a_text = item1a_text[:36000]
 
+        schema = {
+            "type": "object",
+            "properties": {
+                "blocks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "category": {"type": "string"},
+                            "sub_risks": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": {"type": "string"},
+                                        "source_span": {
+                                            "type": "array",
+                                            "items": {"type": "integer"},
+                                            "minItems": 2,
+                                            "maxItems": 2,
+                                        },
+                                    },
+                                    "required": ["title", "source_span"],
+                                },
+                            },
+                        },
+                        "required": ["category", "sub_risks"],
+                    },
+                }
+            },
+            "required": ["blocks"],
+        }
+
         prompt = f"""You are an expert SEC 10-K parser.
 Extract risk factors from Item 1A text and organize them into category blocks.
 Use exact wording from source risk statements whenever possible.
@@ -707,38 +740,30 @@ Company: {company_name or "Unknown"}
 Input text (Item 1A):
 \"\"\"{item1a_text}\"\"\"
 
-Return ONLY a JSON array. Each element MUST have this exact schema:
-[
-  {{
-    "category": "Category name",
-    "sub_risks": [
-      "Risk statement 1",
-      "Risk statement 2"
-    ]
-  }}
-]
-
 Rules:
-- Keep sub_risks as strings only (no nested objects).
+- Return data by calling the provided structured output tool.
+- Return a top-level object with a blocks array.
+- Each block must have category and sub_risks.
+- Each sub_risk must have title and source_span [start, end] character offsets from the input text.
 - Preserve risk meaning from source text.
 - Prefer full risk statements; do not output incomplete fragments.
-- Do not return markdown fences.
-- Do not include any keys other than category and sub_risks."""
+- Do not include any keys outside the provided schema."""
 
-        raw = _invoke(prompt, max_tokens=3000)
-        parsed = _extract_json_obj_or_array(raw)
-        normalized = _normalize_ai_risk_blocks(parsed)
+        parsed = invoke_with_schema(
+            prompt,
+            schema,
+            max_tokens=3000,
+            tool_name="extract_risk_blocks",
+            tool_description="Return SEC Item 1A risk factor blocks with source spans.",
+        )
+        blocks = parsed.get("blocks") if isinstance(parsed, dict) else parsed
+        normalized = _normalize_ai_risk_blocks(blocks)
         cleaned = _clean_and_dedupe_ai_risk_blocks(normalized)
         if cleaned:
-            base_cnt = _count_risk_items(fallback)
             ai_cnt = _count_risk_items(cleaned)
-            coverage = (ai_cnt / base_cnt) if base_cnt > 0 else 1.0
             ev_ratio = _evidence_ratio(cleaned, item1a_text)
 
-            # Quality gate:
-            # If AI output is too sparse/noisy or weakly grounded in source text,
-            # prioritize deterministic BeautifulSoup extraction.
-            if ai_cnt >= 1 and 0.85 <= coverage <= 1.25 and ev_ratio >= 0.55:
+            if ai_cnt >= 1 and ev_ratio >= 0.4:
                 _AI_RISKS_CACHE[cache_key] = copy.deepcopy(cleaned)
                 return cleaned
     except Exception:
