@@ -409,7 +409,7 @@
   - 深层嵌套截断（`{"a":{"b":[1,2,{"c":"unfinished`）→ 顶层 key 保留
   - 边缘 case（空字符串、纯空白、孤立 `[`）→ 兜底到 `None` / `[]`
 - 同步性：所有改动只在 `scripts/rescore_agent_priority.py` 内部，prompt suffix 与 batch / 阈值常量与 `agentcore_deploy/agent.py` 一致。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`2cbce58`
 
 ### 35) rescore_agent_priority.py 改成完全自包含，去掉 agentcore_deploy 依赖
 - 现象：在本地 / Railway 运行 entry 34 引入的 `scripts/rescore_agent_priority.py` 时报 `ModuleNotFoundError: No module named 'agent'`。根因是脚本通过 `extraction_pipeline.attach_agent_priority_report` → `agentcore_deploy.main._generate_agent_priority_report` → `_get_run_agent` → `from agent import run_agent` 调链下到一个 AgentCore 部署专用的扁平 import（`from agent import ...` 只有把 `agentcore_deploy/` 加入 `sys.path` 时才解析得到，其它运行环境直接挂）。
