@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import json
+import re
 import ssl
 import time
+from difflib import SequenceMatcher
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 SEC_USER_AGENT = "RiskLens App contact@risklens.com"
 SEC_REQUEST_DELAY_SEC = 0.5
+SEC_TICKER_MAP_TTL_SECONDS = 24 * 60 * 60
+_TICKER_CIK_CACHE = {"ts": 0.0, "data": {}}
 
 
 def _sec_headers():
@@ -44,6 +48,70 @@ def _sec_get_bytes(url: str):
         time.sleep(SEC_REQUEST_DELAY_SEC)
 
 
+def _normalize_ticker(ticker: str) -> str:
+    return re.sub(r"[^A-Z0-9.\-]", "", str(ticker or "").strip().upper())
+
+
+def _normalize_company_name(name: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", " ", str(name or "").lower())
+    suffixes = {
+        "inc", "incorporated", "corp", "corporation", "co", "company",
+        "ltd", "limited", "plc", "holdings", "holding", "group", "the",
+    }
+    words = [w for w in value.split() if w and w not in suffixes]
+    return " ".join(words)
+
+
+def _company_similarity(a: str, b: str) -> float:
+    left = _normalize_company_name(a)
+    right = _normalize_company_name(b)
+    if not left or not right:
+        return 0.0
+    if left in right or right in left:
+        return 1.0
+    return SequenceMatcher(None, left, right).ratio()
+
+
+def _load_ticker_cik_map() -> dict:
+    now = time.time()
+    cached = _TICKER_CIK_CACHE.get("data")
+    cached_ts = float(_TICKER_CIK_CACHE.get("ts", 0.0) or 0.0)
+    if isinstance(cached, dict) and cached and now - cached_ts <= SEC_TICKER_MAP_TTL_SECONDS:
+        return cached
+
+    payload = _sec_get_json("https://www.sec.gov/files/company_tickers.json")
+    out = {}
+    rows = payload.values() if isinstance(payload, dict) else payload
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        ticker = _normalize_ticker(row.get("ticker", ""))
+        cik = str(row.get("cik_str", "") or "").strip()
+        if ticker and cik.isdigit():
+            out[ticker] = {
+                "cik": cik.zfill(10),
+                "title": str(row.get("title", "") or "").strip(),
+                "ticker": ticker,
+            }
+    if out:
+        _TICKER_CIK_CACHE["ts"] = now
+        _TICKER_CIK_CACHE["data"] = out
+    return out
+
+
+def _find_cik_by_ticker(ticker: str) -> str:
+    normalized = _normalize_ticker(ticker)
+    if not normalized:
+        return ""
+    try:
+        row = _load_ticker_cik_map().get(normalized)
+        if isinstance(row, dict):
+            return str(row.get("cik", "") or "")
+    except Exception:
+        return ""
+    return ""
+
+
 def _extract_cik_from_search_payload(payload: dict) -> str:
     candidates = []
     hits = payload.get("hits", {}).get("hits", [])
@@ -66,8 +134,43 @@ def _extract_cik_from_search_payload(payload: dict) -> str:
     return str(candidates[0]).zfill(10)
 
 
+def _extract_best_cik_from_search_payload(payload: dict, company_name: str = "") -> str:
+    hits = payload.get("hits", {}).get("hits", [])
+    best = ("", 0.0)
+    for hit in hits:
+        src = hit.get("_source", {}) if isinstance(hit, dict) else {}
+        title = str(
+            src.get("display_names")
+            or src.get("entity")
+            or src.get("companyName")
+            or src.get("name")
+            or ""
+        )
+        score = _company_similarity(company_name, title) if company_name else 0.0
+        ciks = []
+        for key in ("ciks", "cik", "entityCik"):
+            val = src.get(key)
+            if isinstance(val, list):
+                ciks.extend(str(item).strip() for item in val)
+            elif val is not None:
+                ciks.append(str(val).strip())
+        for cik in ciks:
+            if cik.isdigit() and score > best[1]:
+                best = (cik.zfill(10), score)
+
+    if best[0] and (not company_name or best[1] >= 0.55):
+        return best[0]
+    return _extract_cik_from_search_payload(payload)
+
+
 def find_cik(company_name: str, ticker: str = "") -> str:
-    queries = [f'"{company_name}"']
+    cik = _find_cik_by_ticker(ticker)
+    if cik:
+        return cik
+
+    queries = []
+    if company_name:
+        queries.append(f'"{company_name}"')
     if ticker:
         queries.append(f'"{company_name}" {ticker}')
         queries.append(ticker)
@@ -75,7 +178,7 @@ def find_cik(company_name: str, ticker: str = "") -> str:
     for q_raw in queries:
         q = quote(q_raw)
         payload = _sec_get_json(f"https://efts.sec.gov/LATEST/search-index?q={q}&forms=10-K")
-        cik = _extract_cik_from_search_payload(payload)
+        cik = _extract_best_cik_from_search_payload(payload, company_name)
         if cik:
             return cik
     return ""
