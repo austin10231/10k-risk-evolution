@@ -395,7 +395,7 @@
 - "Average RPI" 与 hover popup 的 RPI 字段：`null/undefined` 时分别显示 "—" 和 "Not scored"，不再渲染伪造的 0.0。
 - 帮助说明文字加一句解释 "—" 含义。
 - 验证：`npm --prefix frontend run build` 通过；评分失败 record 现在前端显示灰底 "—"，全 Low（RPI=0）继续显示绿底 "0"。
-- 提交：`(本次 commit)`
+- 提交：`5334d23`
 
 ### 27) RPI 优化 P2 后端 + P3：评分失败 RPI 显式 null，全 Low 计入平均
 - `agentcore_deploy/main.py:_risk_pressure_index` 改为三态返回 `Optional[float]`：`None` = 评分失败/缺失（前端显示"—"），`0.0` = 全 Low 或无风险（合法低分），`>0.0` = 正常分数；新增 `scoring_status` keyword-only 入参，仅当 status 是 `"failed"` 或 `"missing"` 时返回 None。
