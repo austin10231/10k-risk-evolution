@@ -10,56 +10,13 @@ export const FIXED_RISK_CATEGORIES = [
   'General & Other',
 ]
 
-const RISK_CATEGORY_KEYWORDS = {
-  'Capital Markets': [
-    'common stock', 'stockholder', 'shareholder', 'market price', 'securities', 'dividend', 'equity offering', 'dilution', 'ownership of our stock', 'capital market',
-  ],
-  'Financial & Liquidity': [
-    'financial risk', 'financial condition', 'financial statements', 'liquidity', 'cash flow', 'debt', 'credit', 'interest rate', 'refinancing', 'impairment', 'profitability', 'revenue', 'inflation', 'foreign exchange', 'currency', 'solvency', 'capital resources',
-  ],
-  'Legal & Regulatory': [
-    'legal', 'regulatory', 'regulation', 'compliance', 'litigation', 'laws', 'government', 'policy', 'policies', 'antitrust', 'sanction', 'fines', 'bribery', 'corruption', 'intellectual property', 'tax-related', 'reit', 'status as a reit',
-  ],
-  'Technology & Cybersecurity': [
-    'technology', 'cyber', 'cybersecurity', 'information security', 'data breach', 'data privacy', 'privacy', 'it system', 'system outage', 'software', 'cloud', 'artificial intelligence', 'machine learning', 'generative ai', 'digital', 'ransomware',
-  ],
-  'Operations & Supply Chain': [
-    'operations', 'operational', 'business operations', 'supply chain', 'supplier', 'procurement', 'manufacturing', 'production', 'logistics', 'distribution', 'inventory', 'quality', 'safety', 'business continuity', 'disruption',
-  ],
-  'People & Governance': [
-    'employment', 'workforce', 'labor', 'union', 'human capital', 'talent', 'hiring', 'retention', 'management', 'leadership', 'executive', 'board', 'governance', 'internal control', 'culture',
-  ],
-  'ESG & Sustainability': [
-    'esg', 'environment', 'environmental', 'sustainability', 'climate', 'climate change', 'carbon', 'emissions', 'greenhouse gas', 'social responsibility',
-  ],
-  'Strategy & Market': [
-    'strategy', 'strategic', 'market', 'industry', 'competition', 'competitive', 'customer', 'demand', 'pricing', 'growth', 'reputation', 'brand', 'macro', 'geopolitical', 'business risk', 'general risk', 'risk factors', 'risks specific to our company',
-  ],
-}
-
-export function normalizeRiskCategory(category, title = '', labels = []) {
-  const catText = String(category || '').trim()
-  const titleText = String(title || '').trim()
-  const labelText = (Array.isArray(labels) ? labels : []).map((x) => String(x || '').trim()).filter(Boolean).join(' ')
-  const fullText = `${catText} ${titleText} ${labelText}`.trim().toLowerCase()
-  if (!fullText) return 'General & Other'
-
-  const scores = Object.fromEntries(FIXED_RISK_CATEGORIES.map((cat) => [cat, 0]))
-  const lowerCat = catText.toLowerCase()
-
-  Object.entries(RISK_CATEGORY_KEYWORDS).forEach(([target, phrases]) => {
-    phrases.forEach((phraseRaw) => {
-      const phrase = String(phraseRaw || '').toLowerCase()
-      if (!phrase) return
-      if (fullText.includes(phrase)) scores[target] += 1
-      if (lowerCat.includes(phrase)) scores[target] += 2
-    })
-  })
-
-  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-  const [bestCategory, bestScore] = ranked[0] || ['General & Other', 0]
-  if (bestScore > 0) return bestCategory
-  if (catText || titleText) return 'Strategy & Market'
+function pickCategory(blockCategory, sub) {
+  if (sub && typeof sub === 'object') {
+    const dashboard = String(sub.dashboard_category || '').trim()
+    if (FIXED_RISK_CATEGORIES.includes(dashboard)) return dashboard
+  }
+  const orig = String(blockCategory || '').trim()
+  if (FIXED_RISK_CATEGORIES.includes(orig)) return orig
   return 'General & Other'
 }
 
@@ -72,15 +29,23 @@ export function flattenRisks(result) {
     subs.forEach((sub) => {
       if (typeof sub === 'string') {
         const title = sub.trim()
-        const category = normalizeRiskCategory(categoryRaw, title, [])
-        if (title) out.push({ category, title, labels: [] })
+        if (title) {
+          const category = pickCategory(categoryRaw, null)
+          out.push({ category, dashboard_category: category, original_category: categoryRaw, title, labels: [] })
+        }
         return
       }
       const title = String(sub?.title || '').trim()
       if (!title) return
       const labels = Array.isArray(sub?.labels) ? sub.labels.filter(Boolean) : []
-      const category = normalizeRiskCategory(categoryRaw, title, labels)
-      out.push({ category, title, labels })
+      const category = pickCategory(categoryRaw, sub)
+      out.push({
+        category,
+        dashboard_category: category,
+        original_category: String(sub?.original_category || categoryRaw || '').trim(),
+        title,
+        labels,
+      })
     })
   })
   return out
@@ -109,8 +74,7 @@ export function groupedRiskTitles(result) {
     subs.forEach((sub) => {
       const title = String(typeof sub === 'string' ? sub : sub?.title || '').trim()
       if (!title) return
-      const labels = typeof sub === 'string' ? [] : (Array.isArray(sub?.labels) ? sub.labels.filter(Boolean) : [])
-      const category = normalizeRiskCategory(categoryRaw, title, labels)
+      const category = pickCategory(categoryRaw, typeof sub === 'object' ? sub : null)
       if (!grouped.has(category)) grouped.set(category, [])
       grouped.get(category).push(title)
     })

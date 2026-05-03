@@ -21,6 +21,7 @@ import json
 import html
 import os
 import re
+import sys
 import time
 import copy
 import hashlib
@@ -717,6 +718,83 @@ def _merge_risk_blocks(blocks: list[dict]) -> list[dict]:
     return [merged[key] for key in category_order if merged[key]["sub_risks"]]
 
 
+def _looks_like_single_bucket_fallback(blocks: list[dict]) -> bool:
+    if not isinstance(blocks, list) or len(blocks) != 1:
+        return False
+    only = blocks[0] if blocks else {}
+    if not isinstance(only, dict):
+        return False
+    cat = str(only.get("category", "") or "").strip().lower()
+    n_subs = len(only.get("sub_risks", []) or [])
+    return cat in {"risk factors", "general", "risks", "other", "general risks"} and n_subs >= 5
+
+
+def _resplit_single_bucket_with_llm(blocks: list[dict]) -> list[dict]:
+    if not _looks_like_single_bucket_fallback(blocks):
+        return blocks
+    titles = [str(title or "").strip() for title in blocks[0].get("sub_risks", []) or [] if str(title or "").strip()]
+    if len(titles) < 5:
+        return blocks
+
+    resplit_schema = {
+        "type": "object",
+        "properties": {
+            "blocks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "category": {"type": "string"},
+                        "indices": {"type": "array", "items": {"type": "integer"}},
+                    },
+                    "required": ["category", "indices"],
+                },
+            }
+        },
+        "required": ["blocks"],
+    }
+    titles_listing = "\n".join(f"{i}. {t[:300]}" for i, t in enumerate(titles))
+    resplit_prompt = f"""The previous extraction returned all {len(titles)} risks under one bucket.
+Re-cluster them into 3-6 themed categories. Each category should usually have 2-10 risks.
+
+Risks (numbered):
+{titles_listing}
+
+Return blocks where each block has:
+- category: the theme name
+- indices: list of 0-based indices from the list above"""
+    try:
+        resplit = invoke_with_schema(
+            resplit_prompt,
+            resplit_schema,
+            max_tokens=2500,
+            tool_name="recluster_risks",
+            tool_description="Re-cluster a flat risk list into 3-6 themed categories.",
+        )
+        new_blocks = []
+        seen_indices = set()
+        for block in (resplit.get("blocks") or []) if isinstance(resplit, dict) else []:
+            cat = _normalize_space(block.get("category", ""))
+            raw_indices = block.get("indices", []) if isinstance(block, dict) else []
+            idxs = []
+            for raw_idx in raw_indices if isinstance(raw_indices, list) else []:
+                try:
+                    idx = int(raw_idx)
+                except Exception:
+                    continue
+                if 0 <= idx < len(titles) and idx not in seen_indices:
+                    idxs.append(idx)
+                    seen_indices.add(idx)
+            subs = [titles[i] for i in idxs]
+            if cat and subs:
+                new_blocks.append({"category": cat, "sub_risks": subs})
+        if len(new_blocks) >= 3:
+            return new_blocks
+    except Exception:
+        pass
+    return blocks
+
+
 def _locate_item1_text_block(text: str) -> str:
     starts = list(_ITEM1_START.finditer(text))
     ends = list(_ITEM1A_START.finditer(text))
@@ -736,6 +814,46 @@ def _locate_item1_text_block(text: str) -> str:
     return _clean_text(raw)
 
 
+def _shape_overview_from_section_text(
+    section_text: str,
+    company_name: str = "",
+    industry: str = "",
+) -> dict:
+    body = str(section_text or "").strip()
+    if body:
+        body = re.sub(r"^\s*item\s*1[\.\:\s\u00a0\u2014\u2013\-]+bus(?:iness)?\s*", "", body, flags=re.IGNORECASE)
+
+    cut_patterns = [
+        re.compile(r"\n\s*Products\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Services\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Segments?\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Human Capital\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Employees\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Competition\s*\n", re.IGNORECASE),
+        re.compile(r"\n\s*Seasonality\s*\n", re.IGNORECASE),
+    ]
+    for pattern in cut_patterns:
+        match = pattern.search(body)
+        if match and match.start() > 200:
+            body = body[:match.start()]
+            break
+
+    background = _clean_text(body)
+    if len(background) > 1500:
+        cut = background[:1500]
+        last_period = cut.rfind(".")
+        if last_period > 200:
+            background = cut[:last_period + 1]
+
+    return {
+        "company": company_name,
+        "industry": industry,
+        "year": 0,
+        "filing_type": "",
+        "background": background or "(Could not extract Item 1 overview.)",
+    }
+
+
 def extract_item1_overview(
     html_bytes: bytes,
     company_name: str = "",
@@ -744,7 +862,7 @@ def extract_item1_overview(
     """Extract Item 1 overview from HTML."""
     item1_text = locate_item1_overview(html_bytes)
     if item1_text:
-        return _extract_overview_from_text(f"{item1_text}\n\nItem 1A. Risk Factors", company_name, industry)
+        return _shape_overview_from_section_text(item1_text, company_name, industry)
     text = _full_text(_make_soup(html_bytes))
     return _extract_overview_from_text(text, company_name, industry)
 
@@ -789,6 +907,8 @@ Do not include markdown fences or extra keys."""
 
         raw = _invoke(prompt, max_tokens=1000)
         parsed = _extract_json_obj_or_array(raw)
+        if not isinstance(parsed, dict):
+            print(f"[overview-bedrock] Non-dict LLM response for {company_name}: {str(raw)[:200]!r}", file=sys.stderr)
         if isinstance(parsed, dict):
             bg = str(parsed.get("background", "") or "").strip()
             if bg:
@@ -796,8 +916,8 @@ Do not include markdown fences or extra keys."""
                 out["background"] = bg
                 _AI_OVERVIEW_CACHE[cache_key] = copy.deepcopy(out)
                 return out
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[overview-bedrock] LLM failed for {company_name}: {type(exc).__name__}", file=sys.stderr)
     _AI_OVERVIEW_CACHE[cache_key] = copy.deepcopy(fallback)
     return fallback
 
@@ -863,6 +983,7 @@ def extract_item1a_risks_bedrock(
         all_cleaned: list[dict] = []
         for chunk_index, item1a_chunk in enumerate(item1a_chunks, start=1):
             prompt = f"""You are an expert SEC 10-K parser.
+
 Extract risk factors from Item 1A text and organize them into category blocks.
 Use exact wording from source risk statements whenever possible.
 
@@ -872,13 +993,26 @@ Chunk: {chunk_index} of {len(item1a_chunks)}
 Input text (Item 1A):
 \"\"\"{item1a_chunk}\"\"\"
 
-Rules:
+Categorization rules:
+- 10-K Item 1A typically contains 3-8 distinct risk categories. Use the SOURCE TEXT's
+  own subheadings (e.g., "Macroeconomic and Industry Risks", "Business Risks",
+  "Legal and Regulatory Compliance Risks", "Financial Risks", "General Risks") as
+  category names whenever the source provides them.
+- If the source has no explicit subheadings, INFER 3-6 categories from the risk
+  themes (e.g., "Supply Chain Concentration", "Regulatory Compliance",
+  "Cybersecurity", "Talent & Workforce", "Foreign Operations & Currency").
+- DO NOT return a single bucket called "Risk Factors", "General", "Risks", or
+  "Other" containing all risks - that is a failure mode and will be rejected.
+- Each category should ideally hold 2-10 sub-risks. Avoid categories with only one
+  sub-risk unless the source clearly isolates that risk.
+- Category names should be 2-6 words, capitalized as titles.
+
+Output rules:
 - Return data by calling the provided structured output tool.
-- Return a top-level object with a blocks array.
 - Each block must have category and sub_risks.
-- Each sub_risk must have title and source_span [start, end] character offsets from the input text.
-- Preserve risk meaning from source text.
-- Prefer full risk statements; do not output incomplete fragments.
+- Each sub_risk must have title and source_span [start, end] character offsets
+  from the input text above (so we can verify grounding).
+- Preserve the risk's original wording where reasonable.
 - Do not include any keys outside the provided schema."""
 
             parsed = invoke_with_schema(
@@ -895,6 +1029,7 @@ Rules:
                 all_cleaned.extend(cleaned)
 
         merged = _merge_risk_blocks(all_cleaned)
+        merged = _resplit_single_bucket_with_llm(merged)
         if merged:
             ai_cnt = _count_risk_items(merged)
             ev_ratio = _evidence_ratio(merged, item1a_text)

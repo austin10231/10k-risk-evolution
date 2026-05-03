@@ -3,10 +3,11 @@ import { get, post } from '../lib/api'
 import { useGlobalConfig } from '../lib/globalConfig'
 import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
 import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
-import { normalizeRiskCategory } from '../lib/records'
+import { FIXED_RISK_CATEGORIES } from '../lib/records'
 
-function normalizeCategory(value) {
-  return normalizeRiskCategory(value)
+function normalizeCategory(row) {
+  const value = String(row?.dashboard_category || row?.category || '').trim()
+  return FIXED_RISK_CATEGORIES.includes(value) ? value : 'General & Other'
 }
 
 function groupRisks(risks, categoryFilter, keywordFilter) {
@@ -15,7 +16,7 @@ function groupRisks(risks, categoryFilter, keywordFilter) {
   const category = String(categoryFilter || '').trim()
 
   ;(Array.isArray(risks) ? risks : []).forEach((row) => {
-    const cat = normalizeCategory(row?.category)
+    const cat = normalizeCategory(row)
     const title = String(row?.title || '').trim()
     if (!title) return
     if (category && category !== 'ALL' && category !== cat) return
@@ -197,8 +198,8 @@ export default function ComparePage() {
 
   const allCategories = useMemo(() => {
     const s = new Set()
-    ;(Array.isArray(data?.new_risks) ? data.new_risks : []).forEach((r) => s.add(normalizeCategory(r?.category)))
-    ;(Array.isArray(data?.removed_risks) ? data.removed_risks : []).forEach((r) => s.add(normalizeCategory(r?.category)))
+    ;(Array.isArray(data?.new_risks) ? data.new_risks : []).forEach((r) => s.add(normalizeCategory(r)))
+    ;(Array.isArray(data?.removed_risks) ? data.removed_risks : []).forEach((r) => s.add(normalizeCategory(r)))
     return Array.from(s).sort((a, b) => a.localeCompare(b))
   }, [data?.new_risks, data?.removed_risks])
 

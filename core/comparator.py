@@ -18,11 +18,29 @@ def _flatten_sub_risks(result):
         for sr in cb.get("sub_risks", []):
             if isinstance(sr, dict):
                 title = sr.get("title", str(sr))
+                dashboard_category = sr.get("dashboard_category", "")
+                original_category = sr.get("original_category", "") or cat
+                labels = sr.get("labels", [])
             elif isinstance(sr, str):
                 title = sr
+                dashboard_category = ""
+                original_category = cat
+                labels = []
             else:
                 title = str(sr)
-            items.append({"category": cat, "title": title, "norm": _normalize(title)})
+                dashboard_category = ""
+                original_category = cat
+                labels = []
+            items.append(
+                {
+                    "category": dashboard_category or cat,
+                    "dashboard_category": dashboard_category,
+                    "original_category": original_category,
+                    "labels": labels if isinstance(labels, list) else [],
+                    "title": title,
+                    "norm": _normalize(title),
+                }
+            )
     return items
 
 
@@ -43,8 +61,20 @@ def compare_risks(prior_result, latest_result):
             ml.add(li)
             mp.add(best_pi)
     return {
-        "new_risks": [{"category": latest[i]["category"], "title": latest[i]["title"]}
+        "new_risks": [{
+            "category": latest[i]["category"],
+            "dashboard_category": latest[i].get("dashboard_category", ""),
+            "original_category": latest[i].get("original_category", ""),
+            "labels": latest[i].get("labels", []),
+            "title": latest[i]["title"],
+        }
                        for i in range(len(latest)) if i not in ml],
-        "removed_risks": [{"category": prior[i]["category"], "title": prior[i]["title"]}
+        "removed_risks": [{
+            "category": prior[i]["category"],
+            "dashboard_category": prior[i].get("dashboard_category", ""),
+            "original_category": prior[i].get("original_category", ""),
+            "labels": prior[i].get("labels", []),
+            "title": prior[i]["title"],
+        }
                            for i in range(len(prior)) if i not in mp],
     }

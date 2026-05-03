@@ -824,192 +824,237 @@ FIXED_RISK_CATEGORIES: List[str] = [
     "General & Other",
 ]
 
-_RISK_CATEGORY_KEYWORDS: Dict[str, List[str]] = {
+_RISK_CATEGORY_KEYWORDS: Dict[str, List[tuple[str, int]]] = {
     "Capital Markets": [
-        "common stock",
-        "stockholder",
-        "shareholder",
-        "market price",
-        "securities",
-        "dividend",
-        "equity offering",
-        "dilution",
-        "ownership of our stock",
-        "capital market",
+        ("common stock", 3), ("stockholder", 3), ("shareholder", 2),
+        ("market price of our", 3), ("dividend", 3), ("dilution", 3),
+        ("equity offering", 3), ("ownership of our stock", 3),
+        ("public offering", 2), ("listing", 1),
     ],
     "Financial & Liquidity": [
-        "financial risk",
-        "financial condition",
-        "financial statements",
-        "liquidity",
-        "cash flow",
-        "debt",
-        "credit",
-        "interest rate",
-        "refinancing",
-        "impairment",
-        "profitability",
-        "revenue",
-        "inflation",
-        "foreign exchange",
-        "currency",
-        "solvency",
-        "capital resources",
+        ("liquidity", 3), ("cash flow", 3), ("debt", 2), ("credit risk", 3),
+        ("interest rate", 3), ("refinancing", 3), ("impairment", 3),
+        ("foreign exchange", 3), ("currency", 2), ("solvency", 3),
+        ("capital resources", 3), ("inflation", 2), ("hedging", 2),
     ],
     "Legal & Regulatory": [
-        "legal",
-        "regulatory",
-        "regulation",
-        "compliance",
-        "litigation",
-        "laws",
-        "government",
-        "policy",
-        "policies",
-        "antitrust",
-        "sanction",
-        "fines",
-        "bribery",
-        "corruption",
-        "intellectual property",
-        "tax-related",
-        "reit",
-        "status as a reit",
+        ("regulation", 3), ("regulatory", 3), ("compliance", 2),
+        ("litigation", 3), ("antitrust", 3), ("sanction", 3), ("bribery", 3),
+        ("intellectual property", 3), ("patent", 2),
+        ("data privacy law", 3), ("gdpr", 3), ("ccpa", 3),
+        ("tax-related", 2), ("status as a reit", 3),
     ],
     "Technology & Cybersecurity": [
-        "technology",
-        "cyber",
-        "cybersecurity",
-        "information security",
-        "data breach",
-        "data privacy",
-        "privacy",
-        "it system",
-        "system outage",
-        "software",
-        "cloud",
-        "artificial intelligence",
-        "machine learning",
-        "generative ai",
-        "digital",
-        "ransomware",
+        ("cybersecurity", 3), ("cyber attack", 3), ("data breach", 3),
+        ("information security", 3), ("ransomware", 3), ("system outage", 3),
+        ("it system", 3), ("personal information", 2),
+        ("artificial intelligence", 2), ("generative ai", 3),
     ],
     "Operations & Supply Chain": [
-        "operations",
-        "operational",
-        "business operations",
-        "supply chain",
-        "supplier",
-        "procurement",
-        "manufacturing",
-        "production",
-        "logistics",
-        "distribution",
-        "inventory",
-        "quality",
-        "safety",
-        "business continuity",
-        "disruption",
+        ("supply chain", 3), ("supplier", 3), ("procurement", 2),
+        ("manufacturing", 2), ("logistics", 2), ("distribution", 2),
+        ("inventory", 2), ("business continuity", 3),
+        ("single source", 3), ("contract manufacturer", 3),
     ],
     "People & Governance": [
-        "employment",
-        "workforce",
-        "labor",
-        "union",
-        "human capital",
-        "talent",
-        "hiring",
-        "retention",
-        "management",
-        "leadership",
-        "executive",
-        "board",
-        "governance",
-        "internal control",
-        "culture",
+        ("workforce", 3), ("union", 3), ("human capital", 3),
+        ("talent", 3), ("retention of key", 3),
+        ("internal control", 3), ("succession", 2), ("board of directors", 3),
     ],
     "ESG & Sustainability": [
-        "esg",
-        "environment",
-        "environmental",
-        "sustainability",
-        "climate",
-        "climate change",
-        "carbon",
-        "emissions",
-        "greenhouse gas",
-        "social responsibility",
+        ("climate change", 3), ("greenhouse gas", 3), ("carbon emissions", 3),
+        ("environmental regulation", 3), ("esg", 3),
+        ("sustainability", 2), ("renewable", 2),
     ],
     "Strategy & Market": [
-        "strategy",
-        "strategic",
-        "market",
-        "industry",
-        "competition",
-        "competitive",
-        "customer",
-        "demand",
-        "pricing",
-        "growth",
-        "reputation",
-        "brand",
-        "macro",
-        "geopolitical",
-        "business risk",
-        "general risk",
-        "risk factors",
-        "risks specific to our company",
+        ("competition", 3), ("competitive landscape", 3),
+        ("market share", 3), ("pricing pressure", 3),
+        ("customer concentration", 3), ("new entrants", 2),
+        ("brand", 2), ("reputation", 2), ("geopolitical", 3),
+        ("macroeconomic", 3),
     ],
 }
 
 
-def _normalize_risk_category(category: Any, title: Any = "", labels: Optional[List[Any]] = None) -> str:
+def _normalize_risk_category(category: Any, title: Any = "", labels: Optional[List[Any]] = None) -> tuple[str, int]:
     cat_text = str(category or "").strip()
     title_text = str(title or "").strip()
     label_text = " ".join([str(x or "").strip() for x in (labels or []) if str(x or "").strip()])
     full_text = " ".join([cat_text, title_text, label_text]).strip().lower()
     if not full_text:
-        return "General & Other"
+        return "General & Other", 0
 
     scores: Dict[str, int] = {k: 0 for k in FIXED_RISK_CATEGORIES}
+    cat_lower = cat_text.lower()
 
-    def _add_match_points(target: str, phrase: str) -> None:
+    def _add_match_points(target: str, phrase: str, weight: int) -> None:
         if phrase in full_text:
-            scores[target] = scores.get(target, 0) + 1
-        if phrase in cat_text.lower():
-            scores[target] = scores.get(target, 0) + 2
+            scores[target] = scores.get(target, 0) + int(weight)
+        if phrase in cat_lower:
+            scores[target] = scores.get(target, 0) + int(weight)
 
-    for target, phrases in _RISK_CATEGORY_KEYWORDS.items():
-        for phrase in phrases:
-            _add_match_points(target, phrase)
+    for target, weighted in _RISK_CATEGORY_KEYWORDS.items():
+        for phrase, weight in weighted:
+            _add_match_points(target, phrase, weight)
 
-    # Prefer non-"General & Other" when any specific signal exists.
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     best_cat, best_score = ranked[0]
-    if best_score > 0:
-        return best_cat
+    if best_score >= 1:
+        return best_cat, int(best_score)
+    return "General & Other", 0
 
-    if cat_text or title_text:
-        return "Strategy & Market"
+
+_LLM_CLASSIFY_CACHE: Dict[str, str] = {}
+
+
+def _has_bedrock_runtime_credentials() -> bool:
+    if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
+        return True
+    if os.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") or os.getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI"):
+        return True
+    return False
+
+
+def _json_obj_from_text(text: str) -> dict:
+    raw = str(text or "").strip().replace("```json", "").replace("```", "").strip()
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        pass
+    left = raw.find("{")
+    right = raw.rfind("}")
+    if left >= 0 and right > left:
+        try:
+            obj = json.loads(raw[left : right + 1])
+            return obj if isinstance(obj, dict) else {}
+        except Exception:
+            pass
+    return {}
+
+
+def _classify_with_llm_fallback(category: str, title: str, labels: List[str]) -> str:
+    cache_key = (str(category or "") + "||" + str(title or ""))[:300]
+    if cache_key in _LLM_CLASSIFY_CACHE:
+        return _LLM_CLASSIFY_CACHE[cache_key]
+
+    if not _has_bedrock_runtime_credentials():
+        _LLM_CLASSIFY_CACHE[cache_key] = "General & Other"
+        return "General & Other"
+
+    bucket_list = "\n".join(f"- {c}" for c in FIXED_RISK_CATEGORIES)
+    prompt = f"""You map an SEC 10-K risk factor into ONE of these 9 dashboard categories:
+{bucket_list}
+
+Risk source category (LLM-named): {category!r}
+Risk title: {title!r}
+Labels: {labels!r}
+
+Return ONLY a JSON object: {{"bucket": "<exactly one of the 9 names>"}}."""
+    try:
+        invoke = _get_llm_invoke()
+        raw = invoke(prompt, 60)
+        bucket = str(_json_obj_from_text(raw).get("bucket", "")).strip()
+        if bucket in FIXED_RISK_CATEGORIES:
+            _LLM_CLASSIFY_CACHE[cache_key] = bucket
+            return bucket
+        for candidate in FIXED_RISK_CATEGORIES:
+            if candidate in str(raw or ""):
+                _LLM_CLASSIFY_CACHE[cache_key] = candidate
+                return candidate
+    except Exception:
+        pass
+
+    _LLM_CLASSIFY_CACHE[cache_key] = "General & Other"
     return "General & Other"
 
 
 def _extract_sub_risks(result: dict) -> List[dict]:
     out: List[dict] = []
     for cat_block in result.get("risks", []) if isinstance(result, dict) else []:
-        category = str(cat_block.get("category", "Unknown") or "Unknown")
+        original_category = str(cat_block.get("category", "Unknown") or "Unknown")
         for sr in cat_block.get("sub_risks", []) or []:
             if isinstance(sr, dict):
                 title = str(sr.get("title", "") or "").strip()
-                labels = sr.get("labels", [])
+                labels = sr.get("labels", []) if isinstance(sr.get("labels"), list) else []
+                pre_dashboard = str(sr.get("dashboard_category", "") or "").strip()
+                pre_original = str(sr.get("original_category", "") or "").strip()
             else:
                 title = str(sr or "").strip()
                 labels = []
+                pre_dashboard = ""
+                pre_original = ""
             if not title:
                 continue
-            mapped_category = _normalize_risk_category(category, title, labels if isinstance(labels, list) else [])
-            out.append({"category": mapped_category, "title": title, "labels": labels})
+            if pre_dashboard in FIXED_RISK_CATEGORIES:
+                mapped_category = pre_dashboard
+            else:
+                mapped_category, score = _normalize_risk_category(original_category, title, labels)
+                if score < 3:
+                    mapped_category = _classify_with_llm_fallback(original_category, title, labels)
+            out.append(
+                {
+                    "category": mapped_category,
+                    "dashboard_category": mapped_category,
+                    "original_category": pre_original or original_category,
+                    "title": title,
+                    "labels": labels,
+                }
+            )
     return out
+
+
+def _annotate_dashboard_category(risks_blocks: list) -> list:
+    for block in risks_blocks if isinstance(risks_blocks, list) else []:
+        if not isinstance(block, dict):
+            continue
+        original_category = str(block.get("category", "") or "").strip() or "Unknown"
+        new_subs = []
+        for sr in block.get("sub_risks", []) or []:
+            if isinstance(sr, dict):
+                title = str(sr.get("title", "") or "").strip()
+                labels = sr.get("labels", []) if isinstance(sr.get("labels"), list) else []
+                if not title:
+                    continue
+                mapped = str(sr.get("dashboard_category", "") or "").strip()
+                if mapped not in FIXED_RISK_CATEGORIES:
+                    mapped, score = _normalize_risk_category(original_category, title, labels)
+                    if score < 3:
+                        mapped = _classify_with_llm_fallback(original_category, title, labels)
+                sr_out = dict(sr)
+                sr_out["title"] = title
+                sr_out["labels"] = labels
+                sr_out["original_category"] = str(sr.get("original_category", "") or "").strip() or original_category
+                sr_out["dashboard_category"] = mapped
+                new_subs.append(sr_out)
+            else:
+                title = str(sr or "").strip()
+                if not title:
+                    continue
+                mapped, score = _normalize_risk_category(original_category, title, [])
+                if score < 3:
+                    mapped = _classify_with_llm_fallback(original_category, title, [])
+                new_subs.append(
+                    {
+                        "title": title,
+                        "labels": [],
+                        "original_category": original_category,
+                        "dashboard_category": mapped,
+                    }
+                )
+        block["sub_risks"] = new_subs
+    return risks_blocks if isinstance(risks_blocks, list) else []
+
+
+def _result_with_dashboard_categories(result: dict) -> dict:
+    if not isinstance(result, dict):
+        return result
+    risks = result.get("risks")
+    if not isinstance(risks, list):
+        return result
+    cloned = dict(result)
+    cloned["risks"] = _annotate_dashboard_category([dict(block) if isinstance(block, dict) else block for block in risks])
+    return cloned
 
 
 def _generate_agent_priority_report(company: str, year: int, risks: list) -> tuple[Optional[dict], str]:
@@ -1176,6 +1221,8 @@ def _manual_extract_result(
 
     if not risks:
         return None, "Could not extract risks from Item 1A."
+    if isinstance(risks, list):
+        risks = _annotate_dashboard_category(risks)
 
     overview = dict(overview or {})
     overview["year"] = yy
@@ -3445,6 +3492,9 @@ def _compare_payload(latest_record_id: str, prior_record_id: str) -> dict:
     prior = _load_result(prior_record_id)
     if not isinstance(latest, dict) or not isinstance(prior, dict):
         return {"error": "Invalid record ids for compare."}
+
+    latest = _result_with_dashboard_categories(latest)
+    prior = _result_with_dashboard_categories(prior)
 
     if compare_risks:
         diff = compare_risks(prior, latest)
