@@ -18,6 +18,7 @@ Public API:
 """
 
 import json
+import html
 import os
 import re
 import time
@@ -339,8 +340,32 @@ def extract_item1_overview_from_text(
     return _extract_overview_from_text(text, company_name, industry)
 
 
+def _text_to_pseudo_html(text: str) -> bytes:
+    lines = [ln.strip() for ln in str(text or "").splitlines()]
+    html_lines = ["<html><body>"]
+    for line in lines:
+        if not line:
+            continue
+        normalized = _normalize_space(line)
+        escaped = html.escape(normalized)
+        low = normalized.lower()
+        is_item_heading = bool(re.match(r"^item\s+\d+[a-z]?[\.\:\s]", low))
+        is_risk_heading = len(normalized) <= 160 and "risk" in low and not normalized.endswith(".")
+        tag = "h2" if is_item_heading or is_risk_heading else "p"
+        html_lines.append(f"<{tag}>{escaped}</{tag}>")
+    html_lines.append("</body></html>")
+    return "\n".join(html_lines).encode("utf-8")
+
+
 def extract_item1a_risks_from_text(text: str) -> list[dict]:
     """Extract Item 1A risks from Textract-extracted plain text."""
+    try:
+        section_text, _meta = locate_item1a_with_sec_parser(_text_to_pseudo_html(text))
+        risks = _extract_risks_from_item1a_text(section_text)
+        if risks:
+            return risks
+    except Exception:
+        pass
     return _extract_risks_from_text_fallback(text)
 
 
