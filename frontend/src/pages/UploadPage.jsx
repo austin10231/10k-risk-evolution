@@ -84,21 +84,18 @@ function RecordDetailPanel({ rec, result }) {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         <Link
           to={`/compare?company=${encodeURIComponent(rec.company || '')}&year=${encodeURIComponent(String(rec.year || ''))}`}
           className="btn-secondary w-full"
         >
-          ⚖️ Run Compare
-        </Link>
-        <Link to={`/agent?record_id=${encodeURIComponent(rec.record_id || '')}`} className="btn-secondary w-full">
-          🤖 Run Agent
+          Go Compare
         </Link>
         <Link to={`/dashboard?industry=${encodeURIComponent(rec.industry || '')}`} className="btn-secondary w-full">
-          📈 Open Dashboard
+          Go Dashboard
         </Link>
         <Link to={`/tables?record_id=${encodeURIComponent(rec.record_id || '')}`} className="btn-secondary w-full">
-          📊 Open Tables
+          Go Tables
         </Link>
       </div>
 
@@ -111,13 +108,13 @@ function RecordDetailPanel({ rec, result }) {
 
       {ov.background ? (
         <div className="mt-4">
-          <div className="rl-section-header">🏢 Business Overview</div>
+          <div className="rl-section-header">Business Overview</div>
           <p className="rl-body-text">{ov.background}</p>
         </div>
       ) : null}
 
       <div className="mt-4">
-        <div className="rl-section-header">⚠️ Risk Categories ({groups.length})</div>
+        <div className="rl-section-header">Risk Categories ({groups.length})</div>
         <div className="space-y-2">
           {groups.map((g) => (
             <details key={g.category} className="rl-expander">
@@ -167,6 +164,9 @@ export default function UploadPage() {
   const [selectedId, setSelectedId] = useState('')
   const [selectedResult, setSelectedResult] = useState(null)
   const [loadingSelected, setLoadingSelected] = useState(false)
+  const [recordsIndustryFilter, setRecordsIndustryFilter] = useState('all')
+  const [selectedCompanyKey, setSelectedCompanyKey] = useState('')
+  const [selectedYear, setSelectedYear] = useState('')
 
   const fileInputRef = useRef(null)
   const topTabsRef = useRef(null)
@@ -231,21 +231,135 @@ export default function UploadPage() {
     }
   }, [selectedId])
 
-  const filtered = useMemo(() => {
+  const recordIndustries = useMemo(() => {
+    const set = new Set()
+    records.forEach((r) => {
+      const value = String(r?.industry || 'Other').trim() || 'Other'
+      set.add(value)
+    })
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [records])
+
+  const visibleRecords = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return records
-    return records.filter((r) =>
-      [r.company, r.industry, r.filing_type, String(r.year), r.record_id].join(' ').toLowerCase().includes(q),
-    )
-  }, [records, search])
+    return records.filter((r) => {
+      const recordIndustry = String(r?.industry || 'Other').trim() || 'Other'
+      if (recordsIndustryFilter !== 'all' && recordIndustry !== recordsIndustryFilter) return false
+      if (!q) return true
+      return [r.company, r.industry, r.filing_type, String(r.year), r.record_id].join(' ').toLowerCase().includes(q)
+    })
+  }, [records, search, recordsIndustryFilter])
+
+  const companyGroups = useMemo(() => {
+    const groups = new Map()
+    visibleRecords.forEach((r) => {
+      const companyName = String(r?.company || 'Unknown Company').trim() || 'Unknown Company'
+      const key = companyName.toLowerCase()
+      const industryLabel = String(r?.industry || 'Other').trim() || 'Other'
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          company: companyName,
+          industry: industryLabel,
+          records: [],
+        })
+      }
+      groups.get(key).records.push(r)
+    })
+
+    const toMillis = (value) => {
+      const n = new Date(value || 0).getTime()
+      return Number.isFinite(n) ? n : 0
+    }
+
+    return Array.from(groups.values())
+      .map((group) => {
+        const sorted = [...group.records].sort((a, b) => {
+          const ay = Number(a?.year || 0)
+          const by = Number(b?.year || 0)
+          if (by !== ay) return by - ay
+          return toMillis(b?.created_at) - toMillis(a?.created_at)
+        })
+        const years = Array.from(new Set(sorted.map((r) => String(r?.year || '—'))))
+        const latestUpdated = sorted[0]?.created_at || ''
+        return {
+          ...group,
+          records: sorted,
+          years,
+          recordCount: sorted.length,
+          latestUpdated,
+        }
+      })
+      .sort((a, b) => {
+        if (b.recordCount !== a.recordCount) return b.recordCount - a.recordCount
+        return a.company.localeCompare(b.company)
+      })
+  }, [visibleRecords])
+
+  const selectedRecInView = useMemo(
+    () => visibleRecords.find((r) => String(r.record_id) === String(selectedId)) || null,
+    [visibleRecords, selectedId],
+  )
+
+  const activeCompanyGroup = useMemo(
+    () => companyGroups.find((g) => g.key === selectedCompanyKey) || null,
+    [companyGroups, selectedCompanyKey],
+  )
+
+  const selectedYearRecords = useMemo(() => {
+    if (!activeCompanyGroup) return []
+    if (!selectedYear) return activeCompanyGroup.records
+    return activeCompanyGroup.records.filter((r) => String(r?.year || '—') === selectedYear)
+  }, [activeCompanyGroup, selectedYear])
 
   const selectedRec = useMemo(
     () =>
-      filtered.find((r) => String(r.record_id) === String(selectedId)) ||
+      visibleRecords.find((r) => String(r.record_id) === String(selectedId)) ||
       records.find((r) => String(r.record_id) === String(selectedId)) ||
       null,
-    [filtered, records, selectedId],
+    [visibleRecords, records, selectedId],
   )
+
+  useEffect(() => {
+    if (!companyGroups.length) {
+      setSelectedCompanyKey('')
+      return
+    }
+    const fromSelectedRecord = selectedRecInView ? String(selectedRecInView.company || '').trim().toLowerCase() : ''
+    const hasCurrent = companyGroups.some((g) => g.key === selectedCompanyKey)
+    const nextKey =
+      fromSelectedRecord && companyGroups.some((g) => g.key === fromSelectedRecord)
+        ? fromSelectedRecord
+        : hasCurrent
+          ? selectedCompanyKey
+          : companyGroups[0].key
+    if (nextKey && nextKey !== selectedCompanyKey) setSelectedCompanyKey(nextKey)
+  }, [companyGroups, selectedCompanyKey, selectedRecInView])
+
+  useEffect(() => {
+    if (!activeCompanyGroup || !activeCompanyGroup.years.length) {
+      setSelectedYear('')
+      return
+    }
+    const fromSelectedRecord =
+      selectedRecInView && String(selectedRecInView.company || '').trim().toLowerCase() === activeCompanyGroup.key
+        ? String(selectedRecInView.year || '')
+        : ''
+    const hasCurrent = Boolean(selectedYear) && activeCompanyGroup.years.includes(selectedYear)
+    const nextYear =
+      fromSelectedRecord && activeCompanyGroup.years.includes(fromSelectedRecord)
+        ? fromSelectedRecord
+        : hasCurrent
+          ? selectedYear
+          : activeCompanyGroup.years[0]
+    if (nextYear && nextYear !== selectedYear) setSelectedYear(nextYear)
+  }, [activeCompanyGroup, selectedYear, selectedRecInView])
+
+  useEffect(() => {
+    if (!selectedYearRecords.length) return
+    const exists = selectedYearRecords.some((r) => String(r.record_id) === String(selectedId))
+    if (!exists) setSelectedId(String(selectedYearRecords[0].record_id))
+  }, [selectedYearRecords, selectedId])
 
   const runManualExtract = async () => {
     const companyName = String(company || '').trim()
@@ -608,83 +722,169 @@ export default function UploadPage() {
           <section className="rl-up-records">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3>All Filing Records</h3>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search company / industry / year"
-                className="input w-full md:w-80"
-              />
+              <div className="rl-up-records-filters">
+                <select
+                  value={recordsIndustryFilter}
+                  onChange={(e) => setRecordsIndustryFilter(e.target.value)}
+                  className="input w-full md:w-48"
+                >
+                  <option value="all">All industries</option>
+                  {recordIndustries.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search company / year / record ID"
+                  className="input w-full md:w-80"
+                />
+              </div>
             </div>
             <p className="rl-count-label">
-              Showing <strong>{filtered.length}</strong> of {records.length} records
+              Showing <strong>{companyGroups.length}</strong> companies and <strong>{visibleRecords.length}</strong> of {records.length} records
             </p>
 
-            <div className="rl-up-records-table-wrap">
-              <table className="rl-up-record-table">
-                <thead>
-                  <tr>
-                    <th>Company</th>
-                    <th>Year</th>
-                    <th>Industry</th>
-                    <th>Type</th>
-                    <th>Risk Items</th>
-                    <th>Categories</th>
-                    <th>Updated</th>
-                    <th className="text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td className="rl-up-record-empty" colSpan={8}>
-                        Loading records…
-                      </td>
-                    </tr>
-                  ) : null}
-
-                  {!loading && filtered.length === 0 ? (
-                    <tr>
-                      <td className="rl-up-record-empty" colSpan={8}>
-                        No records found.
-                      </td>
-                    </tr>
-                  ) : null}
-
-                  {!loading &&
-                    filtered.map((r) => {
-                      const active = String(r.record_id) === String(selectedId)
-                      return (
-                        <tr
-                          key={r.record_id}
-                          className={`rl-up-record-row ${active ? 'active' : ''}`}
-                          onClick={() => setSelectedId(String(r.record_id))}
-                        >
-                          <td className="rl-up-company-cell">
-                            <strong>{r.company || '—'}</strong>
-                            <span>{r.record_id || '—'}</span>
-                          </td>
-                          <td>{r.year || '—'}</td>
-                          <td>{r.industry || 'Other'}</td>
-                          <td>{r.filing_type || '10-K'}</td>
-                          <td>{r.risk_items ?? '—'}</td>
-                          <td>{r.risk_categories ?? '—'}</td>
-                          <td>{formatDate(r.created_at)}</td>
-                          <td className="text-right">
-                            <button
-                              className={active ? 'btn-primary rl-up-row-btn' : 'btn-secondary rl-up-row-btn'}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedId(String(r.record_id))
-                              }}
-                            >
-                              {active ? 'Loaded' : 'Load'}
-                            </button>
+            <div className="rl-up-records-layout">
+              <div className="rl-up-company-panel">
+                <p className="rl-up-mini-title">Companies</p>
+                <div className="rl-up-records-table-wrap rl-up-company-table-wrap">
+                  <table className="rl-up-record-table rl-up-company-table">
+                    <thead>
+                      <tr>
+                        <th>Company</th>
+                        <th>Industry</th>
+                        <th>Years</th>
+                        <th>Records</th>
+                        <th>Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loading ? (
+                        <tr>
+                          <td className="rl-up-record-empty" colSpan={5}>
+                            Loading records…
                           </td>
                         </tr>
-                      )
-                    })}
-                </tbody>
-              </table>
+                      ) : null}
+
+                      {!loading && companyGroups.length === 0 ? (
+                        <tr>
+                          <td className="rl-up-record-empty" colSpan={5}>
+                            No records found.
+                          </td>
+                        </tr>
+                      ) : null}
+
+                      {!loading &&
+                        companyGroups.map((group) => {
+                          const active = group.key === selectedCompanyKey
+                          return (
+                            <tr
+                              key={group.key}
+                              className={`rl-up-record-row ${active ? 'active' : ''}`}
+                              onClick={() => setSelectedCompanyKey(group.key)}
+                            >
+                              <td className="rl-up-company-cell">
+                                <strong>{group.company}</strong>
+                                <span>{group.years.join(', ')}</span>
+                              </td>
+                              <td>{group.industry || 'Other'}</td>
+                              <td>{group.years.length}</td>
+                              <td>{group.recordCount}</td>
+                              <td>{formatDate(group.latestUpdated)}</td>
+                            </tr>
+                          )
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rl-up-company-detail">
+                <div className="rl-up-company-detail-head">
+                  <div>
+                    <p className="rl-up-mini-title mb-1">Selected Company</p>
+                    <h4>{activeCompanyGroup?.company || '—'}</h4>
+                    <p>
+                      {(activeCompanyGroup?.industry || 'Other')} • {activeCompanyGroup?.recordCount || 0} records
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rl-up-year-picker">
+                  {(activeCompanyGroup?.years || []).map((yearValue) => {
+                    const active = yearValue === selectedYear
+                    return (
+                      <button
+                        key={yearValue}
+                        className={active ? 'btn-primary rl-up-year-pill' : 'btn-secondary rl-up-year-pill'}
+                        onClick={() => setSelectedYear(yearValue)}
+                      >
+                        {yearValue}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="rl-up-records-table-wrap">
+                  <table className="rl-up-record-table">
+                    <thead>
+                      <tr>
+                        <th>Year</th>
+                        <th>Type</th>
+                        <th>Risk Items</th>
+                        <th>Categories</th>
+                        <th>Updated</th>
+                        <th className="text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!loading && !selectedYearRecords.length ? (
+                        <tr>
+                          <td className="rl-up-record-empty" colSpan={6}>
+                            Pick a company and year to view records.
+                          </td>
+                        </tr>
+                      ) : null}
+
+                      {!loading &&
+                        selectedYearRecords.map((r) => {
+                          const active = String(r.record_id) === String(selectedId)
+                          return (
+                            <tr
+                              key={r.record_id}
+                              className={`rl-up-record-row ${active ? 'active' : ''}`}
+                              onClick={() => setSelectedId(String(r.record_id))}
+                            >
+                              <td className="rl-up-company-cell">
+                                <strong>{r.year || '—'}</strong>
+                                <span>{r.record_id || '—'}</span>
+                              </td>
+                              <td>{r.filing_type || '10-K'}</td>
+                              <td>{r.risk_items ?? '—'}</td>
+                              <td>{r.risk_categories ?? '—'}</td>
+                              <td>{formatDate(r.created_at)}</td>
+                              <td className="text-right">
+                                <button
+                                  className={active ? 'btn-primary rl-up-row-btn' : 'btn-secondary rl-up-row-btn'}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedId(String(r.record_id))
+                                  }}
+                                >
+                                  {active ? 'Loaded' : 'Load'}
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </section>
 
