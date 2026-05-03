@@ -389,13 +389,21 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 27) RPI 优化 P2 后端 + P3：评分失败 RPI 显式 null，全 Low 计入平均
+- `agentcore_deploy/main.py:_risk_pressure_index` 改为三态返回 `Optional[float]`：`None` = 评分失败/缺失（前端显示"—"），`0.0` = 全 Low 或无风险（合法低分），`>0.0` = 正常分数；新增 `scoring_status` keyword-only 入参，仅当 status 是 `"failed"` 或 `"missing"` 时返回 None。
+- `_extract_priority_counts_from_result` 新增 `scoring_status` 输出字段：优先读 `agent_report.scoring_status`（commit 1 注入），不存在但 `priority_matrix` 存在时回退 `"ok"`（保护历史 record），`agent_report` 完全缺失则 `"missing"`。
+- `_dashboard_summary` 把 status 透传给 `_risk_pressure_index`；`if rpi > 0` 改为 `if rpi is not None`（同时修复 P3 — 全 Low（RPI=0）合法 record 重新计入 `avg_rpi`）；heatmap cell 的 `rpi` 字段在评分失败时为 JSON `null`，新增 `scoring_status` 字段；公司排序中"未评分"公司用 `-1.0` 落到列表底部。
+- 行为变化（用户可感知）：dashboard 上历史评分失败的 record 不再显示伪造的 RPI=50；全 Low record 现在按 0 参与 `avg_rpi` 计算，所以 `avg_rpi` 数字会比修复前略低（之前的 bug 把 0 排除在分母外了）。
+- 自检：构造 `failed/missing/ok` 三种 status 经 `_risk_pressure_index` 输出符合预期；新 / 旧 / 空 record 经 `_extract_priority_counts_from_result` 的 status 路径全部正确；源码扫描确认 `if rpi > 0` 已被替换。
+- 提交：`(本次 commit)`
+
 ### 26) RPI 优化 P0+P1：LLM 打分加 Python 校验 + 分批评分
 - `agentcore_deploy/agent.py` 新增 `PRIORITY_HIGH_THRESHOLD=7.0` / `PRIORITY_MEDIUM_THRESHOLD=4.0` / `PRIORITY_DIM_WEIGHTS=(0.4,0.35,0.25)` / `_PRIORITY_BATCH_SIZE=40` 四个常量，以及 `_clamp_int_1_10` / `_compute_score_from_dims` / `_priority_from_score` 三个辅助函数；prompt 仍向 LLM 索要三维（financial_impact / likelihood / urgency），但 score 与 priority 改由 Python 在 `_prioritize_risks_impl` 内**重算**——LLM 自相矛盾的 `{score:2.0, priority:"High"}` 不再被接受。
 - `_prioritize_risks_impl` 重写为分批：超过 40 条风险因子时按 `⌈N/40⌉` 个 batch 串行调用，所有条目都会被评分；单 batch 失败仅影响该批，其他 batch 不受牵连；`agent_steps` 多一行 `Tool 3a: scored X/Y risks across N batches` 便于排查。
 - `_build_priority_lists` 返回签名从 `(high, medium, low)` 改为 `(high, medium, low, unscored)`；`priority is None` 的条目落到新 `unscored` 桶而不是默认 Medium。`_generate_agent_report_impl` / `_fallback_report` / `_normalize_report` 同步把 `priority_matrix.unscored.{count, top}` 写进输出，并新增顶层 `scoring_status ∈ {"ok", "partial", "failed", "missing"}` 字段（`_fallback_report` 直接给 `"failed"`）。
 - 行为变化：评分失败时不再静默返回 `Medium=5.0` 制造看似正常的 RPI=50；该信号会被 P2 的 main.py / 前端识别成"未评分"。本次 commit 只动 agent.py，main.py / 前端的下游消费在 commit 2 / 3 完成。
 - 自检：脚本模拟 LLM 自相矛盾返回（`P0`）、60 条 → 2 个 batch（`P1`）、Bedrock 全失败（`P2-failed`）、半数 batch 失败（`P2-partial`）四个场景，priority/score/scoring_status/unscored 均符合预期。
-- 提交：`(本次 commit)`
+- 提交：`e75d965`
 
 ### 25) 风险分类优化：提取多桶约束 + Dashboard 9 类映射
 - 提交：`65d2692`

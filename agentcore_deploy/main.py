@@ -1399,7 +1399,24 @@ def _to_int_safe(value: Any, default: int = 0) -> int:
         return default
 
 
-def _risk_pressure_index(high: int, medium: int, low: int) -> float:
+def _risk_pressure_index(
+    high: int,
+    medium: int,
+    low: int,
+    *,
+    scoring_status: str = "ok",
+) -> Optional[float]:
+    """Three-state RPI:
+
+      None  → scoring failed / no agent_report (frontend renders "—")
+      0.0   → all-Low / no risks (legitimate low-risk record)
+      >0.0  → normal weighted score in (0, 100]
+
+    Only `scoring_status == "failed"` (or "missing") returns None; H+M+L=0
+    with status="ok" still maps to 0.0 because that is a legitimate signal.
+    """
+    if str(scoring_status) in ("failed", "missing"):
+        return None
     total = int(high or 0) + int(medium or 0) + int(low or 0)
     if total <= 0:
         return 0.0
@@ -1415,12 +1432,24 @@ def _extract_priority_counts_from_result(result: dict) -> dict:
         "low": 0,
         "total": 0,
         "top_high": [],
+        "scoring_status": "missing",
     }
     if not isinstance(result, dict):
         return out
 
     agent_report = result.get("agent_report", {}) if isinstance(result.get("agent_report"), dict) else {}
     pm = agent_report.get("priority_matrix", {}) if isinstance(agent_report.get("priority_matrix"), dict) else {}
+    # Read the explicit signal when present; fall back to "ok" for legacy
+    # records that have a populated priority_matrix but no scoring_status.
+    raw_status = str(agent_report.get("scoring_status", "") or "").strip()
+    if raw_status in ("ok", "partial", "failed", "missing"):
+        status = raw_status
+    elif isinstance(agent_report, dict) and isinstance(agent_report.get("priority_matrix"), dict):
+        status = "ok"
+    else:
+        status = "missing"
+    out["scoring_status"] = status
+
     high = _to_int_safe((pm.get("high", {}) or {}).get("count", 0), 0) if isinstance(pm.get("high"), dict) else 0
     medium = _to_int_safe((pm.get("medium", {}) or {}).get("count", 0), 0) if isinstance(pm.get("medium"), dict) else 0
     low = _to_int_safe((pm.get("low", {}) or {}).get("count", 0), 0) if isinstance(pm.get("low"), dict) else 0
@@ -1515,7 +1544,10 @@ def _dashboard_summary() -> dict:
         risks = _extract_sub_risks(result) if isinstance(result, dict) else []
         risk_items = len(risks)
         priority = _extract_priority_counts_from_result(result if isinstance(result, dict) else {})
-        rpi = _risk_pressure_index(priority["high"], priority["medium"], priority["low"])
+        rpi = _risk_pressure_index(
+            priority["high"], priority["medium"], priority["low"],
+            scoring_status=priority.get("scoring_status", "missing"),
+        )
 
         category_counts_local: Dict[str, int] = {}
         for item in risks:
@@ -1538,7 +1570,9 @@ def _dashboard_summary() -> dict:
             scope["priority_totals"]["high"] += int(priority["high"])
             scope["priority_totals"]["medium"] += int(priority["medium"])
             scope["priority_totals"]["low"] += int(priority["low"])
-            if rpi > 0:
+            # P2/P3: include all valid RPIs (None = scoring failed/missing,
+            # excluded; 0.0 = legitimate all-Low record, included).
+            if rpi is not None:
                 scope["rpi_values"].append(float(rpi))
 
             for cat, cnt in category_counts_local.items():
@@ -1568,7 +1602,10 @@ def _dashboard_summary() -> dict:
                         "medium": int(priority["medium"]),
                         "low": int(priority["low"]),
                         "total": int(priority["total"]),
-                        "rpi": float(rpi),
+                        # Keep None as null in JSON so the frontend can render
+                        # "—" for unscored vs green-0 for legitimate all-Low.
+                        "rpi": (None if rpi is None else float(rpi)),
+                        "scoring_status": priority.get("scoring_status", "missing"),
                         "top_high": list(priority["top_high"])[:3],
                         "created_at": created_at,
                     }
@@ -1580,11 +1617,14 @@ def _dashboard_summary() -> dict:
         max_rpi_by_company: Dict[str, float] = {}
         for cell in heat_cells:
             comp = str(cell.get("company", "") or "")
-            rpi = float(cell.get("rpi", 0.0) or 0.0)
-            max_rpi_by_company[comp] = max(max_rpi_by_company.get(comp, 0.0), rpi)
+            rv = cell.get("rpi")
+            if rv is None:
+                continue
+            max_rpi_by_company[comp] = max(max_rpi_by_company.get(comp, 0.0), float(rv))
         companies_sorted = sorted(
             list(scope["companies_set"]),
-            key=lambda c: (-max_rpi_by_company.get(c, 0.0), c.lower()),
+            # Companies with no scored filing fall to the bottom (-1.0 < 0.0).
+            key=lambda c: (-max_rpi_by_company.get(c, -1.0), c.lower()),
         )
         heat_cells.sort(key=lambda row: (str(row.get("company", "")).lower(), int(row.get("year", 0))))
 
