@@ -401,7 +401,7 @@
   - `python -c "import scripts.rescore_agent_priority as r"` 后 `sys.modules` 中**没有** `extraction_pipeline` 或任何 `agentcore_deploy.*` 模块。
   - 数学等价性自检：`_compute_score_from_dims(8,6,7) == 7.05`、`_priority_from_score(7.0) == "High"`、`_priority_from_score(6.99) == "Medium"`、`_priority_from_score(3.99) == "Low"`、`_clamp_int_1_10` 对越界 / 非数字输入正确截断。
 - 后续待执行：下次 `agentcore_deploy/agent.py` 改 RPI prompt / 权重 / 阈值时，**必须同步改 rescore 脚本里 `_score_one_batch` 的 prompt 与三个常量**，否则 dashboard 上的旧 record（rescored）和新 record（live runtime 评的）会算法分叉。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`bc31bb5`
 
 ### 34) 新增 scripts/rescore_agent_priority.py：只重跑 RPI 评分，不重新抽取
 - 用途：当评分管线变化（新 prompt / 新权重 / 新 modelId — 比如 entry 32 把 RPI 切到 Nova Pro）但 `risks` 内容本身仍可信时，可以只刷 `agent_report` 字段而不付一遍 Item 1A 抽取的钱。
