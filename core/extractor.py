@@ -504,6 +504,85 @@ def _count_risk_items(blocks: list[dict]) -> int:
     return sum(len(b.get("sub_risks", [])) for b in blocks if isinstance(b, dict))
 
 
+def _estimate_tokens(text: str) -> int:
+    return max(1, len(str(text or "")) // 4)
+
+
+def _is_item1a_chunk_heading(paragraph: str) -> bool:
+    text = _normalize_space(paragraph)
+    if not text or len(text) > 160:
+        return False
+    low = text.lower()
+    if low.startswith("item 1a"):
+        return True
+    if "risk" in low and ("related to" in low or low.endswith("risks") or low.endswith("risk factors")):
+        return True
+    if len(text.split()) <= 12 and not text.endswith(".") and "risk" in low:
+        return True
+    return False
+
+
+def _split_paragraphs(text: str) -> list[str]:
+    return [p.strip() for p in re.split(r"\n\s*\n", str(text or "")) if p.strip()]
+
+
+def _pack_paragraphs(paragraphs: list[str], max_chars: int) -> list[str]:
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for para in paragraphs:
+        para_len = len(para)
+        if current and current_len + para_len + 2 > max_chars:
+            chunks.append("\n\n".join(current).strip())
+            current = []
+            current_len = 0
+        if para_len > max_chars:
+            if current:
+                chunks.append("\n\n".join(current).strip())
+                current = []
+                current_len = 0
+            for start in range(0, para_len, max_chars):
+                piece = para[start:start + max_chars].strip()
+                if piece:
+                    chunks.append(piece)
+            continue
+        current.append(para)
+        current_len += para_len + 2
+    if current:
+        chunks.append("\n\n".join(current).strip())
+    return [c for c in chunks if c]
+
+
+def _chunk_item1a_by_headings(text: str, max_tokens: int = 35000) -> list[str]:
+    source = _clean_text(text)
+    if not source:
+        return []
+    if _estimate_tokens(source) <= max_tokens:
+        return [source]
+
+    max_chars = max(4000, max_tokens * 4)
+    paragraphs = _split_paragraphs(source)
+    if not paragraphs:
+        return _pack_paragraphs([source], max_chars)
+
+    sections: list[list[str]] = []
+    current: list[str] = []
+    for para in paragraphs:
+        if current and _is_item1a_chunk_heading(para):
+            sections.append(current)
+            current = [para]
+        else:
+            current.append(para)
+    if current:
+        sections.append(current)
+
+    chunks: list[str] = []
+    for section in sections:
+        packed = _pack_paragraphs(section, max_chars)
+        chunks.extend(packed)
+    return chunks or _pack_paragraphs(paragraphs, max_chars)
+
+
 def _looks_like_non_risk_title(text: str) -> bool:
     s = _normalize_space(text)
     if not s:
@@ -589,6 +668,28 @@ def _clean_and_dedupe_ai_risk_blocks(payload: list[dict]) -> list[dict]:
         if subs:
             out.append({"category": category, "sub_risks": subs})
     return out
+
+
+def _merge_risk_blocks(blocks: list[dict]) -> list[dict]:
+    merged: dict[str, dict] = {}
+    category_order: list[str] = []
+    global_seen: set[str] = set()
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        category = _normalize_space(block.get("category", "")) or "Risk Factors"
+        category_key = _normalize_key(category) or "risk factors"
+        if category_key not in merged:
+            merged[category_key] = {"category": category, "sub_risks": []}
+            category_order.append(category_key)
+        for title in block.get("sub_risks", []) or []:
+            text = _normalize_space(title)
+            key = _normalize_key(text)
+            if not key or key in global_seen:
+                continue
+            global_seen.add(key)
+            merged[category_key]["sub_risks"].append(text)
+    return [merged[key] for key in category_order if merged[key]["sub_risks"]]
 
 
 def _locate_item1_text_block(text: str) -> str:
@@ -696,7 +797,10 @@ def extract_item1a_risks_bedrock(
         if not item1a_text or len(item1a_text) < 200:
             _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
             return fallback
-        item1a_text = item1a_text[:36000]
+        item1a_chunks = _chunk_item1a_by_headings(item1a_text, max_tokens=35000)
+        if not item1a_chunks:
+            _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
+            return fallback
 
         schema = {
             "type": "object",
@@ -731,14 +835,17 @@ def extract_item1a_risks_bedrock(
             "required": ["blocks"],
         }
 
-        prompt = f"""You are an expert SEC 10-K parser.
+        all_cleaned: list[dict] = []
+        for chunk_index, item1a_chunk in enumerate(item1a_chunks, start=1):
+            prompt = f"""You are an expert SEC 10-K parser.
 Extract risk factors from Item 1A text and organize them into category blocks.
 Use exact wording from source risk statements whenever possible.
 
 Company: {company_name or "Unknown"}
+Chunk: {chunk_index} of {len(item1a_chunks)}
 
 Input text (Item 1A):
-\"\"\"{item1a_text}\"\"\"
+\"\"\"{item1a_chunk}\"\"\"
 
 Rules:
 - Return data by calling the provided structured output tool.
@@ -749,23 +856,27 @@ Rules:
 - Prefer full risk statements; do not output incomplete fragments.
 - Do not include any keys outside the provided schema."""
 
-        parsed = invoke_with_schema(
-            prompt,
-            schema,
-            max_tokens=3000,
-            tool_name="extract_risk_blocks",
-            tool_description="Return SEC Item 1A risk factor blocks with source spans.",
-        )
-        blocks = parsed.get("blocks") if isinstance(parsed, dict) else parsed
-        normalized = _normalize_ai_risk_blocks(blocks)
-        cleaned = _clean_and_dedupe_ai_risk_blocks(normalized)
-        if cleaned:
-            ai_cnt = _count_risk_items(cleaned)
-            ev_ratio = _evidence_ratio(cleaned, item1a_text)
+            parsed = invoke_with_schema(
+                prompt,
+                schema,
+                max_tokens=3000,
+                tool_name="extract_risk_blocks",
+                tool_description="Return SEC Item 1A risk factor blocks with source spans.",
+            )
+            blocks = parsed.get("blocks") if isinstance(parsed, dict) else parsed
+            normalized = _normalize_ai_risk_blocks(blocks)
+            cleaned = _clean_and_dedupe_ai_risk_blocks(normalized)
+            if cleaned:
+                all_cleaned.extend(cleaned)
+
+        merged = _merge_risk_blocks(all_cleaned)
+        if merged:
+            ai_cnt = _count_risk_items(merged)
+            ev_ratio = _evidence_ratio(merged, item1a_text)
 
             if ai_cnt >= 1 and ev_ratio >= 0.4:
-                _AI_RISKS_CACHE[cache_key] = copy.deepcopy(cleaned)
-                return cleaned
+                _AI_RISKS_CACHE[cache_key] = copy.deepcopy(merged)
+                return merged
     except Exception:
         pass
     _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
