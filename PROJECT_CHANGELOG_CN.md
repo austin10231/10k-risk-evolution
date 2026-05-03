@@ -389,6 +389,20 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 35) rescore_agent_priority.py 改成完全自包含，去掉 agentcore_deploy 依赖
+- 现象：在本地 / Railway 运行 entry 34 引入的 `scripts/rescore_agent_priority.py` 时报 `ModuleNotFoundError: No module named 'agent'`。根因是脚本通过 `extraction_pipeline.attach_agent_priority_report` → `agentcore_deploy.main._generate_agent_priority_report` → `_get_run_agent` → `from agent import run_agent` 调链下到一个 AgentCore 部署专用的扁平 import（`from agent import ...` 只有把 `agentcore_deploy/` 加入 `sys.path` 时才解析得到，其它运行环境直接挂）。
+- 改法：脚本不再 `import scripts.extraction_pipeline` 也不再 `import agentcore_deploy.*`，scoring 整条链 inline 进脚本本身，仅依赖 `boto3` + `scripts.industry_mapping`。
+  - 自带 `_s3_client` / `_bedrock_client` / `_get_bytes` / `_put_bytes` / `_invoke_extraction`，从 env 读 `S3_BUCKET` / `AWS_REGION` / `BEDROCK_REGION` / `BEDROCK_EXTRACTION_MODEL_ID`（默认 `us.amazon.nova-pro-v1:0`）。
+  - 复制 entry 26/27 的 RPI 三维评分链：`_PRIORITY_HIGH_THRESHOLD=7.0` / `_PRIORITY_MEDIUM_THRESHOLD=4.0` / `_PRIORITY_DIM_WEIGHTS=(0.4,0.35,0.25)` / `_PRIORITY_BATCH_SIZE=40`；helper `_clamp_int_1_10` / `_compute_score_from_dims` / `_priority_from_score`；批量函数 `_score_one_batch` / `_prioritize_risks` / `_build_priority_lists` / `_generate_agent_report` / `_normalize_report`；最终 `_build_agent_priority_report` 是 `agentcore_deploy/agent.py:run_agent` 减去 `_answer_user_query_impl` 步骤的纯净版（rescore 没有 user_query）。
+  - 文件头部加注释说明"必须与 `agentcore_deploy/agent.py` 保持同步"，避免未来分叉。
+- 行为不变：输出的 `result["agent_report"]` 字段结构与原版完全一致（`priority_matrix.{high,medium,low,unscored}`、`scoring_status`、`executive_summary` 等），dashboard 与 chat_context 不需要任何改动。
+- 验证：
+  - `python scripts/rescore_agent_priority.py --help` 输出完整 flags（`--dry-run` / `--write` / `--industry` / `--ticker` / `--skip-already-scored` / `--limit` / `--report`）。
+  - `python -c "import scripts.rescore_agent_priority as r"` 后 `sys.modules` 中**没有** `extraction_pipeline` 或任何 `agentcore_deploy.*` 模块。
+  - 数学等价性自检：`_compute_score_from_dims(8,6,7) == 7.05`、`_priority_from_score(7.0) == "High"`、`_priority_from_score(6.99) == "Medium"`、`_priority_from_score(3.99) == "Low"`、`_clamp_int_1_10` 对越界 / 非数字输入正确截断。
+- 后续待执行：下次 `agentcore_deploy/agent.py` 改 RPI prompt / 权重 / 阈值时，**必须同步改 rescore 脚本里 `_score_one_batch` 的 prompt 与三个常量**，否则 dashboard 上的旧 record（rescored）和新 record（live runtime 评的）会算法分叉。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 34) 新增 scripts/rescore_agent_priority.py：只重跑 RPI 评分，不重新抽取
 - 用途：当评分管线变化（新 prompt / 新权重 / 新 modelId — 比如 entry 32 把 RPI 切到 Nova Pro）但 `risks` 内容本身仍可信时，可以只刷 `agent_report` 字段而不付一遍 Item 1A 抽取的钱。
 - 工作流程：列 `s3://<bucket>/10k_filings/<industry>/<dir>/<year>_10K_risks.json` 全量 → 对每份读 JSON 取 `result["risks"]` → 调 `extraction_pipeline.attach_agent_priority_report(result, company, year)`（即 `agentcore_deploy.main._generate_agent_priority_report`，复用 entry 26/27 的 RPI 三维评分链 + entry 32 的 extraction modelId）→ 原地覆写 `result["agent_report"]`、新增 `result["agent_report_rescored_at"]` 时间戳 → 把整份 JSON `put_bytes` 写回同一个 key。HTML / `risks` / `company_overview` 不动。
