@@ -347,3 +347,10 @@
 - `core/extractor.py` 的统一 locator 顺序变为：edgartools → sec-parser → 原有 BeautifulSoup/正则 fallback，上传输出 schema 不变。  
 - 根目录与 Railway runtime requirements 补充 `sec-parser>=0.58.1`，并把 `lxml` 约束调整为 `>=5.2.2,<6.0`，避免 sec-parser 与新版 lxml 约束冲突。  
 - 验证：强制模拟 edgartools miss 后，Apple 2024 10-K 可由 sec-parser 切出 Item 1 / Item 1A，Item 1A 仍可抽出超过 8 条风险。  
+
+### 19) Upload 优化 Phase 3：Bedrock Converse 工具调用结构化抽取
+- 提交：`2592847`
+- `core/bedrock.py` 新增 `invoke_with_schema()`，通过 Bedrock Converse `toolConfig` 提交 JSON Schema，并优先读取模型返回的 `toolUse.input`。  
+- `extract_item1a_risks_bedrock()` 改用 schema `{blocks: [{category, sub_risks: [{title, source_span}]}]}`，再归一化回前端现有 `[{"category": str, "sub_risks": [str]}]`。  
+- 旧的 AI 输出质量门槛从 `coverage 0.85–1.25 + evidence 0.55` 放宽为 `至少 1 条 + evidence_ratio >= 0.4`，减少高质量 LLM 输出被正则 fallback 覆盖的概率。  
+- 验证：使用 fake Bedrock Converse response 验证 `toolUse.input` 解析和 Item 1A schema 归一化；未调用真实 Bedrock，避免本地费用和 model 权限不确定性。  
