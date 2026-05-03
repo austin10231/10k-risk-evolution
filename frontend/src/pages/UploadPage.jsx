@@ -166,7 +166,6 @@ export default function UploadPage() {
   const [loadingSelected, setLoadingSelected] = useState(false)
   const [recordsIndustryFilter, setRecordsIndustryFilter] = useState('all')
   const [selectedCompanyKey, setSelectedCompanyKey] = useState('')
-  const [selectedYear, setSelectedYear] = useState('')
 
   const fileInputRef = useRef(null)
   const topTabsRef = useRef(null)
@@ -306,11 +305,7 @@ export default function UploadPage() {
     [companyGroups, selectedCompanyKey],
   )
 
-  const selectedYearRecords = useMemo(() => {
-    if (!activeCompanyGroup) return []
-    if (!selectedYear) return activeCompanyGroup.records
-    return activeCompanyGroup.records.filter((r) => String(r?.year || '—') === selectedYear)
-  }, [activeCompanyGroup, selectedYear])
+  const selectedCompanyRecords = useMemo(() => activeCompanyGroup?.records || [], [activeCompanyGroup])
 
   const selectedRec = useMemo(
     () =>
@@ -325,41 +320,16 @@ export default function UploadPage() {
       setSelectedCompanyKey('')
       return
     }
-    const fromSelectedRecord = selectedRecInView ? String(selectedRecInView.company || '').trim().toLowerCase() : ''
     const hasCurrent = companyGroups.some((g) => g.key === selectedCompanyKey)
-    const nextKey =
-      fromSelectedRecord && companyGroups.some((g) => g.key === fromSelectedRecord)
-        ? fromSelectedRecord
-        : hasCurrent
-          ? selectedCompanyKey
-          : companyGroups[0].key
+    const nextKey = hasCurrent ? selectedCompanyKey : companyGroups[0].key
     if (nextKey && nextKey !== selectedCompanyKey) setSelectedCompanyKey(nextKey)
-  }, [companyGroups, selectedCompanyKey, selectedRecInView])
+  }, [companyGroups, selectedCompanyKey])
 
   useEffect(() => {
-    if (!activeCompanyGroup || !activeCompanyGroup.years.length) {
-      setSelectedYear('')
-      return
-    }
-    const fromSelectedRecord =
-      selectedRecInView && String(selectedRecInView.company || '').trim().toLowerCase() === activeCompanyGroup.key
-        ? String(selectedRecInView.year || '')
-        : ''
-    const hasCurrent = Boolean(selectedYear) && activeCompanyGroup.years.includes(selectedYear)
-    const nextYear =
-      fromSelectedRecord && activeCompanyGroup.years.includes(fromSelectedRecord)
-        ? fromSelectedRecord
-        : hasCurrent
-          ? selectedYear
-          : activeCompanyGroup.years[0]
-    if (nextYear && nextYear !== selectedYear) setSelectedYear(nextYear)
-  }, [activeCompanyGroup, selectedYear, selectedRecInView])
-
-  useEffect(() => {
-    if (!selectedYearRecords.length) return
-    const exists = selectedYearRecords.some((r) => String(r.record_id) === String(selectedId))
-    if (!exists) setSelectedId(String(selectedYearRecords[0].record_id))
-  }, [selectedYearRecords, selectedId])
+    if (!selectedCompanyRecords.length) return
+    const exists = selectedCompanyRecords.some((r) => String(r.record_id) === String(selectedId))
+    if (!exists) setSelectedId(String(selectedCompanyRecords[0].record_id))
+  }, [selectedCompanyRecords, selectedId])
 
   const runManualExtract = async () => {
     const companyName = String(company || '').trim()
@@ -785,7 +755,11 @@ export default function UploadPage() {
                             <tr
                               key={group.key}
                               className={`rl-up-record-row ${active ? 'active' : ''}`}
-                              onClick={() => setSelectedCompanyKey(group.key)}
+                              onClick={() => {
+                                setSelectedCompanyKey(group.key)
+                                const firstRecordId = group.records[0]?.record_id
+                                if (firstRecordId) setSelectedId(String(firstRecordId))
+                              }}
                             >
                               <td className="rl-up-company-cell">
                                 <strong>{group.company}</strong>
@@ -814,21 +788,6 @@ export default function UploadPage() {
                   </div>
                 </div>
 
-                <div className="rl-up-year-picker">
-                  {(activeCompanyGroup?.years || []).map((yearValue) => {
-                    const active = yearValue === selectedYear
-                    return (
-                      <button
-                        key={yearValue}
-                        className={active ? 'btn-primary rl-up-year-pill' : 'btn-secondary rl-up-year-pill'}
-                        onClick={() => setSelectedYear(yearValue)}
-                      >
-                        {yearValue}
-                      </button>
-                    )
-                  })}
-                </div>
-
                 <div className="rl-up-records-table-wrap">
                   <table className="rl-up-record-table">
                     <thead>
@@ -842,16 +801,16 @@ export default function UploadPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {!loading && !selectedYearRecords.length ? (
+                      {!loading && !selectedCompanyRecords.length ? (
                         <tr>
                           <td className="rl-up-record-empty" colSpan={6}>
-                            Pick a company and year to view records.
+                            Pick a company to view records.
                           </td>
                         </tr>
                       ) : null}
 
                       {!loading &&
-                        selectedYearRecords.map((r) => {
+                        selectedCompanyRecords.map((r) => {
                           const active = String(r.record_id) === String(selectedId)
                           return (
                             <tr
