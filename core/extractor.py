@@ -29,7 +29,9 @@ from core.bedrock import _invoke
 from core.sec_sections import (
     SectionNotFound,
     locate_item1_overview_with_edgartools,
+    locate_item1_overview_with_sec_parser,
     locate_item1a_with_edgartools,
+    locate_item1a_with_sec_parser,
 )
 
 # ── Regex patterns ────────────────────────────────────────────────────────────
@@ -368,6 +370,15 @@ def locate_item1a(html_bytes: bytes) -> str:
     except Exception:
         pass
 
+    try:
+        text, _meta = locate_item1a_with_sec_parser(html_bytes)
+        if text:
+            return _clean_text(text)
+    except SectionNotFound:
+        pass
+    except Exception:
+        pass
+
     full = _full_text(_make_soup(html_bytes))
     rng = _locate_item1a_range(full)
     if rng is None:
@@ -380,6 +391,15 @@ def locate_item1_overview(html_bytes: bytes) -> str:
     """Locate Item 1 Business text, preferring edgartools and falling back to legacy slicing."""
     try:
         text, _meta = locate_item1_overview_with_edgartools(html_bytes)
+        if text:
+            return _clean_text(text)
+    except SectionNotFound:
+        pass
+    except Exception:
+        pass
+
+    try:
+        text, _meta = locate_item1_overview_with_sec_parser(html_bytes)
         if text:
             return _clean_text(text)
     except SectionNotFound:
