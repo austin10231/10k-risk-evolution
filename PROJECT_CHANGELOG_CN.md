@@ -389,6 +389,16 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 29) S3 重组工具集：Part 1 迁移脚本 + Part 2 批量摄入脚本
+- 新增 `scripts/industry_mapping.py`：硬编码 11 个行业 × ~80 家公司的映射（GICS 2024-09），统一目录命名（`<DisplayName>_<TICKER>`），并修正历史数据的拼写错误（`ConocoPhilllips → ConocoPhillips_COP`、`lockheed → Lockheed_Martin_LMT`、`Exxon_Mobil → ExxonMobil_XOM`、`Motorola_Solutions_Inc → Motorola_Solutions_MSI`）。BRK.B 因 SEC ticker map 不区分 A/B 类，硬编码 CIK `0001067983`；PXD 因 2024-05 被 Exxon 收购退市，写入 `last_year=2023` 自动封顶。
+- 新增 `scripts/extraction_pipeline.py`：复用 `agentcore_deploy/main._manual_extract_result` 与 `_generate_agent_priority_report`，确保迁移 / 批量摄入与 `/api/upload/*` 走完全相同的提取 + 评分管线，落盘 schema 完全一致。
+- 新增 `scripts/migrate_s3_layout.py`（S3_PLAN.md Part 1）：扫 `s3://<bucket>/10k_html_datasets/*.html` 共 42 个 legacy 文件，按文件名 regex `^(.+)_(\d{4})_10-K_[0-9a-f]+\.html$` 解析；Airbus 默认跳过；重抽取并落到 `10k_filings/<industry>/<company_dir>/<year>_10K.{html,json}`；每 5 条 record checkpoint flush `10k_filings/index.json`；旧路径**永不删除**。`--dry-run` 默认开（可安全本地验证），需要 `--write` 才动 S3 + Bedrock。
+- 新增 `scripts/bulk_ingest_targets.py` + `scripts/bulk_ingest.py`（Part 2）：去重后 ~87 个 ticker 的 SEC EDGAR 自动拉取 + 抽取 + 优先级评分 + 增量写入。每条 (公司,年份) 启动前检查 index + S3 双重命中跳过；单公司连续失败 N 次自动短路；运行 report 同时落本地 + `s3://<bucket>/10k_filings/_ingest_reports/<ISO>.json`。
+- 新增 `scripts/README.md`：完整使用文档（环境变量、CLI 用法、Railway 切流量步骤）。
+- `.gitignore` 加 `scripts/*.report.json` 屏蔽 dry-run 日志。
+- 验证：本地 `S3_BUCKET=10k-risk-alert-app python3 scripts/migrate_s3_layout.py --dry-run` 输出 `ok=40 skipped=2 failed=0`（Airbus 2 个 SKIP，其余 40 个映射正确）；`bulk_ingest --dry-run --start-year 2023 --end-year 2024` 输出 `ok=173`（87 ticker × 2 年 - PXD 仅 2023）。
+- 提交：`(本次 commit)`
+
 ### 28) RPI 优化 P2 前端：未评分显示 "—" 而不是 RPI=0
 - `frontend/src/pages/DashboardPage.jsx:priorityHeatColor` 增加 `null/undefined` 浅灰分支（`#e2e8f0`），与"无风险数据"的 `#f1f5f9` 区分。
 - 热力图 cell 渲染：`cell.rpi` 不再用 `safeNumber` 强制转 0；`rpi == null` 时数字显示 "—"，hover `title` 提示 "Risk scoring unavailable for this filing"。
