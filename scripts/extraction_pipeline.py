@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -40,6 +41,54 @@ def s3_client():
     """Single boto3 client for the whole script run, reusing the runtime's
     cached client when running in-process so credentials / region match."""
     return backend._s3_client()
+
+
+# ── CIK verification (P0 of EXTRACTION_FIX_PLAN.md) ───────────────────────────
+# Apple_AAPL/2025 turned out to be Apple Hospitality REIT (APLE, CIK 0001418121)
+# misnamed at upload time. The HTML's inline XBRL header carries the true CIK
+# regardless of what the filename says, so we extract and compare it before
+# trusting the layout.
+
+_CIK_TAG_RES = (
+    re.compile(rb"<(?:ix:nonNumeric|dei:EntityCentralIndexKey)[^>]*?>\s*([0-9]{1,10})\s*<", re.IGNORECASE),
+    re.compile(rb"name=[\"']dei:EntityCentralIndexKey[\"'][^>]*>\s*([0-9]{1,10})\s*<", re.IGNORECASE),
+    re.compile(rb"EntityCentralIndexKey[^0-9<]{0,40}([0-9]{6,10})", re.IGNORECASE),
+    re.compile(rb"CIK[^A-Za-z0-9]{0,10}0{0,4}([0-9]{6,10})", re.IGNORECASE),
+)
+
+
+def extract_cik_from_html(html_bytes: bytes) -> str:
+    """Read the first ~64 KB of an SEC 10-K HTML and return the inline XBRL
+    EntityCentralIndexKey, zero-padded to 10 digits. Returns "" if no CIK
+    can be located."""
+    head = (html_bytes or b"")[:65536]
+    if not head:
+        return ""
+    for pat in _CIK_TAG_RES:
+        m = pat.search(head)
+        if m:
+            cik = m.group(1).decode("ascii", errors="ignore").lstrip("0")
+            if cik.isdigit() and 4 <= len(cik) <= 10:
+                return cik.zfill(10)
+    return ""
+
+
+def verify_cik(html_bytes: bytes, expected_cik: str) -> tuple[bool, str]:
+    """Compare the HTML's inline XBRL CIK to the expected CIK.
+
+    Returns (ok, found_cik). `ok` is True when:
+      - expected_cik is empty (no expectation, can't verify), or
+      - found CIK matches expected (compared as zero-padded 10-digit strings)
+      - no CIK could be extracted from HTML (skip rather than fail-noisily on
+        non-XBRL legacy filings; caller decides whether to treat as error)
+    """
+    expected = str(expected_cik or "").strip().lstrip("0")
+    if not expected:
+        return True, ""
+    found = extract_cik_from_html(html_bytes)
+    if not found:
+        return True, ""
+    return found.lstrip("0") == expected.lstrip("0"), found
 
 
 def html_key_for(industry_dir: str, company_dir: str, year: int) -> str:
@@ -80,14 +129,27 @@ def extract_risks_for_html(
     *,
     year: int = 0,
     filing_type: str = "10-K",
+    expected_cik: str = "",
 ) -> tuple[Optional[dict], str]:
     """Run the same Bedrock-backed extraction pipeline that powers
     `/api/upload/manual`. Returns (result_dict, error_str).
+
+    P0: when `expected_cik` is provided, refuse to extract if the HTML's
+    inline XBRL CIK disagrees — that's the Apple_AAPL/2025-vs-APLE failure
+    mode and we never want to silently extract REIT data and label it as
+    Apple Inc. Pass empty string to skip the check.
 
     On success the result schema matches what `_manual_extract_result`
     persists under `risk_analysis_results/<rid>.json`:
         {"company_overview": {...}, "risks": [{"category", "sub_risks":[{"title","dashboard_category","original_category",...}]}]}
     """
+    if expected_cik:
+        ok, found = verify_cik(html_bytes, expected_cik)
+        if not ok:
+            return None, (
+                f"cik_mismatch: html_cik={found or 'unknown'} "
+                f"expected_cik={str(expected_cik or '').strip()}"
+            )
     fname = f"{company_display_name}_{int(year or 0)}.html"
     return backend._manual_extract_result(
         file_bytes=html_bytes,

@@ -1123,28 +1123,56 @@ _RISK_CATEGORY_KEYWORDS: Dict[str, List[tuple[str, int]]] = {
         ("intellectual property", 3), ("patent", 2),
         ("data privacy law", 3), ("gdpr", 3), ("ccpa", 3),
         ("tax-related", 2), ("status as a reit", 3),
+        # P4: regulators frequently appear with "requirement" / "action" /
+        # "investigation"; pure "regulation" alone is not enough signal.
+        ("regulatory requirement", 2), ("regulatory action", 2),
+        ("regulatory investigation", 2), ("government investigation", 2),
+        ("legal proceeding", 2),
     ],
     "Technology & Cybersecurity": [
-        ("cybersecurity", 3), ("cyber attack", 3), ("data breach", 3),
+        ("cybersecurity", 3), ("cyber attack", 3), ("cyber-attack", 3),
+        ("data breach", 3),
         ("information security", 3), ("ransomware", 3), ("system outage", 3),
         ("it system", 3), ("personal information", 2),
         ("artificial intelligence", 2), ("generative ai", 3),
+        # P4: keyword table missed bare "technology" + common SEC phrasings.
+        ("technology", 1), ("technology disruption", 3),
+        ("information system", 2), ("digital platform", 3),
+        ("digital service", 2), ("data integrity", 2),
+        ("cyber incident", 3), ("cybersecurity incident", 3),
+        ("network security", 3), ("software vulnerability", 3),
+        ("unauthorized access", 3), ("access to our information", 2),
+        ("hacker", 3), ("malicious", 1),
+        ("data security", 3), ("data privacy", 2),
     ],
     "Operations & Supply Chain": [
         ("supply chain", 3), ("supplier", 3), ("procurement", 2),
         ("manufacturing", 2), ("logistics", 2), ("distribution", 2),
         ("inventory", 2), ("business continuity", 3),
         ("single source", 3), ("contract manufacturer", 3),
+        # P4: retail / consumer 10-K product-quality/safety phrasing.
+        ("product safety", 3), ("product quality", 3),
+        ("product recall", 3), ("production disruption", 3),
+        ("merchandise availability", 3), ("third-party manufacturer", 3),
+        ("operational disruption", 2),
+        # SEC writers often invert the phrase ("safety of our products").
+        ("safety of products", 3), ("quality of products", 3),
+        ("safety of our products", 3), ("quality of our products", 3),
+        ("product safety or quality", 3), ("product quality or safety", 3),
     ],
     "People & Governance": [
         ("workforce", 3), ("union", 3), ("human capital", 3),
         ("talent", 3), ("retention of key", 3),
         ("internal control", 3), ("succession", 2), ("board of directors", 3),
+        ("labor union", 3), ("work stoppage", 3),
+        ("key personnel", 2), ("executive officer", 1),
     ],
     "ESG & Sustainability": [
         ("climate change", 3), ("greenhouse gas", 3), ("carbon emissions", 3),
         ("environmental regulation", 3), ("esg", 3),
         ("sustainability", 2), ("renewable", 2),
+        ("emission", 2), ("carbon", 1), ("water scarcity", 2),
+        ("environmental impact", 2),
     ],
     "Strategy & Market": [
         ("competition", 3), ("competitive landscape", 3),
@@ -1152,8 +1180,78 @@ _RISK_CATEGORY_KEYWORDS: Dict[str, List[tuple[str, int]]] = {
         ("customer concentration", 3), ("new entrants", 2),
         ("brand", 2), ("reputation", 2), ("geopolitical", 3),
         ("macroeconomic", 3),
+        ("customer demand", 2), ("consumer preference", 2),
+        ("product launch", 2),
     ],
 }
+
+
+# P4: tie-breaker rules. When two buckets land within `tolerance` of each other
+# in raw score, look for a strong phrase in title to decide the winner.
+# `(winner, loser, [phrases])`: if any phrase appears in title or labels, the
+# winner is preferred. Order matters — first match wins.
+_RISK_CATEGORY_TIEBREAKERS: List[tuple[str, str, List[str]]] = [
+    # cyber phrasing should beat regulatory / legal
+    ("Technology & Cybersecurity", "Legal & Regulatory", [
+        "cyber-attack", "cyber attack", "cybersecurity", "data breach",
+        "information security", "ransomware", "cyber incident",
+    ]),
+    # supply chain / operations should beat people&gov when both appear
+    ("Operations & Supply Chain", "People & Governance", [
+        "supplier", "supply chain", "single source", "third-party manufacturer",
+        "product safety", "product quality",
+    ]),
+    # ESG should beat regulatory when climate / emission language present
+    ("ESG & Sustainability", "Legal & Regulatory", [
+        "climate", "emission", "greenhouse", "renewable", "carbon",
+    ]),
+    # cyber should beat strategy/market when both touched
+    ("Technology & Cybersecurity", "Strategy & Market", [
+        "cyber-attack", "cybersecurity", "data breach", "ransomware",
+    ]),
+    # operations should beat strategy/market when product-quality phrasing
+    ("Operations & Supply Chain", "Strategy & Market", [
+        "product safety", "product quality", "product recall",
+        "safety of products", "quality of products",
+        "safety of our products", "quality of our products",
+    ]),
+    # operations should beat legal when product safety/quality phrasing
+    ("Operations & Supply Chain", "Legal & Regulatory", [
+        "product safety", "product quality", "product recall",
+        "safety of products", "quality of products",
+        "safety of our products", "quality of our products",
+    ]),
+    # cyber should beat operations when unauthorized access / breach phrasing
+    # appears alongside supplier mentions (Boeing-style title)
+    ("Technology & Cybersecurity", "Operations & Supply Chain", [
+        "unauthorized access", "data breach", "cyber-attack",
+        "cyber attack", "cybersecurity", "ransomware",
+    ]),
+]
+
+
+def _apply_category_tiebreakers(
+    scores: Dict[str, int],
+    full_text: str,
+    title_lower: str,
+) -> Dict[str, int]:
+    """Adjust `scores` so each tie-breaker can flip the ranking when a strong
+    phrase is present. When the strong phrase is in the haystack we guarantee
+    the winner's score strictly outranks the loser's by at least 1 (preventing
+    alphabetical-tie wins for the wrong bucket)."""
+    haystack = " ".join(s for s in [title_lower, full_text] if s)
+    boosted = dict(scores)
+    for winner, loser, phrases in _RISK_CATEGORY_TIEBREAKERS:
+        for phrase in phrases:
+            if phrase in haystack:
+                w = boosted.get(winner, 0)
+                l = boosted.get(loser, 0)
+                if w <= l:
+                    boosted[winner] = l + 2
+                else:
+                    boosted[winner] = w + 1
+                break
+    return boosted
 
 
 def _normalize_risk_category(category: Any, title: Any = "", labels: Optional[List[Any]] = None) -> tuple[str, int]:
@@ -1165,20 +1263,39 @@ def _normalize_risk_category(category: Any, title: Any = "", labels: Optional[Li
         return "General & Other", 0
 
     scores: Dict[str, int] = {k: 0 for k in FIXED_RISK_CATEGORIES}
+    # Track the heaviest single keyword weight that contributed to each bucket.
+    # Used downstream to detect "all weight-1" wins — those should fall through
+    # to the LLM fallback even when raw score happens to clear the threshold.
+    max_weights: Dict[str, int] = {k: 0 for k in FIXED_RISK_CATEGORIES}
     cat_lower = cat_text.lower()
+    title_lower = title_text.lower()
 
     def _add_match_points(target: str, phrase: str, weight: int) -> None:
+        bumped = False
         if phrase in full_text:
             scores[target] = scores.get(target, 0) + int(weight)
+            bumped = True
         if phrase in cat_lower:
             scores[target] = scores.get(target, 0) + int(weight)
+            bumped = True
+        if bumped and int(weight) > max_weights.get(target, 0):
+            max_weights[target] = int(weight)
 
     for target, weighted in _RISK_CATEGORY_KEYWORDS.items():
         for phrase, weight in weighted:
             _add_match_points(target, phrase, weight)
 
+    # P4: tie-breakers nudge the right bucket up when a strong phrase appears.
+    scores = _apply_category_tiebreakers(scores, full_text, title_lower)
+
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     best_cat, best_score = ranked[0]
+    # When the best bucket only got there from weight-1 keyword hits we have
+    # no strong signal — surface that by returning a negative-coded score so
+    # the caller's `score < 2` check trips the LLM fallback.
+    if best_score >= 1 and max_weights.get(best_cat, 0) <= 1 and best_score < 4:
+        # weight-1 wins are demoted to score 1 so caller's threshold catches them.
+        return best_cat, 1
     if best_score >= 1:
         return best_cat, int(best_score)
     return "General & Other", 0
@@ -1270,7 +1387,7 @@ def _extract_sub_risks(result: dict) -> List[dict]:
                 mapped_category = pre_dashboard
             else:
                 mapped_category, score = _normalize_risk_category(original_category, title, labels)
-                if score < 3:
+                if score < 2:
                     mapped_category = _classify_with_llm_fallback(original_category, title, labels)
             out.append(
                 {
@@ -1299,7 +1416,7 @@ def _annotate_dashboard_category(risks_blocks: list) -> list:
                 mapped = str(sr.get("dashboard_category", "") or "").strip()
                 if mapped not in FIXED_RISK_CATEGORIES:
                     mapped, score = _normalize_risk_category(original_category, title, labels)
-                    if score < 3:
+                    if score < 2:
                         mapped = _classify_with_llm_fallback(original_category, title, labels)
                 sr_out = dict(sr)
                 sr_out["title"] = title
@@ -1312,7 +1429,7 @@ def _annotate_dashboard_category(risks_blocks: list) -> list:
                 if not title:
                     continue
                 mapped, score = _normalize_risk_category(original_category, title, [])
-                if score < 3:
+                if score < 2:
                     mapped = _classify_with_llm_fallback(original_category, title, [])
                 new_subs.append(
                     {

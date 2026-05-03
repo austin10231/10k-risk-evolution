@@ -389,6 +389,31 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 31) 提取质量修复：bullet 拆分 / 单桶退化 / dashboard 关键词 / Item 1A 切片 / CIK 校验
+- 背景：基于对 5 份新结构 risks JSON（Apple/Microsoft/Chevron/Boeing/Walmart）的真实采样，发现提取层有 6 个共性问题（详见 `EXTRACTION_FIX_PLAN.md`）。本次代码改动覆盖 P1-P6，并为 P0（CIK 误标）准备好排查脚本与 pipeline 防线；S3 数据本身的处理由后续手动操作完成。
+- `core/extractor.py`（P1+P2+P6+P3）：
+  - LLM prompt 新增"Bullet-list handling (CRITICAL)" 段落，明确禁止把 bullet 当独立 sub_risk、禁止把 bullet 行当 category 名。
+  - 新增 `_starts_with_bullet` / `_strip_bullet_prefix` / `_is_continuation_title` / `_category_looks_like_bullet` / `_is_generic_category_name` 5 个 helper；`_clean_and_dedupe_ai_risk_blocks` 把 bullet/lowercase/逗号续行的 sub_risk 合并到上一条，把残留 bullet 前缀剥掉。
+  - 新增 `_consolidate_polluted_blocks`：category 名是 bullet line 的 block，把它的 sub_risks 移交给第一个非污染 block（或 fallback 到 "General Risks"）。
+  - 新增 `_consolidate_small_generic_blocks`：小型 generic 名 block（如 MS 那 2 条挂在 "Risk Factors" 下的零碎条目）合并到第一个 specific block。
+  - 新增 `_looks_like_skewed_or_polluted` 加宽二次分类 trigger：除原 single-bucket 外，最大 block 占比 ≥60%、Walmart 模式（≥50% 且名 generic）、任意 category 名是 bullet line、≥20 sub_risks 但 category 名 ≤3 词都会触发 LLM re-cluster。
+  - 新增 `SectionTooShort` 异常 + `_ITEM1A_MIN_CHARS=5000` 下界；`locate_item1a` 重写为对每层 fallback（edgartools / sec-parser / BS4-regex）打印 stderr 字符数诊断；< 5000 字符视为软失败、跳到下一层；全部 < 5000 时返回最长候选作 last resort。
+- `agentcore_deploy/main.py`（P4+P5）：
+  - `_RISK_CATEGORY_KEYWORDS` 补 60+ 词条：Tech 加 `unauthorized access` / `digital platform` / `technology` / `data security` 等；Operations 加 `product safety/quality`、`safety of products`、`product recall`；Legal 加 `regulatory requirement`；ESG 加 `emission` / `carbon`；People 加 `labor union` / `work stoppage`；Strategy 加 `customer demand` 等。
+  - 新增 `_RISK_CATEGORY_TIEBREAKERS` + `_apply_category_tiebreakers`：cyber 优先 Legal、supplier 优先 People、climate 优先 Legal 等 7 条 tie-breaker 规则；命中时强制让 winner 严格大于 loser，避免按字母序的错命中。
+  - `_normalize_risk_category` 同时跟踪 `max_weights`：纯 weight=1 凑出来的"高分"会被降到 score=1，强制走 LLM fallback。
+  - LLM fallback 阈值从 `score < 3` 收紧到 `score < 2`（3 处调用点同步），让强匹配直接命中、弱匹配交给 LLM。
+  - 本地 13 个 sample title 测试 0 失败（涵盖 Apple/Boeing/Walmart 计划列出的所有错例 + cyber/supplier/safety/inflation 等 regression 用例）。
+- `scripts/extraction_pipeline.py`（P0）：
+  - 新增 `extract_cik_from_html` / `verify_cik`：从 HTML 头 64KB 内提 inline XBRL `dei:EntityCentralIndexKey`（兼容 ix:nonNumeric / 裸 EntityCentralIndexKey / `CIK 0000xxxx` 几种写法）；`extract_risks_for_html` 新增可选 `expected_cik` 参数，CIK 不一致时直接拒绝抽取并返回 `cik_mismatch:` 错误。
+- `scripts/migrate_s3_layout.py`（P0）：
+  - 新增 `--verify-cik` 选项；启用时迁移每条 record 前先比对 inline XBRL CIK 与 `industry_mapping.COMPANIES[ticker].cik`，不一致直接 FAIL（不写入 S3、不调用 Bedrock），防止重新污染新 layout。
+- 新增 `scripts/audit_legacy_cik.py`（P0）：扫 `10k_filings/<industry>/<dir>/<year>_10K.html` 全量，输出 `cik_mismatch_report.json`；区分 matched / mismatched / missing_cik_in_html / missing_expected_cik / skipped 五类，仅当存在 mismatched 时退出码 1。
+- 新增 `scripts/diagnose_item1a_locator.py`（P3）：默认对计划列出的 6 条切片失败 record（Chevron 2021/2022、Exxon 2021、Kroger 2023/2024/2025）跑 edgartools / sec-parser / BS4-regex 三层各自字符数 + 前 500 字 head；可用 `--industry/--company/--year` 任意组合扩展范围。
+- 验证：所有改动文件 `python -c "import …"` 全部通过；分类器本地 13 个 sample title 0 失败；helper 单元行为（bullet 检测、polluted block 整合、skewed/single-bucket 触发判断）通过桌面级冒烟脚本；CIK 提取对 4 种 XBRL 输入与 4 种 verify_cik 场景全部正确。
+- 后续待执行（不在本次代码 commit 内）：跑 `audit_legacy_cik.py` 看 cik_mismatch_report.json、跑 `diagnose_item1a_locator.py` 拿 Chevron/Exxon/Kroger 真根因、用 `migrate_s3_layout.py --write --force-reextract` 重抽全部 34 record。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 30) 后端双轨读：USE_NEW_S3_LAYOUT 环境变量切换 10k_filings/ 新结构
 - `agentcore_deploy/main.py` 新增 4 个常量：`NEW_FILINGS_PREFIX = "10k_filings"`、`NEW_INDEX_KEY = "10k_filings/index.json"`、`USE_NEW_LAYOUT = os.getenv("USE_NEW_S3_LAYOUT","0") == "1"`、`NEW_RECORD_ID_RE`（解析合成 `<dir>_<year>_10K` 的正则）。
 - 新增辅助函数 `_load_new_layout_index_doc` / `_flatten_new_layout_index` / `_new_layout_record_id` / `_new_layout_keys_for_record_id` / `_new_layout_company_dir` / `_upsert_new_layout_index`：把新分层 index.json 与扁平 record list 互转，所有读 / 写都对齐 `_INDEX_CACHE / _RESULT_CACHE / _TICKER_MAP_CACHE` 失效语义。

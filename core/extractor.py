@@ -51,6 +51,91 @@ _ITEM1A_END = [
 _AI_OVERVIEW_CACHE: dict[str, dict] = {}
 _AI_RISKS_CACHE: dict[str, list[dict]] = {}
 
+# ── Bullet / category sanitation (P1, P2, P6 of EXTRACTION_FIX_PLAN.md) ───────
+# 10-K filings often write bulleted enumerations of contributing factors. The
+# LLM sometimes emits each bullet as its own sub_risk and even uses a bullet
+# line as a category name. The constants and helpers below identify those
+# fragments so post-processing can merge them back into the parent risk.
+_BULLET_CHARS = "•‣▪○●·‧⁃◦▸►▶◆●◦●"
+_BULLET_PREFIX_RE = re.compile(rf"^[\s ]*[{re.escape(_BULLET_CHARS)}]+[\s ]*", re.UNICODE)
+# Hyphen / asterisk only count as bullets when followed by whitespace.
+_HYPHEN_BULLET_RE = re.compile(r"^[\s ]*[\-\*][\s ]+", re.UNICODE)
+
+_GENERIC_CATEGORY_NAMES = {
+    "risk factors", "general", "general risks", "risks", "other", "other risks",
+    "summary risk factors", "summary", "risk", "risk factor",
+}
+
+# Minimum char length for a successful Item 1A slice. Anything shorter is
+# treated as a locator failure so the next fallback layer is attempted (P3).
+_ITEM1A_MIN_CHARS = 5000
+
+
+class SectionTooShort(Exception):
+    """Raised when an Item 1A locator returns a non-empty but too-short slice."""
+
+
+def _starts_with_bullet(text: str) -> bool:
+    s = str(text or "").lstrip()
+    if not s:
+        return False
+    if _BULLET_PREFIX_RE.match(s):
+        return True
+    if _HYPHEN_BULLET_RE.match(s):
+        return True
+    return False
+
+
+def _strip_bullet_prefix(text: str) -> str:
+    s = str(text or "")
+    while True:
+        prev = s
+        s = _BULLET_PREFIX_RE.sub("", s, count=1)
+        s = _HYPHEN_BULLET_RE.sub("", s, count=1)
+        if s == prev:
+            break
+    return s.strip()
+
+
+def _is_continuation_title(title: str) -> bool:
+    """True if the title looks like a fragment of a previous risk (a bullet
+    item, a lowercase-start sentence, or a comma-/semicolon-terminated
+    phrase). These should be merged into the previous sub_risk rather than
+    emitted as standalone entries."""
+    t = str(title or "").strip()
+    if not t:
+        return False
+    if _starts_with_bullet(t):
+        return True
+    if t.rstrip().endswith((";", ",", "; and", ", and", ":")):
+        return True
+    first = t[0]
+    if first.isalpha() and first.islower():
+        return True
+    return False
+
+
+def _is_generic_category_name(category: str) -> bool:
+    norm = _normalize_key(category)
+    if not norm:
+        return True
+    return norm in {_normalize_key(g) for g in _GENERIC_CATEGORY_NAMES}
+
+
+def _category_looks_like_bullet(category: str) -> bool:
+    """A 'category' that is actually a bullet enumeration item (the LLM
+    mis-promoted a bullet line into a heading)."""
+    c = str(category or "").strip()
+    if not c:
+        return False
+    if _starts_with_bullet(c):
+        return True
+    if c.rstrip().endswith((";", "; and", ", and")):
+        return True
+    if c[0].isalpha() and c[0].islower():
+        return True
+    return False
+
 
 def _secret(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or default)
@@ -386,31 +471,68 @@ def _full_text(soup: BeautifulSoup) -> str:
 
 
 def locate_item1a(html_bytes: bytes) -> str:
-    """Locate Item 1A text, preferring edgartools and falling back to legacy text slicing."""
+    """Locate Item 1A text. Walks edgartools → sec-parser → BS4 in order.
+
+    P3 of EXTRACTION_FIX_PLAN.md: each provider that returns a non-empty but
+    shorter-than-_ITEM1A_MIN_CHARS slice is treated as a soft failure so the
+    next layer gets a chance. This protects against Chevron/Exxon/Kroger-style
+    truncations where the BS4 fallback hit a TOC "Item 1B" reference and
+    stopped at <500 chars. Diagnostics on every layer are emitted to stderr
+    so operators can see which provider produced what.
+    """
+    candidates: list[tuple[str, str]] = []  # (provider, cleaned_text)
+
     try:
         text, _meta = locate_item1a_with_edgartools(html_bytes)
-        if text:
-            return _clean_text(text)
+        cleaned = _clean_text(text) if text else ""
+        print(f"[locate_item1a] edgartools={len(cleaned)} chars", file=sys.stderr)
+        if cleaned:
+            candidates.append(("edgartools", cleaned))
+            if len(cleaned) >= _ITEM1A_MIN_CHARS:
+                return cleaned
     except SectionNotFound:
-        pass
-    except Exception:
-        pass
+        print("[locate_item1a] edgartools=SectionNotFound", file=sys.stderr)
+    except Exception as exc:
+        print(f"[locate_item1a] edgartools={type(exc).__name__}:{exc}", file=sys.stderr)
 
     try:
         text, _meta = locate_item1a_with_sec_parser(html_bytes)
-        if text:
-            return _clean_text(text)
+        cleaned = _clean_text(text) if text else ""
+        print(f"[locate_item1a] sec-parser={len(cleaned)} chars", file=sys.stderr)
+        if cleaned:
+            candidates.append(("sec-parser", cleaned))
+            if len(cleaned) >= _ITEM1A_MIN_CHARS:
+                return cleaned
     except SectionNotFound:
-        pass
-    except Exception:
-        pass
+        print("[locate_item1a] sec-parser=SectionNotFound", file=sys.stderr)
+    except Exception as exc:
+        print(f"[locate_item1a] sec-parser={type(exc).__name__}:{exc}", file=sys.stderr)
 
     full = _full_text(_make_soup(html_bytes))
     rng = _locate_item1a_range(full)
     if rng is None:
-        return ""
-    start_pos, end_pos = rng
-    return _clean_text(full[start_pos:end_pos])
+        print("[locate_item1a] bs4=no-range", file=sys.stderr)
+    else:
+        start_pos, end_pos = rng
+        cleaned = _clean_text(full[start_pos:end_pos])
+        print(
+            f"[locate_item1a] bs4={len(cleaned)} chars (range {start_pos}-{end_pos})",
+            file=sys.stderr,
+        )
+        if cleaned:
+            candidates.append(("bs4", cleaned))
+            if len(cleaned) >= _ITEM1A_MIN_CHARS:
+                return cleaned
+
+    if candidates:
+        provider, best = max(candidates, key=lambda c: len(c[1]))
+        print(
+            f"[locate_item1a] all providers below {_ITEM1A_MIN_CHARS}; "
+            f"using longest ({provider}={len(best)} chars)",
+            file=sys.stderr,
+        )
+        return best
+    return ""
 
 
 def locate_item1_overview(html_bytes: bytes) -> str:
@@ -679,10 +801,35 @@ def _clean_and_dedupe_ai_risk_blocks(payload: list[dict]) -> list[dict]:
     global_seen = set()
     for block in payload:
         category = _normalize_space(block.get("category", "")) or "Risk Factors"
-        subs = []
+        subs: list[str] = []
         local_seen = set()
         for title in block.get("sub_risks", []):
             t = _normalize_space(title)
+            if not t:
+                continue
+            # P1: bullet/lowercase/trailing-punct titles are usually fragments
+            # of the previous sub_risk. Merge them rather than emit standalone.
+            if _is_continuation_title(t) and subs:
+                cont = _strip_bullet_prefix(t)
+                if not cont:
+                    continue
+                prev = subs[-1]
+                sep = " " if prev.rstrip().endswith((";", ",", ":")) else "; "
+                merged = (prev.rstrip(" ") + sep + cont).strip()
+                # Replace previous entry's seen key with the merged one.
+                old_k = _normalize_key(prev)
+                if old_k in local_seen:
+                    local_seen.discard(old_k)
+                    global_seen.discard(old_k)
+                merged_k = _normalize_key(merged)
+                if merged_k and merged_k not in global_seen:
+                    local_seen.add(merged_k)
+                    global_seen.add(merged_k)
+                    subs[-1] = merged
+                continue
+            # Otherwise drop a leading bullet (the LLM sometimes copies the
+            # bullet glyph into the title even when the text is a real risk).
+            t = _strip_bullet_prefix(t) or t
             if _looks_like_non_risk_title(t):
                 continue
             k = _normalize_key(t)
@@ -694,6 +841,78 @@ def _clean_and_dedupe_ai_risk_blocks(payload: list[dict]) -> list[dict]:
         if subs:
             out.append({"category": category, "sub_risks": subs})
     return out
+
+
+def _consolidate_polluted_blocks(blocks: list[dict]) -> list[dict]:
+    """P6: blocks whose `category` is itself a bullet item are pollution from
+    the LLM. Move their sub_risks into the first non-polluted block (or a
+    "General Risks" fallback when every block is polluted)."""
+    if not isinstance(blocks, list) or not blocks:
+        return blocks
+    keep: list[dict] = []
+    polluted_subs: list[str] = []
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        cat = b.get("category", "")
+        if _category_looks_like_bullet(cat):
+            polluted_subs.extend(s for s in (b.get("sub_risks", []) or []) if isinstance(s, str) and s.strip())
+        else:
+            keep.append(b)
+    if not polluted_subs:
+        return keep or list(blocks)
+    if keep:
+        target = keep[0]
+        seen = {_normalize_key(s) for s in target.get("sub_risks", []) or []}
+        for t in polluted_subs:
+            k = _normalize_key(t)
+            if k and k not in seen:
+                target.setdefault("sub_risks", []).append(t)
+                seen.add(k)
+        return keep
+    deduped: list[str] = []
+    seen_keys: set[str] = set()
+    for t in polluted_subs:
+        k = _normalize_key(t)
+        if k and k not in seen_keys:
+            deduped.append(t)
+            seen_keys.add(k)
+    return [{"category": "General Risks", "sub_risks": deduped}] if deduped else []
+
+
+def _consolidate_small_generic_blocks(blocks: list[dict]) -> list[dict]:
+    """P6: small generic-named blocks (e.g., 2 stragglers under "Risk Factors")
+    are merged into the first specific block. We deliberately do NOT merge
+    large generic blocks (≥35% of total) — those need the P2 re-cluster
+    pass to break apart, not a flat absorb."""
+    if not isinstance(blocks, list) or len(blocks) <= 1:
+        return blocks
+    total = sum(len(b.get("sub_risks", []) or []) for b in blocks if isinstance(b, dict))
+    if total <= 0:
+        return blocks
+    has_specific = any(not _is_generic_category_name(b.get("category", "")) for b in blocks if isinstance(b, dict))
+    if not has_specific:
+        return blocks
+    keep: list[dict] = []
+    spillover: list[str] = []
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        size = len(b.get("sub_risks", []) or [])
+        if _is_generic_category_name(b.get("category", "")) and size > 0 and size / total < 0.35:
+            spillover.extend(s for s in (b.get("sub_risks", []) or []) if isinstance(s, str) and s.strip())
+        else:
+            keep.append(b)
+    if not spillover or not keep:
+        return blocks
+    target = keep[0]
+    seen = {_normalize_key(s) for s in target.get("sub_risks", []) or []}
+    for t in spillover:
+        k = _normalize_key(t)
+        if k and k not in seen:
+            target.setdefault("sub_risks", []).append(t)
+            seen.add(k)
+    return keep
 
 
 def _merge_risk_blocks(blocks: list[dict]) -> list[dict]:
@@ -729,10 +948,55 @@ def _looks_like_single_bucket_fallback(blocks: list[dict]) -> bool:
     return cat in {"risk factors", "general", "risks", "other", "general risks"} and n_subs >= 5
 
 
+def _looks_like_skewed_or_polluted(blocks: list[dict]) -> bool:
+    """P2 / P6: re-cluster trigger. True when the output looks degenerate:
+       * a single block already (delegates to _looks_like_single_bucket_fallback)
+       * dominant block ≥60% of all sub_risks (Walmart pattern)
+       * Walmart pattern: dominant block ≥65% AND its name is generic
+       * any category name is itself a bullet line (LLM pollution)
+       * dominant block has ≥20 sub_risks and a 1-3 word category name"""
+    if not isinstance(blocks, list) or not blocks:
+        return False
+    if _looks_like_single_bucket_fallback(blocks):
+        return True
+    sizes = [len(b.get("sub_risks", []) or []) for b in blocks if isinstance(b, dict)]
+    total = sum(sizes)
+    if total < 5 or not sizes:
+        return False
+    biggest = max(sizes)
+    biggest_idx = sizes.index(biggest)
+    biggest_block = blocks[biggest_idx] if isinstance(blocks[biggest_idx], dict) else {}
+    biggest_name = str(biggest_block.get("category", "") or "").strip()
+    if biggest / total >= 0.60:
+        return True
+    if biggest / total >= 0.50 and _is_generic_category_name(biggest_name):
+        return True
+    if any(_category_looks_like_bullet(b.get("category", "")) for b in blocks if isinstance(b, dict)):
+        return True
+    if biggest >= 20 and len(biggest_name.split()) <= 3:
+        return True
+    return False
+
+
+def _flatten_block_titles(blocks: list[dict]) -> list[str]:
+    out: list[str] = []
+    for b in blocks if isinstance(blocks, list) else []:
+        if not isinstance(b, dict):
+            continue
+        for t in b.get("sub_risks", []) or []:
+            t = str(t or "").strip()
+            if t:
+                out.append(t)
+    return out
+
+
 def _resplit_single_bucket_with_llm(blocks: list[dict]) -> list[dict]:
-    if not _looks_like_single_bucket_fallback(blocks):
+    """P2 trigger: re-cluster a degenerate blocks list (single bucket or skewed
+    distribution) into 3-6 themed categories via LLM. No-op when output already
+    looks well-shaped."""
+    if not _looks_like_skewed_or_polluted(blocks):
         return blocks
-    titles = [str(title or "").strip() for title in blocks[0].get("sub_risks", []) or [] if str(title or "").strip()]
+    titles = _flatten_block_titles(blocks)
     if len(titles) < 5:
         return blocks
 
@@ -1007,6 +1271,19 @@ Categorization rules:
   sub-risk unless the source clearly isolates that risk.
 - Category names should be 2-6 words, capitalized as titles.
 
+Bullet-list handling (CRITICAL):
+- 10-K filings frequently introduce a parent risk like "Our results may be
+  adversely affected by:" followed by a bulleted enumeration of contributing
+  factors (lines starting with •, ‣, –, *, "(i)", "(ii)", "(a)", etc.).
+- Treat the bullets as a continuation of the parent risk. KEEP the parent
+  statement and the contributing factors merged inside ONE sub_risk title
+  (joined with "; " is fine). DO NOT emit each bullet as a separate sub_risk.
+- NEVER use a bullet line as a category name. Category names must be your
+  inferred theme or the source's explicit heading — never a phrase that begins
+  with •, ‣, –, *, a lowercase letter, or ends in ";", ", and", or "; and".
+- A sub_risk title must read as a complete risk sentence — not as a bullet
+  fragment. Skip leading bullet glyphs and lowercase sentence fragments.
+
 Output rules:
 - Return data by calling the provided structured output tool.
 - Each block must have category and sub_risks.
@@ -1029,7 +1306,10 @@ Output rules:
                 all_cleaned.extend(cleaned)
 
         merged = _merge_risk_blocks(all_cleaned)
+        merged = _consolidate_polluted_blocks(merged)
+        merged = _consolidate_small_generic_blocks(merged)
         merged = _resplit_single_bucket_with_llm(merged)
+        merged = _consolidate_small_generic_blocks(merged)
         if merged:
             ai_cnt = _count_risk_items(merged)
             ev_ratio = _evidence_ratio(merged, item1a_text)
@@ -1037,8 +1317,8 @@ Output rules:
             if ai_cnt >= 1 and ev_ratio >= 0.4:
                 _AI_RISKS_CACHE[cache_key] = copy.deepcopy(merged)
                 return merged
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[risks-bedrock] LLM extraction failed for {company_name!r}: {type(exc).__name__}: {exc}", file=sys.stderr)
     _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
     return fallback
 

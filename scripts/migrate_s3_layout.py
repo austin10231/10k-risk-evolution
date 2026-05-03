@@ -134,6 +134,7 @@ def migrate(
     keep_airbus: bool,
     reextract: bool,
     force_reextract: bool,
+    verify_cik: bool = False,
 ) -> dict:
     started = _now_iso()
     keys = list_legacy_html_keys()
@@ -158,6 +159,7 @@ def migrate(
         "reextract": bool(reextract),
         "force_reextract": bool(force_reextract),
         "keep_airbus": bool(keep_airbus),
+        "verify_cik": bool(verify_cik),
     }
 
     for idx, key in enumerate(keys, start=1):
@@ -211,6 +213,17 @@ def migrate(
             html_bytes = ep.get_bytes(key)
             if not html_bytes:
                 raise RuntimeError("legacy object body was empty")
+
+            # 0) CIK verification (P0): refuse to migrate when the HTML's
+            # inline XBRL CIK disagrees with industry_mapping. This is the
+            # Apple_AAPL/2025-was-actually-APLE failure mode.
+            if verify_cik and cik:
+                ok, found_cik = ep.verify_cik(html_bytes, cik)
+                if not ok:
+                    raise RuntimeError(
+                        f"cik_mismatch: html_cik={found_cik or 'unknown'} "
+                        f"expected_cik={cik}"
+                    )
 
             # 1) HTML upload (skip if already in new layout).
             if existing_html:
@@ -358,9 +371,13 @@ def parse_args() -> argparse.Namespace:
                         help="Copy HTMLs only; do not run Bedrock to (re)generate risks JSON.")
     parser.add_argument("--force-reextract", action="store_true",
                         help="Re-extract risks even if the destination JSON already exists.")
+    parser.add_argument("--verify-cik", action="store_true",
+                        help="Read inline XBRL EntityCentralIndexKey from each HTML "
+                             "and FAIL the record when it disagrees with "
+                             "industry_mapping.COMPANIES[ticker].cik (P0).")
     parser.add_argument("--report", default=str(ROOT / "scripts" / "migrate_s3_layout.report.json"),
                         help="Where to write the run report JSON (default: scripts/migrate_s3_layout.report.json).")
-    parser.set_defaults(write=False, keep_airbus=False, reextract=True)
+    parser.set_defaults(write=False, keep_airbus=False, reextract=True, verify_cik=False)
     return parser.parse_args()
 
 
@@ -377,6 +394,7 @@ def main() -> int:
         keep_airbus=args.keep_airbus,
         reextract=args.reextract,
         force_reextract=args.force_reextract,
+        verify_cik=args.verify_cik,
     )
 
     try:
