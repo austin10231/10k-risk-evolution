@@ -388,3 +388,12 @@
 - 结果：Item 1A 定位 `20/20`，达到最小风险条数门槛 `20/20`，平均风险条数 `84.4`，最低风险条数 `11`（PFE 2024），最高风险条数 `330`（JPM 2024）。  
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
+
+### 25) 风险分类优化：提取多桶约束 + Dashboard 9 类映射
+- 提交：`65d2692`
+- `core/extractor.py` 修复 Item 1 overview 回退路径：当 edgartools/sec-parser 已经切出 Item 1 正文时，不再把切片文本重新送回 raw filing 正则查找，避免 Apple 这类文件返回 `"(Could not extract Item 1 overview.)"`。  
+- Item 1A Bedrock schema prompt 增加“必须按 3-8 个主题类别组织”的明确约束，并新增单桶 `"Risk Factors"` 退化检测；若 LLM 仍返回一个大桶，会触发二次 re-cluster pass。  
+- `agentcore_deploy/main.py` 重写 dashboard 9 类关键词权重，移除 `risk factors` / `business risk` / `industry` / 裸 `market` 等宽泛词，弱命中时交给 LLM fallback；无 Bedrock 凭证时才回落到 `General & Other`。  
+- 新写入的每条 sub risk 都会保留 `original_category`，并额外落盘 `dashboard_category`，dashboard / compare 读数据时优先使用后端字段，前端不再维护另一套关键词分类器。  
+- 新增 `scripts/reclassify_existing_records.py` 用于给历史 S3 result JSON 补写 `dashboard_category/original_category`；默认 dry-run，真实写回需显式 `--write`，且默认拒绝在无 Bedrock 凭证环境写回。  
+- 验证：`py_compile`、`npm --prefix frontend run build`、本地后端 `/health` 200 均通过；AAPL/TSLA/PFE/LMT 2024 与 JPM 最新 10-K 的 Item 1 overview 均可抽出 ≥200 字正文；本地分类样本覆盖 9 个 dashboard 桶且不再被 `"Risk Factors"` 强行归入 Strategy & Market。  
