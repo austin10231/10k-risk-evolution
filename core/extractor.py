@@ -26,6 +26,11 @@ import hashlib
 import boto3
 from bs4 import BeautifulSoup, Tag
 from core.bedrock import _invoke
+from core.sec_sections import (
+    SectionNotFound,
+    locate_item1_overview_with_edgartools,
+    locate_item1a_with_edgartools,
+)
 
 # ── Regex patterns ────────────────────────────────────────────────────────────
 _ITEM1_START = re.compile(
@@ -156,14 +161,7 @@ def _extract_overview_from_text(
     }
 
 
-def _extract_risks_from_text_fallback(text: str) -> list[dict]:
-    """Extract risks from plain text using paragraph heuristic (for PDF or fallback)."""
-    rng = _locate_item1a_range(text)
-    if rng is None:
-        return []
-
-    start_pos, end_pos = rng
-    raw_1a = text[start_pos:end_pos]
+def _extract_risks_from_item1a_text(raw_1a: str) -> list[dict]:
     cleaned = _clean_text(raw_1a)
 
     if len(cleaned) < 100:
@@ -214,6 +212,16 @@ def _extract_risks_from_text_fallback(text: str) -> list[dict]:
         return [{"category": "Risk Factors", "sub_risks": [p for p in paras[:30] if len(p) < 400]}]
 
     return risks
+
+
+def _extract_risks_from_text_fallback(text: str) -> list[dict]:
+    """Extract risks from plain text using paragraph heuristic (for PDF or fallback)."""
+    rng = _locate_item1a_range(text)
+    if rng is None:
+        return []
+
+    start_pos, end_pos = rng
+    return _extract_risks_from_item1a_text(text[start_pos:end_pos])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -347,6 +355,40 @@ def _make_soup(html_bytes: bytes) -> BeautifulSoup:
 
 def _full_text(soup: BeautifulSoup) -> str:
     return soup.get_text(separator="\n")
+
+
+def locate_item1a(html_bytes: bytes) -> str:
+    """Locate Item 1A text, preferring edgartools and falling back to legacy text slicing."""
+    try:
+        text, _meta = locate_item1a_with_edgartools(html_bytes)
+        if text:
+            return _clean_text(text)
+    except SectionNotFound:
+        pass
+    except Exception:
+        pass
+
+    full = _full_text(_make_soup(html_bytes))
+    rng = _locate_item1a_range(full)
+    if rng is None:
+        return ""
+    start_pos, end_pos = rng
+    return _clean_text(full[start_pos:end_pos])
+
+
+def locate_item1_overview(html_bytes: bytes) -> str:
+    """Locate Item 1 Business text, preferring edgartools and falling back to legacy slicing."""
+    try:
+        text, _meta = locate_item1_overview_with_edgartools(html_bytes)
+        if text:
+            return _clean_text(text)
+    except SectionNotFound:
+        pass
+    except Exception:
+        pass
+
+    full = _full_text(_make_soup(html_bytes))
+    return _locate_item1_text_block(full)
 
 
 def _is_bold(tag: Tag) -> bool:
@@ -554,6 +596,9 @@ def extract_item1_overview(
     industry: str = "",
 ) -> dict:
     """Extract Item 1 overview from HTML."""
+    item1_text = locate_item1_overview(html_bytes)
+    if item1_text:
+        return _extract_overview_from_text(f"{item1_text}\n\nItem 1A. Risk Factors", company_name, industry)
     text = _full_text(_make_soup(html_bytes))
     return _extract_overview_from_text(text, company_name, industry)
 
@@ -573,8 +618,7 @@ def extract_item1_overview_bedrock(
     if cache_key in _AI_OVERVIEW_CACHE:
         return copy.deepcopy(_AI_OVERVIEW_CACHE[cache_key])
     try:
-        text = _full_text(_make_soup(html_bytes))
-        item1_text = _locate_item1_text_block(text)
+        item1_text = locate_item1_overview(html_bytes)
         source_text = item1_text if item1_text else fallback.get("background", "")
         source_text = str(source_text or "").strip()
         if not source_text or len(source_text) < 120:
@@ -628,13 +672,7 @@ def extract_item1a_risks_bedrock(
     if cache_key in _AI_RISKS_CACHE:
         return copy.deepcopy(_AI_RISKS_CACHE[cache_key])
     try:
-        text = _full_text(_make_soup(html_bytes))
-        rng = _locate_item1a_range(text)
-        if rng is None:
-            _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
-            return fallback
-        start_pos, end_pos = rng
-        item1a_text = _clean_text(text[start_pos:end_pos])
+        item1a_text = locate_item1a(html_bytes)
         if not item1a_text or len(item1a_text) < 200:
             _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
             return fallback
@@ -693,6 +731,12 @@ def extract_item1a_risks(html_bytes: bytes) -> list[dict]:
     """Extract Item 1A risks from HTML using bold/italic tag detection."""
     soup = _make_soup(html_bytes)
     full = _full_text(soup)
+
+    section_text = locate_item1a(html_bytes)
+    if section_text:
+        section_risks = _extract_risks_from_item1a_text(section_text)
+        if section_risks:
+            return section_risks
 
     rng = _locate_item1a_range(full)
     if rng is None:
