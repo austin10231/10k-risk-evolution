@@ -1,15 +1,37 @@
-"""AWS Bedrock runtime helpers for shared extraction code."""
+"""AWS Bedrock runtime helpers for shared extraction code.
+
+This module backs the *extraction* path (risk extraction, classification,
+RPI scoring). The agent-chat path lives in ``agentcore_deploy/agent.py``
+and uses a different default model. See PROJECT_CHANGELOG_CN.md entry 32
+for the dual-model split rationale.
+"""
 
 import json
 import os
 import boto3
 
-BEDROCK_CLAUDE_OPUS_47_MODEL_ID = "anthropic.claude-opus-4-7"
-MODEL_ID = BEDROCK_CLAUDE_OPUS_47_MODEL_ID
-
 
 def _secret(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or default)
+
+
+# Default Bedrock model used by every extraction-side invocation in this
+# module (and by the few extraction-style call sites inside
+# ``agentcore_deploy/agent.py`` that delegate here). Override with
+# ``BEDROCK_EXTRACTION_MODEL_ID``. The legacy ``MODEL_ID`` alias is kept so
+# any old import (e.g. ``from core.bedrock import MODEL_ID``) keeps working.
+EXTRACTION_MODEL_ID = _secret("BEDROCK_EXTRACTION_MODEL_ID", "amazon.nova-pro-v1:0")
+MODEL_ID = EXTRACTION_MODEL_ID
+# Back-compat: external callers historically imported this name.
+BEDROCK_CLAUDE_OPUS_47_MODEL_ID = EXTRACTION_MODEL_ID
+
+
+def get_extraction_model_id() -> str:
+    """Public accessor so other modules can mirror the extraction modelId
+    (e.g. when reporting it in chat context). Reads env each call so a
+    runtime override (Railway/Lambda redeploy) takes effect without
+    re-importing the module."""
+    return _secret("BEDROCK_EXTRACTION_MODEL_ID", EXTRACTION_MODEL_ID)
 
 
 def _get_bedrock():
@@ -29,7 +51,7 @@ def _get_bedrock():
 def _invoke(prompt, max_tokens=1024):
     client = _get_bedrock()
     response = client.converse(
-        modelId=MODEL_ID,
+        modelId=get_extraction_model_id(),
         messages=[{"role": "user", "content": [{"text": prompt}]}],
         inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0, "topP": 1.0},
     )
@@ -67,7 +89,7 @@ def invoke_with_schema(
 ):
     client = _get_bedrock()
     response = client.converse(
-        modelId=MODEL_ID,
+        modelId=get_extraction_model_id(),
         messages=[{"role": "user", "content": [{"text": prompt}]}],
         inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0, "topP": 1.0},
         toolConfig={

@@ -12,8 +12,25 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 
-BEDROCK_CLAUDE_OPUS_47_MODEL_ID = "anthropic.claude-opus-4-7"
-MODEL_ID = BEDROCK_CLAUDE_OPUS_47_MODEL_ID
+# Dual-model configuration:
+#   * EXTRACTION_MODEL_ID — risk extraction, 9-bucket classification, RPI
+#     three-dimensional scoring, and the agent priority report (executive
+#     summary / themes). Defaults to Amazon Nova Pro because the Converse
+#     API tool-use schema and the structured JSON output we depend on are
+#     stable on it.
+#   * AGENT_MODEL_ID — interactive Q&A only (chat_agent answers, follow-up
+#     polishing, "what model are you" identity replies). Defaults to
+#     DeepSeek V3.2 since chat doesn't need forced tool output.
+# Both can be overridden via env. The legacy ``MODEL_ID`` constant is kept
+# as an alias for AGENT_MODEL_ID so external imports keep returning the
+# same kind of model historically associated with this module's _invoke
+# (which used to back chat).
+EXTRACTION_MODEL_ID = (os.getenv("BEDROCK_EXTRACTION_MODEL_ID") or "amazon.nova-pro-v1:0").strip() or "amazon.nova-pro-v1:0"
+AGENT_MODEL_ID = (os.getenv("BEDROCK_AGENT_MODEL_ID") or "deepseek.v3.2").strip() or "deepseek.v3.2"
+MODEL_ID = AGENT_MODEL_ID
+# Back-compat alias. Anything still referencing this name will get the agent
+# model, which is what historical callers of ``MODEL_ID`` actually wanted.
+BEDROCK_CLAUDE_OPUS_47_MODEL_ID = AGENT_MODEL_ID
 
 # Priority scoring is computed in Python from three LLM-provided dimensions; the
 # weights and thresholds are duplicated in the LLM prompt for transparency, but
@@ -102,7 +119,12 @@ def _resolve_credentials() -> tuple[str, str, str | None]:
     raise RuntimeError("AWS credentials not found in environment or container credentials endpoint")
 
 
-def _invoke(prompt: str, max_tokens: int = 2048) -> str:
+def _invoke(prompt: str, max_tokens: int = 2048, *, model_id: str | None = None) -> str:
+    """Invoke a Bedrock Converse model and return the assistant's text. The
+    explicit ``model_id`` arg is what enables this module's dual-model split
+    (extraction vs agent). Callers should prefer the named wrappers
+    ``_invoke_extraction`` / ``_invoke_agent``."""
+    selected_model_id = (model_id or AGENT_MODEL_ID).strip() or AGENT_MODEL_ID
     body_obj = {
         "messages": [{"role": "user", "content": [{"text": prompt}]}],
         "inferenceConfig": {
@@ -130,7 +152,7 @@ def _invoke(prompt: str, max_tokens: int = 2048) -> str:
 
         client = boto3.client("bedrock-runtime", **kwargs)
         response = client.converse(
-            modelId=MODEL_ID,
+            modelId=selected_model_id,
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0, "topP": 1.0},
         )
@@ -142,7 +164,7 @@ def _invoke(prompt: str, max_tokens: int = 2048) -> str:
     try:
         region = _env("BEDROCK_REGION", "us-west-2")
         service = "bedrock-runtime"
-        encoded_model_id = quote(MODEL_ID, safe="")
+        encoded_model_id = quote(selected_model_id, safe="")
         endpoint = f"https://bedrock-runtime.{region}.amazonaws.com/model/{encoded_model_id}/converse"
         parsed = urlparse(endpoint)
         host = parsed.netloc
@@ -210,13 +232,40 @@ def _invoke(prompt: str, max_tokens: int = 2048) -> str:
         ) from sigv4_error
 
 
+def _invoke_extraction(prompt: str, max_tokens: int = 2048) -> str:
+    """Bedrock invocation for the extraction path: risk extraction, 9-bucket
+    classification, RPI three-dim scoring, and the agent priority report.
+    Goes through the EXTRACTION_MODEL_ID (Nova Pro by default)."""
+    return _invoke(prompt, max_tokens=max_tokens, model_id=EXTRACTION_MODEL_ID)
+
+
+def _invoke_agent(prompt: str, max_tokens: int = 2048) -> str:
+    """Bedrock invocation for the chat agent: user Q&A and reply polishing.
+    Goes through the AGENT_MODEL_ID (DeepSeek V3.2 by default)."""
+    return _invoke(prompt, max_tokens=max_tokens, model_id=AGENT_MODEL_ID)
+
+
 def invoke_llm_text(prompt: str, max_tokens: int = 1200) -> str:
-    """Public helper for other runtime modules that need direct LLM text responses."""
-    return _invoke(prompt, max_tokens=max_tokens)
+    """Public helper for chat-agent callers (Q&A, language polish, identity
+    replies). Routes to AGENT_MODEL_ID by default."""
+    return _invoke(prompt, max_tokens=max_tokens, model_id=AGENT_MODEL_ID)
+
+
+def invoke_llm_extraction(prompt: str, max_tokens: int = 1200) -> str:
+    """Public helper for extraction-side callers in main.py (e.g. the
+    dashboard 9-bucket classification fallback). Routes to
+    EXTRACTION_MODEL_ID."""
+    return _invoke(prompt, max_tokens=max_tokens, model_id=EXTRACTION_MODEL_ID)
 
 
 def get_model_id() -> str:
-    return MODEL_ID
+    """Public model id for chat-context display ("what model are you")."""
+    return AGENT_MODEL_ID
+
+
+def get_extraction_model_id() -> str:
+    """Public model id for extraction-side reporting (e.g. /health probe)."""
+    return EXTRACTION_MODEL_ID
 
 
 def _strip_json_fences(text: str) -> str:
@@ -353,7 +402,7 @@ Do NOT include `score` or `priority` — they are computed deterministically dow
 from financial_impact/likelihood/urgency. No preamble, no markdown."""
 
     try:
-        raw = _invoke(prompt, max_tokens=2048)
+        raw = _invoke_extraction(prompt, max_tokens=2048)
         raw = _strip_json_fences(raw)
         scored = json.loads(raw)
         if not isinstance(scored, list):
@@ -516,7 +565,7 @@ Generate a JSON report with exactly this structure:
 Return ONLY the JSON object, no preamble, no markdown fences."""
 
     try:
-        raw = _invoke(prompt, max_tokens=1500)
+        raw = _invoke_extraction(prompt, max_tokens=1500)
         report_content = json.loads(_strip_json_fences(raw))
     except Exception as e:
         report_content = {
@@ -596,7 +645,7 @@ Return ONLY JSON:
 }}"""
 
     try:
-        out = _extract_json_obj(_invoke(prompt, max_tokens=1000)) or {}
+        out = _extract_json_obj(_invoke_agent(prompt, max_tokens=1000)) or {}
         if not isinstance(out, dict):
             out = {}
     except Exception:

@@ -25,6 +25,11 @@ export AWS_SESSION_TOKEN=...                # only if using STS
 export AWS_REGION=us-west-1                 # S3 bucket region
 export BEDROCK_REGION=us-west-2             # Bedrock model region
 export S3_BUCKET=10k-risk-alert-app
+
+# Optional — Bedrock dual-model split. Defaults shown; override only when
+# your account has a different inference-profile id enabled.
+export BEDROCK_EXTRACTION_MODEL_ID=amazon.nova-pro-v1:0   # extraction / classification / RPI
+export BEDROCK_AGENT_MODEL_ID=deepseek.v3.2               # chat agent / Q&A
 ```
 
 The scripts call `agentcore_deploy.main`'s helpers, which read these vars

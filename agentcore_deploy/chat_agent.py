@@ -421,7 +421,7 @@ def _general_chat_answer(
     target_lang: str,
     llm_invoke: Callable[[str, int], str],
 ) -> str:
-    model_id = _clean_text((context or {}).get("model_id")) or "anthropic.claude-opus-4-7"
+    model_id = _clean_text((context or {}).get("model_id")) or "deepseek.v3.2"
     lang_rule = "Simplified Chinese" if target_lang == "zh" else "English"
     prompt = f"""You are a helpful assistant similar to ChatGPT.
 You are RiskLens AI assistant.
@@ -454,17 +454,20 @@ Do not output JSON."""
 
 
 def _model_identity_answer(user_query: str, context: dict) -> str:
-    model_id = _clean_text((context or {}).get("model_id")) or "anthropic.claude-opus-4-7"
+    model_id = _clean_text((context or {}).get("model_id")) or "deepseek.v3.2"
+    extraction_id = _clean_text((context or {}).get("extraction_model_id")) or "amazon.nova-pro-v1:0"
     if _is_chinese_text(user_query):
         return (
-            f"我是 RiskLens AI 助手，底层会调用 Amazon Bedrock 的 `{model_id}`（Claude Opus 4.7）来生成回答。"
+            f"我是 RiskLens AI 助手。这次对话由 Amazon Bedrock 上的 `{model_id}`（DeepSeek V3.2）生成回复；"
+            f"风险因子提取、分类与 RPI 评分则走 `{extraction_id}`（Amazon Nova Pro）。"
             "所以这里是有大模型推理的，不只是规则系统。"
-            "如需切换到 Claude Sonnet 4.6 / Haiku 4.5 等更轻量模型，我也可以帮你改配置。"
+            "如果想换成别的 Bedrock 模型，我可以帮你改 `BEDROCK_AGENT_MODEL_ID` / `BEDROCK_EXTRACTION_MODEL_ID` 配置。"
         )
     return (
-        f"I’m RiskLens AI, and I generate responses through Amazon Bedrock using `{model_id}` (Claude Opus 4.7). "
+        f"I’m RiskLens AI. This chat reply comes from Amazon Bedrock model `{model_id}` (DeepSeek V3.2); "
+        f"the extraction / classification / RPI scoring path uses `{extraction_id}` (Amazon Nova Pro). "
         "So this chat is backed by an LLM, not only rule logic. "
-        "If you prefer a lighter Claude Sonnet 4.6 / Haiku 4.5 model, I can help switch the config."
+        "If you prefer a different Bedrock model, I can help switch `BEDROCK_AGENT_MODEL_ID` / `BEDROCK_EXTRACTION_MODEL_ID`."
     )
 
 

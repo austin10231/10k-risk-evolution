@@ -389,6 +389,37 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 32) 双模型配置：提取/分类/RPI 用 Nova Pro，agent 对话用 DeepSeek V3.2
+- 拆分原本统一走 Claude Opus 4.7 的 Bedrock 调用路径，按用途拆为两套 modelId：
+  - **EXTRACTION**：风险因子提取、9 桶分类兜底、RPI 三维评分、agent 优先级报告 → 默认 `amazon.nova-pro-v1:0`，env `BEDROCK_EXTRACTION_MODEL_ID` 覆盖。
+  - **AGENT**：chat 对话回答用户问题、follow-up 文本润色、"我是什么模型"身份回复 → 默认 `deepseek.v3.2`，env `BEDROCK_AGENT_MODEL_ID` 覆盖。
+- `core/bedrock.py`：把 `MODEL_ID` 重新定义为 `EXTRACTION_MODEL_ID = os.getenv("BEDROCK_EXTRACTION_MODEL_ID", "amazon.nova-pro-v1:0")`；`_invoke` / `invoke_with_schema` 改用 `get_extraction_model_id()` 实时读取，环境变量重启即生效；`MODEL_ID` 与 `BEDROCK_CLAUDE_OPUS_47_MODEL_ID` 留 alias 防止旧 import 报错。
+- `agentcore_deploy/agent.py`：
+  - 新增 `EXTRACTION_MODEL_ID` / `AGENT_MODEL_ID` 两个常量，`MODEL_ID` 改为 `AGENT_MODEL_ID` 别名。
+  - `_invoke` 加可选 `model_id` 参数；新增 `_invoke_extraction` / `_invoke_agent` 两个内部 wrapper 与对应公开 helper `invoke_llm_text`（agent）/ `invoke_llm_extraction`（extraction）。
+  - `_score_risks_with_llm`（L405）、`_generate_agent_report_impl`（L568）切到 `_invoke_extraction`；`_answer_user_question_impl`（L648）保持 `_invoke_agent`。
+  - 公开 `get_model_id()`（agent 模型）+ 新增 `get_extraction_model_id()`，main.py 读取后注入 chat_context。
+- `agentcore_deploy/main.py`：
+  - 新增 `_get_extraction_llm_invoke()` / `_get_extraction_model_id()`，加对应模块级缓存 `_LLM_EXTRACTION_INVOKE` / `_EXTRACTION_MODEL_ID`，`agent.py` 旧版本时优雅降级到 chat invoker。
+  - `_classify_with_llm_fallback`（dashboard 9 桶分类兜底）切到 extraction invoker。
+  - chat_context 新增 `"extraction_model_id"` 字段，让 chat_agent 的"我是什么模型"回答可同时提到两套模型。
+- `agentcore_deploy/chat_agent.py`：
+  - `_general_chat_answer` / `_model_identity_answer` 的 fallback model_id 改为 `deepseek.v3.2`；`_model_identity_answer` 同时读取 `extraction_model_id`，回答里中英文都说明"对话用 DeepSeek V3.2 / 提取走 Nova Pro"。
+- `core/extractor.py`：两处 docstring 从"Claude Opus 4.7"改为"Bedrock extraction model (Amazon Nova Pro by default — see core/bedrock.EXTRACTION_MODEL_ID)"。
+- 配置：
+  - `deploy/railway.env.example` 加 `BEDROCK_EXTRACTION_MODEL_ID` + `BEDROCK_AGENT_MODEL_ID` 两个示例条目和说明注释。
+  - `.streamlit/secrets.toml` 同步加两条（本地调试用，本身 gitignored）。
+  - `scripts/README.md` `Required environment` 段加 `Optional — Bedrock dual-model split` 区段。
+- 验证：
+  - `python -c "from core.bedrock import EXTRACTION_MODEL_ID, MODEL_ID, get_extraction_model_id; ..."` → 输出 `amazon.nova-pro-v1:0`。
+  - `from agentcore_deploy.agent import EXTRACTION_MODEL_ID, AGENT_MODEL_ID, get_model_id, get_extraction_model_id, invoke_llm_text, invoke_llm_extraction` → 全部存在；`get_model_id() == "deepseek.v3.2"` / `get_extraction_model_id() == "amazon.nova-pro-v1:0"`。
+  - `from agentcore_deploy.main import _get_model_id, _get_extraction_model_id, _get_llm_invoke, _get_extraction_llm_invoke` → 全部就绪。
+  - `agentcore_deploy.chat_agent` 重新 import 通过；`_model_identity_answer` 在 context 缺失时回退到 `deepseek.v3.2` / `amazon.nova-pro-v1:0` 文案。
+- 风险与注意：
+  - `core/bedrock.py:invoke_with_schema` 用 Bedrock Converse 的 `toolChoice.tool` 强制结构化输出，Nova Pro 在该路径下需账户开通对应 inference profile；如 Bedrock 报 `ValidationException`，把 `BEDROCK_EXTRACTION_MODEL_ID` 改回 `anthropic.claude-opus-4-7` 即可即时回滚。
+  - DeepSeek V3.2 目前 modelId 字符串按用户给定 `deepseek.v3.2` 写入；若实际需要带版本/区域前缀（如 `us.deepseek.v3-2-v1:0`），改 `BEDROCK_AGENT_MODEL_ID` 一行即可。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 31) 提取质量修复：bullet 拆分 / 单桶退化 / dashboard 关键词 / Item 1A 切片 / CIK 校验
 - 背景：基于对 5 份新结构 risks JSON（Apple/Microsoft/Chevron/Boeing/Walmart）的真实采样，发现提取层有 6 个共性问题（详见 `EXTRACTION_FIX_PLAN.md`）。本次代码改动覆盖 P1-P6，并为 P0（CIK 误标）准备好排查脚本与 pipeline 防线；S3 数据本身的处理由后续手动操作完成。
 - `core/extractor.py`（P1+P2+P6+P3）：

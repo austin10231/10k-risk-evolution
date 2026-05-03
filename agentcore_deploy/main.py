@@ -64,7 +64,9 @@ except Exception:
 _RUN_AGENT = None
 _RUN_CHAT_AGENT = None
 _LLM_INVOKE = None
+_LLM_EXTRACTION_INVOKE = None
 _MODEL_ID = None
+_EXTRACTION_MODEL_ID = None
 
 INDEX_KEY = "filing_records_index.json"
 RESULTS_PREFIX = "risk_analysis_results"
@@ -1349,7 +1351,7 @@ Labels: {labels!r}
 
 Return ONLY a JSON object: {{"bucket": "<exactly one of the 9 names>"}}."""
     try:
-        invoke = _get_llm_invoke()
+        invoke = _get_extraction_llm_invoke()
         raw = invoke(prompt, 60)
         bucket = str(_json_obj_from_text(raw).get("bucket", "")).strip()
         if bucket in FIXED_RISK_CATEGORIES:
@@ -3790,6 +3792,8 @@ def _get_run_chat_agent():
 
 
 def _get_llm_invoke():
+    """Chat-agent LLM invoker (DeepSeek by default). Used by chat / Q&A /
+    polishing paths."""
     global _LLM_INVOKE
     if _LLM_INVOKE is None:
         from agent import invoke_llm_text as _imported_invoke
@@ -3798,16 +3802,46 @@ def _get_llm_invoke():
     return _LLM_INVOKE
 
 
+def _get_extraction_llm_invoke():
+    """Extraction-side LLM invoker (Nova Pro by default). Used by the
+    9-bucket classification fallback. Falls back to the chat invoker if
+    the agent module is too old to expose ``invoke_llm_extraction``."""
+    global _LLM_EXTRACTION_INVOKE
+    if _LLM_EXTRACTION_INVOKE is None:
+        try:
+            from agent import invoke_llm_extraction as _imported_extraction_invoke
+
+            _LLM_EXTRACTION_INVOKE = _imported_extraction_invoke
+        except Exception:
+            _LLM_EXTRACTION_INVOKE = _get_llm_invoke()
+    return _LLM_EXTRACTION_INVOKE
+
+
 def _get_model_id() -> str:
+    """Chat-agent model id (DeepSeek by default). Surfaced in chat_context."""
     global _MODEL_ID
     if _MODEL_ID is None:
         try:
             from agent import get_model_id as _imported_get_model_id
 
-            _MODEL_ID = str(_imported_get_model_id() or "").strip() or "anthropic.claude-opus-4-7"
+            _MODEL_ID = str(_imported_get_model_id() or "").strip() or "deepseek.v3.2"
         except Exception:
-            _MODEL_ID = "anthropic.claude-opus-4-7"
+            _MODEL_ID = "deepseek.v3.2"
     return _MODEL_ID
+
+
+def _get_extraction_model_id() -> str:
+    """Extraction-side model id (Nova Pro by default). Surfaced in
+    chat_context so identity replies can mention both."""
+    global _EXTRACTION_MODEL_ID
+    if _EXTRACTION_MODEL_ID is None:
+        try:
+            from agent import get_extraction_model_id as _imported_get_extraction_model_id
+
+            _EXTRACTION_MODEL_ID = str(_imported_get_extraction_model_id() or "").strip() or "amazon.nova-pro-v1:0"
+        except Exception:
+            _EXTRACTION_MODEL_ID = "amazon.nova-pro-v1:0"
+    return _EXTRACTION_MODEL_ID
 
 
 def _to_int(value, default=0):
@@ -4443,6 +4477,7 @@ Return plain text only."""
         "compare_record_id": compare_record_id,
         "ticker": context_ticker,
         "model_id": _get_model_id(),
+        "extraction_model_id": _get_extraction_model_id(),
         "has_risks": bool(risks),
         "risk_count": sum(len(c.get("sub_risks", [])) for c in risks if isinstance(c, dict)),
         "has_compare_data": isinstance(compare_data, dict),

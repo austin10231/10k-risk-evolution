@@ -1137,7 +1137,8 @@ def extract_item1_overview_bedrock(
     industry: str = "",
 ) -> dict:
     """
-    AI-enhanced Item 1 overview extraction using Bedrock Claude Opus 4.7.
+    AI-enhanced Item 1 overview extraction using the Bedrock extraction
+    model (Amazon Nova Pro by default — see core/bedrock.EXTRACTION_MODEL_ID).
     Falls back to extract_item1_overview() on any failure.
     """
     fallback = extract_item1_overview(html_bytes, company_name, industry)
@@ -1191,7 +1192,8 @@ def extract_item1a_risks_bedrock(
     company_name: str = "",
 ) -> list[dict]:
     """
-    AI-enhanced Item 1A risk extraction using Bedrock Claude Opus 4.7.
+    AI-enhanced Item 1A risk extraction using the Bedrock extraction
+    model (Amazon Nova Pro by default — see core/bedrock.EXTRACTION_MODEL_ID).
     Returns same structure as extract_item1a_risks():
       [{"category": str, "sub_risks": [str, ...]}, ...]
     Falls back to extract_item1a_risks() on any failure.
