@@ -389,13 +389,21 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 28) RPI 优化 P2 前端：未评分显示 "—" 而不是 RPI=0
+- `frontend/src/pages/DashboardPage.jsx:priorityHeatColor` 增加 `null/undefined` 浅灰分支（`#e2e8f0`），与"无风险数据"的 `#f1f5f9` 区分。
+- 热力图 cell 渲染：`cell.rpi` 不再用 `safeNumber` 强制转 0；`rpi == null` 时数字显示 "—"，hover `title` 提示 "Risk scoring unavailable for this filing"。
+- "Average RPI" 与 hover popup 的 RPI 字段：`null/undefined` 时分别显示 "—" 和 "Not scored"，不再渲染伪造的 0.0。
+- 帮助说明文字加一句解释 "—" 含义。
+- 验证：`npm --prefix frontend run build` 通过；评分失败 record 现在前端显示灰底 "—"，全 Low（RPI=0）继续显示绿底 "0"。
+- 提交：`(本次 commit)`
+
 ### 27) RPI 优化 P2 后端 + P3：评分失败 RPI 显式 null，全 Low 计入平均
 - `agentcore_deploy/main.py:_risk_pressure_index` 改为三态返回 `Optional[float]`：`None` = 评分失败/缺失（前端显示"—"），`0.0` = 全 Low 或无风险（合法低分），`>0.0` = 正常分数；新增 `scoring_status` keyword-only 入参，仅当 status 是 `"failed"` 或 `"missing"` 时返回 None。
 - `_extract_priority_counts_from_result` 新增 `scoring_status` 输出字段：优先读 `agent_report.scoring_status`（commit 1 注入），不存在但 `priority_matrix` 存在时回退 `"ok"`（保护历史 record），`agent_report` 完全缺失则 `"missing"`。
 - `_dashboard_summary` 把 status 透传给 `_risk_pressure_index`；`if rpi > 0` 改为 `if rpi is not None`（同时修复 P3 — 全 Low（RPI=0）合法 record 重新计入 `avg_rpi`）；heatmap cell 的 `rpi` 字段在评分失败时为 JSON `null`，新增 `scoring_status` 字段；公司排序中"未评分"公司用 `-1.0` 落到列表底部。
 - 行为变化（用户可感知）：dashboard 上历史评分失败的 record 不再显示伪造的 RPI=50；全 Low record 现在按 0 参与 `avg_rpi` 计算，所以 `avg_rpi` 数字会比修复前略低（之前的 bug 把 0 排除在分母外了）。
 - 自检：构造 `failed/missing/ok` 三种 status 经 `_risk_pressure_index` 输出符合预期；新 / 旧 / 空 record 经 `_extract_priority_counts_from_result` 的 status 路径全部正确；源码扫描确认 `if rpi > 0` 已被替换。
-- 提交：`(本次 commit)`
+- 提交：`eaab7cc`
 
 ### 26) RPI 优化 P0+P1：LLM 打分加 Python 校验 + 分批评分
 - `agentcore_deploy/agent.py` 新增 `PRIORITY_HIGH_THRESHOLD=7.0` / `PRIORITY_MEDIUM_THRESHOLD=4.0` / `PRIORITY_DIM_WEIGHTS=(0.4,0.35,0.25)` / `_PRIORITY_BATCH_SIZE=40` 四个常量，以及 `_clamp_int_1_10` / `_compute_score_from_dims` / `_priority_from_score` 三个辅助函数；prompt 仍向 LLM 索要三维（financial_impact / likelihood / urgency），但 score 与 priority 改由 Python 在 `_prioritize_risks_impl` 内**重算**——LLM 自相矛盾的 `{score:2.0, priority:"High"}` 不再被接受。

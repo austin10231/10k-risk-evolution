@@ -16,9 +16,14 @@ const TABS = [
 ]
 
 function priorityHeatColor(rpi, total) {
-  const score = Number(rpi || 0)
+  // Three-state RPI from the backend:
+  //   null/undefined → scoring failed/missing → light grey
+  //   total === 0    → no risk data           → lighter grey
+  //   number         → green … red ramp
+  if (rpi === null || rpi === undefined) return '#e2e8f0'
   const cnt = Number(total || 0)
   if (!cnt) return '#f1f5f9'
+  const score = Number(rpi)
   if (score >= 78) return '#ef4444'
   if (score >= 60) return '#f97316'
   if (score >= 42) return '#f59e0b'
@@ -365,7 +370,7 @@ export default function DashboardPage() {
 
               <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
                 <p className="font-semibold text-slate-700">How to read quickly:</p>
-                <p className="mt-1">RPI (0-100) is weighted by H/M/L counts. Higher RPI means higher pressure from high-priority risks.</p>
+                <p className="mt-1">RPI (0-100) is weighted by H/M/L counts. Higher RPI means higher pressure from high-priority risks. "—" indicates a filing whose risks couldn't be scored.</p>
                 <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
                   <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#22c55e' }} />Lower pressure</span>
                   <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#f59e0b' }} />Mid pressure</span>
@@ -443,8 +448,12 @@ export default function DashboardPage() {
                           {yearsOrdered.map((y) => {
                             const cell = heatCellMap.get(`${c}__${y}`)
                             const total = safeNumber(cell?.total)
-                            const rpi = safeNumber(cell?.rpi)
+                            // Keep null/undefined as-is so we can distinguish
+                            // "scoring failed" from "all-Low (RPI=0)".
+                            const rpi = cell?.rpi
                             const bg = priorityHeatColor(rpi, total)
+                            const isUnscored = cell && (rpi === null || rpi === undefined)
+                            const display = isUnscored ? '—' : Number(rpi).toFixed(0)
 
                             return (
                               <td key={`${c}-${y}`} className="py-2 px-1">
@@ -454,11 +463,12 @@ export default function DashboardPage() {
                                     onMouseEnter={(e) => setHoverPopup({ cell, x: e.clientX, y: e.clientY })}
                                     onMouseMove={(e) => setHoverPopup((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev))}
                                     onMouseLeave={() => setHoverPopup(null)}
+                                    title={isUnscored ? 'Risk scoring unavailable for this filing' : undefined}
                                     className="mx-auto flex h-11 w-[78px] flex-col items-center justify-center rounded-lg border border-white/70 text-[10px] font-bold text-slate-800 transition-transform hover:scale-[1.03]"
                                     style={{ backgroundColor: bg }}
                                   >
                                     <span className="text-[9px] font-black tracking-[0.04em]">RPI</span>
-                                    <span className="mt-[2px] text-[13px] leading-none font-black">{rpi.toFixed(0)}</span>
+                                    <span className="mt-[2px] text-[13px] leading-none font-black">{display}</span>
                                   </a>
                                 ) : (
                                   <div className="mx-auto flex h-11 w-[78px] items-center justify-center rounded-lg border border-slate-200/70 bg-slate-100/70 text-[10px] font-semibold text-slate-400">—</div>
@@ -493,7 +503,12 @@ export default function DashboardPage() {
 
               <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Scope Snapshot</p>
-                <p className="mt-1 text-sm font-semibold text-slate-700">Average RPI: {safeNumber(priorityHeatmap.avg_rpi).toFixed(1)}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-700">
+                  Average RPI:{' '}
+                  {priorityHeatmap.avg_rpi === null || priorityHeatmap.avg_rpi === undefined
+                    ? '—'
+                    : safeNumber(priorityHeatmap.avg_rpi).toFixed(1)}
+                </p>
                 <p className="mt-1 text-sm text-slate-600">Rows with priority data: {safeNumber(metrics.records_with_priority)} / {safeNumber(metrics.records)}</p>
               </div>
 
@@ -631,7 +646,12 @@ export default function DashboardPage() {
           >
             <p className="text-sm font-bold text-slate-800">{hoverPopup.cell.company} · {hoverPopup.cell.year}</p>
             <p className="mt-1 text-xs text-slate-600">{hoverPopup.cell.industry || '—'} · {hoverPopup.cell.filing_type || '10-K'}</p>
-            <p className="mt-2 text-sm font-semibold text-slate-700">RPI: {safeNumber(hoverPopup.cell.rpi).toFixed(1)}</p>
+            <p className="mt-2 text-sm font-semibold text-slate-700">
+              RPI:{' '}
+              {hoverPopup.cell.rpi === null || hoverPopup.cell.rpi === undefined
+                ? 'Not scored'
+                : safeNumber(hoverPopup.cell.rpi).toFixed(1)}
+            </p>
             <p className="mt-1 text-sm text-slate-700">H/M/L: {safeNumber(hoverPopup.cell.high)} / {safeNumber(hoverPopup.cell.medium)} / {safeNumber(hoverPopup.cell.low)}</p>
             <p className="mt-1 text-sm text-slate-700">Risk items: {safeNumber(hoverPopup.cell.risk_items)}</p>
             <p className="mt-1 text-sm text-slate-700">Ticker: {hoverPopup.cell.ticker || '—'}</p>
