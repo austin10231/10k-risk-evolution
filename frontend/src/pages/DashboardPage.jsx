@@ -378,7 +378,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_auto_auto_auto] md:items-end">
+              <div className="rl-heatmap-filter-grid mt-3">
                 <div>
                   <label className="section-title">Company Search</label>
                   <input className="input mt-2" placeholder="Filter companies..." value={heatSearch} onChange={(e) => setHeatSearch(e.target.value)} />
@@ -417,7 +417,7 @@ export default function DashboardPage() {
                   </select>
                 </div>
 
-                <button className="btn-secondary" onClick={() => load({ force: true })} disabled={loading}>
+                <button className="btn-secondary rl-heatmap-refresh-btn" onClick={() => load({ force: true })} disabled={loading}>
                   {loading ? 'Refreshing…' : 'Refresh'}
                 </button>
               </div>

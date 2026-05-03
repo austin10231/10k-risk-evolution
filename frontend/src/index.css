@@ -2588,6 +2588,26 @@ select.input {
   margin: 0 auto;
 }
 
+.rl-heatmap-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.rl-heatmap-filter-grid > div {
+  min-width: 0;
+}
+
+.rl-heatmap-filter-grid .input {
+  width: 100%;
+}
+
+.rl-heatmap-refresh-btn {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
 .rl-compare-page,
 .rl-tables-page,
 .rl-stock-page {
