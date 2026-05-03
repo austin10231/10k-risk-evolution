@@ -73,6 +73,16 @@ TICKER_MAP_KEY = "company_ticker_map.json"
 HTML_PREFIX = "10k_html_datasets"
 PDF_PREFIX = "10k_pdf_datasets"
 TABLES_PREFIX = "tables_extraction"
+
+# ── New S3 layout (S3_PLAN.md Part 1) ────────────────────────────────
+# When USE_NEW_S3_LAYOUT=1 the runtime reads / writes filings under
+# 10k_filings/<industry>/<company_dir>/<year>_10K.{html,json} and uses
+# 10k_filings/index.json as the filing index. The legacy paths above
+# remain readable as a fallback so partially-migrated state is OK.
+NEW_FILINGS_PREFIX = "10k_filings"
+NEW_INDEX_KEY = f"{NEW_FILINGS_PREFIX}/index.json"
+USE_NEW_LAYOUT = os.getenv("USE_NEW_S3_LAYOUT", "0").strip() == "1"
+NEW_RECORD_ID_RE = re.compile(r"^(?P<dir>[A-Za-z0-9._\-]+)_(?P<year>\d{4})_10K$")
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE_TTL_SECONDS = 120
 _STOCK_PROVIDER_STATE: Dict[str, Dict[str, Any]] = {}
@@ -166,6 +176,24 @@ def _invalidate_runtime_caches(storage_key: str = "") -> None:
         _DASHBOARD_SUMMARY_CACHE["ts"] = now
         return
 
+    if key == NEW_INDEX_KEY:
+        _INDEX_CACHE["ts"] = now
+        _TICKER_MAP_CACHE["ts"] = now
+        _RECORDS_LIST_CACHE.clear()
+        _DASHBOARD_SUMMARY_CACHE["ts"] = now
+        return
+
+    if key.startswith(f"{NEW_FILINGS_PREFIX}/"):
+        # Any write under 10k_filings/<industry>/<company>/<year>_10K.{html,json}
+        # invalidates the per-record cache + the dashboard summary cache.
+        # We don't try to derive the synthetic record_id from the key
+        # (it would require re-reading the index); clearing the whole
+        # _RESULT_CACHE is cheap and safe.
+        _RESULT_CACHE.clear()
+        _RECORDS_LIST_CACHE.clear()
+        _DASHBOARD_SUMMARY_CACHE["ts"] = now
+        return
+
 
 def _read_s3_bytes(key: str) -> Optional[bytes]:
     bucket = _bucket()
@@ -233,6 +261,87 @@ def _json_from_bytes(data: Optional[bytes], fallback: Any):
         return fallback
 
 
+def _new_layout_record_id(company_dir: str, year: int) -> str:
+    """Synthetic record_id for a filing in the new layout. The format
+    mirrors `<dir>_<year>_10K` so it is parseable back into (dir, year)
+    via NEW_RECORD_ID_RE without an extra round-trip to the index."""
+    return f"{str(company_dir or '').strip()}_{int(year or 0)}_10K"
+
+
+def _new_layout_keys_for_record_id(rid: str) -> Optional[tuple[str, str, str, int]]:
+    """Parse a new-layout rid into (industry_dir, company_dir, json_key, year).
+
+    Requires the new index to be readable so we can resolve which
+    industry directory the company sits under. Returns None if the rid
+    is not in the new layout — callers fall back to the legacy paths.
+    """
+    m = NEW_RECORD_ID_RE.match(str(rid or "").strip())
+    if not m:
+        return None
+    company_dir = m.group("dir")
+    year = int(m.group("year"))
+
+    new_index = _load_new_layout_index_doc()
+    industries = new_index.get("industries", {}) if isinstance(new_index, dict) else {}
+    for ind_dir, companies in (industries or {}).items():
+        if not isinstance(companies, dict):
+            continue
+        if company_dir in companies:
+            json_key = f"{NEW_FILINGS_PREFIX}/{ind_dir}/{company_dir}/{year}_10K_risks.json"
+            return ind_dir, company_dir, json_key, year
+    return None
+
+
+def _load_new_layout_index_doc() -> dict:
+    """Read the dict-shaped index.json under 10k_filings/. Distinct from
+    `_load_index()` (which returns a flat list of records). Cached via
+    the same `_INDEX_CACHE` slot using the dict shape.
+    """
+    raw = _json_from_bytes(_read_s3_bytes(NEW_INDEX_KEY), {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def _flatten_new_layout_index(doc: dict) -> List[dict]:
+    """Convert the dict-shaped 10k_filings/index.json into the flat
+    record list the rest of the runtime expects. Each filing becomes one
+    record with synthetic `record_id = <company_dir>_<year>_10K`.
+    """
+    out: List[dict] = []
+    industries = doc.get("industries", {}) if isinstance(doc, dict) else {}
+    if not isinstance(industries, dict):
+        return out
+    for ind_dir, companies in industries.items():
+        if not isinstance(companies, dict):
+            continue
+        for company_dir, block in companies.items():
+            if not isinstance(block, dict):
+                continue
+            company = str(block.get("company", "") or "").strip() or company_dir.replace("_", " ")
+            ticker = str(block.get("ticker", "") or "").strip().upper()
+            for f in block.get("filings", []) or []:
+                if not isinstance(f, dict):
+                    continue
+                try:
+                    year = int(f.get("year") or 0)
+                except Exception:
+                    continue
+                out.append({
+                    "record_id": _new_layout_record_id(company_dir, year),
+                    "company": company,
+                    "ticker": ticker,
+                    "industry": ind_dir,
+                    "year": year,
+                    "filing_type": str(f.get("filing_type", "10-K") or "10-K"),
+                    "file_ext": "html",
+                    "risk_items": int(f.get("sub_risk_count") or 0),
+                    "risk_categories": 0,
+                    "has_ai_summary": False,
+                    "created_at": str(f.get("extracted_at", "") or ""),
+                    "_source_layout": "new",
+                })
+    return out
+
+
 def _load_index() -> List[dict]:
     now = time.time()
     cached_ts = float(_INDEX_CACHE.get("ts", 0.0) or 0.0)
@@ -240,14 +349,30 @@ def _load_index() -> List[dict]:
     if (now - cached_ts) <= _INDEX_CACHE_TTL_SECONDS and isinstance(cached_data, list):
         return [r for r in cached_data if isinstance(r, dict)]
 
-    raw = _json_from_bytes(_read_s3_bytes(INDEX_KEY), [])
     out: List[dict] = []
-    if isinstance(raw, list):
-        out = [r for r in raw if isinstance(r, dict)]
-    elif isinstance(raw, dict):
-        candidates = raw.get("items")
-        if isinstance(candidates, list):
-            out = [r for r in candidates if isinstance(r, dict)]
+    if USE_NEW_LAYOUT:
+        new_doc = _load_new_layout_index_doc()
+        out = _flatten_new_layout_index(new_doc)
+        if not out:
+            # Soft fallback — if the new index hasn't been published yet
+            # we still want the API to surface the legacy data instead
+            # of an empty list.
+            raw = _json_from_bytes(_read_s3_bytes(INDEX_KEY), [])
+            if isinstance(raw, list):
+                out = [r for r in raw if isinstance(r, dict)]
+            elif isinstance(raw, dict):
+                candidates = raw.get("items")
+                if isinstance(candidates, list):
+                    out = [r for r in candidates if isinstance(r, dict)]
+    else:
+        raw = _json_from_bytes(_read_s3_bytes(INDEX_KEY), [])
+        if isinstance(raw, list):
+            out = [r for r in raw if isinstance(r, dict)]
+        elif isinstance(raw, dict):
+            candidates = raw.get("items")
+            if isinstance(candidates, list):
+                out = [r for r in candidates if isinstance(r, dict)]
+
     _INDEX_CACHE["ts"] = now
     _INDEX_CACHE["data"] = out
     return out
@@ -265,7 +390,19 @@ def _load_result(record_id: str) -> Optional[dict]:
             payload = cached.get("data")
             if isinstance(payload, dict):
                 return payload
-    payload = _json_from_bytes(_read_s3_bytes(f"{RESULTS_PREFIX}/{rid}.json"), None)
+
+    payload: Optional[dict] = None
+
+    # New-layout rids look like "<company_dir>_<year>_10K"; resolve their
+    # JSON via the dict-shaped index.json. Falls through to legacy on miss.
+    new_keys = _new_layout_keys_for_record_id(rid)
+    if new_keys:
+        _ind, _comp, json_key, _year = new_keys
+        payload = _json_from_bytes(_read_s3_bytes(json_key), None)
+
+    if not isinstance(payload, dict):
+        payload = _json_from_bytes(_read_s3_bytes(f"{RESULTS_PREFIX}/{rid}.json"), None)
+
     if isinstance(payload, dict):
         _RESULT_CACHE[rid] = {"ts": now, "data": payload}
         if len(_RESULT_CACHE) > _RESULT_CACHE_MAX_ENTRIES:
@@ -281,15 +418,33 @@ def _load_company_ticker_map() -> Dict[str, str]:
     if (now - cached_ts) <= _TICKER_MAP_CACHE_TTL_SECONDS and isinstance(cached_data, dict):
         return {str(k): str(v) for k, v in cached_data.items()}
 
-    raw = _json_from_bytes(_read_s3_bytes(TICKER_MAP_KEY), {})
-    if not isinstance(raw, dict):
-        return {}
     out: Dict[str, str] = {}
-    for company, ticker in raw.items():
-        c = str(company or "").strip()
-        t = str(ticker or "").strip().upper()
-        if c and t:
-            out[c] = t
+
+    # In the new layout the ticker map is implicit in 10k_filings/index.json
+    # (each company block carries `company` + `ticker`). Use it as the
+    # primary source so we don't need to maintain a parallel JSON file.
+    if USE_NEW_LAYOUT:
+        new_doc = _load_new_layout_index_doc()
+        for ind in (new_doc.get("industries", {}) or {}).values():
+            if not isinstance(ind, dict):
+                continue
+            for block in ind.values():
+                if not isinstance(block, dict):
+                    continue
+                c = str(block.get("company", "") or "").strip()
+                t = str(block.get("ticker", "") or "").strip().upper()
+                if c and t:
+                    out[c] = t
+
+    if not out:
+        raw = _json_from_bytes(_read_s3_bytes(TICKER_MAP_KEY), {})
+        if isinstance(raw, dict):
+            for company, ticker in raw.items():
+                c = str(company or "").strip()
+                t = str(ticker or "").strip().upper()
+                if c and t:
+                    out[c] = t
+
     _TICKER_MAP_CACHE["ts"] = now
     _TICKER_MAP_CACHE["data"] = out
     return out
@@ -737,17 +892,6 @@ def _add_record(
         )
     ]
 
-    safe = _sanitize_company(company)
-    sid = uuid.uuid4().hex[:4]
-    rid = f"{safe}_{year}_{_sanitize_filing_type(filing_type)}_{sid}"
-    data_prefix = PDF_PREFIX if ext == "pdf" else HTML_PREFIX
-
-    _write_s3_bytes(f"{data_prefix}/{rid}.{ext}", file_bytes)
-    _write_s3_bytes(
-        f"{RESULTS_PREFIX}/{rid}.json",
-        json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
-    )
-
     risk_items = 0
     risk_categories = 0
     has_ai_summary = False
@@ -767,6 +911,70 @@ def _add_record(
         risk_categories = 0
         has_ai_summary = False
 
+    if USE_NEW_LAYOUT:
+        # Resolve directory layout via the new index. PDFs are not yet
+        # supported by the new layout; fall back to legacy keys for them
+        # so existing PDF flows keep working untouched.
+        company_dir = _new_layout_company_dir(company, ticker)
+        if ext == "html" and company_dir:
+            html_key = f"{NEW_FILINGS_PREFIX}/{industry}/{company_dir}/{year}_10K.html"
+            json_key = f"{NEW_FILINGS_PREFIX}/{industry}/{company_dir}/{year}_10K_risks.json"
+            _write_s3_bytes(html_key, file_bytes)
+            _write_s3_bytes(
+                json_key,
+                json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
+            )
+
+            rid = _new_layout_record_id(company_dir, year)
+            new_index_doc = _load_new_layout_index_doc()
+            if not isinstance(new_index_doc, dict) or not new_index_doc:
+                new_index_doc = {
+                    "version": 1,
+                    "schema": {
+                        "html_key": f"{NEW_FILINGS_PREFIX}/<industry>/<company_dir>/<year>_10K.html",
+                        "json_key": f"{NEW_FILINGS_PREFIX}/<industry>/<company_dir>/<year>_10K_risks.json",
+                    },
+                    "industries": {},
+                }
+            _upsert_new_layout_index(
+                new_index_doc,
+                industry_dir=industry, company_dir=company_dir,
+                company=company, ticker=ticker,
+                year=year, html_key=html_key, json_key=json_key,
+                sub_risk_count=int(risk_items), filing_type=filing_type,
+                extracted_at=datetime.now(timezone.utc).isoformat(),
+            )
+            _write_s3_bytes(
+                NEW_INDEX_KEY,
+                json.dumps(new_index_doc, indent=2, ensure_ascii=False, default=str).encode("utf-8"),
+            )
+
+            return {
+                "record_id": rid,
+                "company": company,
+                "ticker": ticker,
+                "industry": industry,
+                "year": year,
+                "filing_type": filing_type,
+                "file_ext": ext,
+                "risk_items": int(risk_items),
+                "risk_categories": int(risk_categories),
+                "has_ai_summary": bool(has_ai_summary),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        # PDF or no resolvable directory → fall through to legacy write.
+
+    safe = _sanitize_company(company)
+    sid = uuid.uuid4().hex[:4]
+    rid = f"{safe}_{year}_{_sanitize_filing_type(filing_type)}_{sid}"
+    data_prefix = PDF_PREFIX if ext == "pdf" else HTML_PREFIX
+
+    _write_s3_bytes(f"{data_prefix}/{rid}.{ext}", file_bytes)
+    _write_s3_bytes(
+        f"{RESULTS_PREFIX}/{rid}.json",
+        json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
+    )
+
     record = {
         "record_id": rid,
         "company": company,
@@ -783,6 +991,78 @@ def _add_record(
     index.append(record)
     _save_index(index)
     return record
+
+
+def _new_layout_company_dir(company: str, ticker: str) -> str:
+    """Look up the canonical S3 directory name for `company` in the new
+    layout. Tries the existing index first (so duplicate uploads land in
+    the same folder); falls back to a synthesized `<Company>_<TICKER>`
+    name and lastly to the legacy `_sanitize_company` value."""
+    company = str(company or "").strip()
+    ticker = _normalize_ticker(ticker)
+    if not company:
+        return ""
+    new_doc = _load_new_layout_index_doc()
+    industries = new_doc.get("industries", {}) if isinstance(new_doc, dict) else {}
+    if isinstance(industries, dict):
+        for ind in industries.values():
+            if not isinstance(ind, dict):
+                continue
+            for company_dir, block in ind.items():
+                if not isinstance(block, dict):
+                    continue
+                if str(block.get("company", "")).strip() == company:
+                    return str(company_dir)
+                if ticker and _normalize_ticker(block.get("ticker", "")) == ticker:
+                    return str(company_dir)
+    safe_name = re.sub(r"[^A-Za-z0-9_]+", "_", company.replace(" ", "_")).strip("_")
+    if ticker:
+        return f"{safe_name}_{ticker}"
+    return safe_name or _sanitize_company(company)
+
+
+def _upsert_new_layout_index(
+    index_doc: dict,
+    *,
+    industry_dir: str,
+    company_dir: str,
+    company: str,
+    ticker: str,
+    year: int,
+    html_key: str,
+    json_key: str,
+    sub_risk_count: int,
+    filing_type: str,
+    extracted_at: str,
+    cik: str = "",
+) -> None:
+    industries = index_doc.setdefault("industries", {})
+    industry_block = industries.setdefault(industry_dir, {})
+    company_block = industry_block.setdefault(company_dir, {
+        "company": company,
+        "ticker": _normalize_ticker(ticker),
+        "industry": industry_dir,
+        "cik": cik,
+        "filings": [],
+    })
+    if company and not company_block.get("company"):
+        company_block["company"] = company
+    if ticker and not company_block.get("ticker"):
+        company_block["ticker"] = _normalize_ticker(ticker)
+    if cik and not company_block.get("cik"):
+        company_block["cik"] = cik
+
+    filings = company_block.setdefault("filings", [])
+    filings[:] = [f for f in filings if int(f.get("year") or 0) != int(year)]
+    filings.append({
+        "year": int(year),
+        "filing_type": str(filing_type or "10-K"),
+        "html_key": html_key,
+        "json_key": json_key,
+        "sub_risk_count": int(sub_risk_count or 0),
+        "extracted_at": str(extracted_at or ""),
+    })
+    filings.sort(key=lambda r: int(r.get("year") or 0))
 
 
 def _load_agent_reports() -> List[dict]:

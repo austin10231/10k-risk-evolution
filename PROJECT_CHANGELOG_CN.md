@@ -389,6 +389,18 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 30) 后端双轨读：USE_NEW_S3_LAYOUT 环境变量切换 10k_filings/ 新结构
+- `agentcore_deploy/main.py` 新增 4 个常量：`NEW_FILINGS_PREFIX = "10k_filings"`、`NEW_INDEX_KEY = "10k_filings/index.json"`、`USE_NEW_LAYOUT = os.getenv("USE_NEW_S3_LAYOUT","0") == "1"`、`NEW_RECORD_ID_RE`（解析合成 `<dir>_<year>_10K` 的正则）。
+- 新增辅助函数 `_load_new_layout_index_doc` / `_flatten_new_layout_index` / `_new_layout_record_id` / `_new_layout_keys_for_record_id` / `_new_layout_company_dir` / `_upsert_new_layout_index`：把新分层 index.json 与扁平 record list 互转，所有读 / 写都对齐 `_INDEX_CACHE / _RESULT_CACHE / _TICKER_MAP_CACHE` 失效语义。
+- `_load_index`：当 `USE_NEW_LAYOUT=1` 时优先从 `10k_filings/index.json` flatten；新 index 缺席时软回退到旧 `filing_records_index.json`，避免切换瞬间 API 返回空列表。
+- `_load_result`：合成 record_id（形如 `Apple_AAPL_2024_10K`）走 `10k_filings/<industry>/<company_dir>/<year>_10K_risks.json`，旧 record_id 仍走 `risk_analysis_results/`，在过渡期两套数据可以共存。
+- `_load_company_ticker_map`：在新 layout 下从 index.json 反构 `company → ticker`，不再要求维护一份独立的 `company_ticker_map.json`；旧文件作为 fallback。
+- `_invalidate_runtime_caches`：增加 `NEW_INDEX_KEY` 与 `10k_filings/` 前缀的失效路径；任意分层文件写入都会清 `_RESULT_CACHE / _RECORDS_LIST_CACHE / _DASHBOARD_SUMMARY_CACHE` 与 ticker 缓存，dashboard 不会留陈旧数据。
+- `_add_record`：当 `USE_NEW_LAYOUT=1` 且 ext 是 html 时，新写入分流到 `10k_filings/<industry>/<company_dir>/<year>_10K.{html,json}` 并 mutating-update `10k_filings/index.json`，返回的合成 `record_id` 与读路径自洽；PDF 仍走旧路径不动。
+- 行为变化：默认 `USE_NEW_S3_LAYOUT` 未设置 → 全走旧路径，零行为变化；只有显式设 `USE_NEW_S3_LAYOUT=1` 才切到新结构。回滚只需删除该环境变量重启即可。
+- 验证：在 mock `_read_s3_bytes` 返回伪造的 `10k_filings/index.json` + 单条 risks JSON 时，`_load_index` 输出 2 条合成 record（`Apple_AAPL_2024_10K` / `Chevron_CVX_2023_10K`），`_load_result("Apple_AAPL_2024_10K")` 命中新分层 json_key，旧 rid `Apple_2024_10-K_d69b` 自动回退到 `risk_analysis_results/`，ticker map 反构出 `{"Apple":"AAPL","Chevron":"CVX"}`；关掉 flag 后 `_load_index` 重新走 legacy `filing_records_index.json` 路径。
+- 提交：`(本次 commit)`
+
 ### 29) S3 重组工具集：Part 1 迁移脚本 + Part 2 批量摄入脚本
 - 新增 `scripts/industry_mapping.py`：硬编码 11 个行业 × ~80 家公司的映射（GICS 2024-09），统一目录命名（`<DisplayName>_<TICKER>`），并修正历史数据的拼写错误（`ConocoPhilllips → ConocoPhillips_COP`、`lockheed → Lockheed_Martin_LMT`、`Exxon_Mobil → ExxonMobil_XOM`、`Motorola_Solutions_Inc → Motorola_Solutions_MSI`）。BRK.B 因 SEC ticker map 不区分 A/B 类，硬编码 CIK `0001067983`；PXD 因 2024-05 被 Exxon 收购退市，写入 `last_year=2023` 自动封顶。
 - 新增 `scripts/extraction_pipeline.py`：复用 `agentcore_deploy/main._manual_extract_result` 与 `_generate_agent_priority_report`，确保迁移 / 批量摄入与 `/api/upload/*` 走完全相同的提取 + 评分管线，落盘 schema 完全一致。
@@ -397,7 +409,7 @@
 - 新增 `scripts/README.md`：完整使用文档（环境变量、CLI 用法、Railway 切流量步骤）。
 - `.gitignore` 加 `scripts/*.report.json` 屏蔽 dry-run 日志。
 - 验证：本地 `S3_BUCKET=10k-risk-alert-app python3 scripts/migrate_s3_layout.py --dry-run` 输出 `ok=40 skipped=2 failed=0`（Airbus 2 个 SKIP，其余 40 个映射正确）；`bulk_ingest --dry-run --start-year 2023 --end-year 2024` 输出 `ok=173`（87 ticker × 2 年 - PXD 仅 2023）。
-- 提交：`(本次 commit)`
+- 提交：`0691992`
 
 ### 28) RPI 优化 P2 前端：未评分显示 "—" 而不是 RPI=0
 - `frontend/src/pages/DashboardPage.jsx:priorityHeatColor` 增加 `null/undefined` 浅灰分支（`#e2e8f0`），与"无风险数据"的 `#f1f5f9` 区分。
