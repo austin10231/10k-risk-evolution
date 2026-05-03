@@ -395,7 +395,7 @@
   - `deepseek.v3.2` → `us.deepseek.v3.2-v1:0`
 - 命中文件：`core/bedrock.py:23`、`agentcore_deploy/agent.py:28-29`、`agentcore_deploy/main.py:3827/3829/3841/3843`、`agentcore_deploy/chat_agent.py:424/457/458`、`deploy/railway.env.example:22-23`、`.streamlit/secrets.toml:9-10`（gitignored）、`scripts/README.md:31-32`。
 - 验证：`from core.bedrock import EXTRACTION_MODEL_ID` 输出 `us.amazon.nova-pro-v1:0`；`from agentcore_deploy.agent import AGENT_MODEL_ID, get_model_id, get_extraction_model_id` 全部回新值；main / chat_agent 导入通过。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`7553002`
 
 ### 32) 双模型配置：提取/分类/RPI 用 Nova Pro，agent 对话用 DeepSeek V3.2
 - 拆分原本统一走 Claude Opus 4.7 的 Bedrock 调用路径，按用途拆为两套 modelId：
