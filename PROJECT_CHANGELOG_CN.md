@@ -418,7 +418,7 @@
 - 风险与注意：
   - `core/bedrock.py:invoke_with_schema` 用 Bedrock Converse 的 `toolChoice.tool` 强制结构化输出，Nova Pro 在该路径下需账户开通对应 inference profile；如 Bedrock 报 `ValidationException`，把 `BEDROCK_EXTRACTION_MODEL_ID` 改回 `anthropic.claude-opus-4-7` 即可即时回滚。
   - DeepSeek V3.2 目前 modelId 字符串按用户给定 `deepseek.v3.2` 写入；若实际需要带版本/区域前缀（如 `us.deepseek.v3-2-v1:0`），改 `BEDROCK_AGENT_MODEL_ID` 一行即可。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`df8179f`
 
 ### 31) 提取质量修复：bullet 拆分 / 单桶退化 / dashboard 关键词 / Item 1A 切片 / CIK 校验
 - 背景：基于对 5 份新结构 risks JSON（Apple/Microsoft/Chevron/Boeing/Walmart）的真实采样，发现提取层有 6 个共性问题（详见 `EXTRACTION_FIX_PLAN.md`）。本次代码改动覆盖 P1-P6，并为 P0（CIK 误标）准备好排查脚本与 pipeline 防线；S3 数据本身的处理由后续手动操作完成。
