@@ -4804,13 +4804,6 @@ select.input {
   @apply flex w-full flex-wrap items-center justify-end gap-2 md:w-auto;
 }
 
-.rl-up-records-layout {
-  margin-top: 10px;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
-}
-
 .rl-up-company-panel,
 .rl-up-company-detail {
   border: 1px solid #dbe3ef;
@@ -4859,18 +4852,23 @@ select.input {
   min-width: 700px;
 }
 
-.rl-up-year-picker {
-  margin-bottom: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.rl-up-company-expand-row td {
+  padding: 0 !important;
+  border-bottom: 1px solid #dbe3ef !important;
 }
 
-.rl-up-year-pill {
-  min-height: 30px;
-  padding: 4px 10px;
-  font-size: 0.74rem;
-  border-radius: 10px;
+.rl-up-company-expand {
+  padding: 10px 12px 12px;
+  background: #f8fbff;
+}
+
+.rl-up-company-records-wrap {
+  margin-top: 8px;
+  max-height: 320px;
+}
+
+.rl-up-company-record-table {
+  min-width: 860px;
 }
 
 .rl-up-records-table-wrap {
@@ -4957,12 +4955,6 @@ select.input {
   text-align: center;
   color: #64748b !important;
   font-size: 0.84rem !important;
-}
-
-@media (max-width: 1200px) {
-  .rl-up-records-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .rl-up-form {

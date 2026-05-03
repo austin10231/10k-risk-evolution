@@ -295,18 +295,6 @@ export default function UploadPage() {
       })
   }, [visibleRecords])
 
-  const selectedRecInView = useMemo(
-    () => visibleRecords.find((r) => String(r.record_id) === String(selectedId)) || null,
-    [visibleRecords, selectedId],
-  )
-
-  const activeCompanyGroup = useMemo(
-    () => companyGroups.find((g) => g.key === selectedCompanyKey) || null,
-    [companyGroups, selectedCompanyKey],
-  )
-
-  const selectedCompanyRecords = useMemo(() => activeCompanyGroup?.records || [], [activeCompanyGroup])
-
   const selectedRec = useMemo(
     () =>
       visibleRecords.find((r) => String(r.record_id) === String(selectedId)) ||
@@ -324,12 +312,6 @@ export default function UploadPage() {
     const nextKey = hasCurrent ? selectedCompanyKey : companyGroups[0].key
     if (nextKey && nextKey !== selectedCompanyKey) setSelectedCompanyKey(nextKey)
   }, [companyGroups, selectedCompanyKey])
-
-  useEffect(() => {
-    if (!selectedCompanyRecords.length) return
-    const exists = selectedCompanyRecords.some((r) => String(r.record_id) === String(selectedId))
-    if (!exists) setSelectedId(String(selectedCompanyRecords[0].record_id))
-  }, [selectedCompanyRecords, selectedId])
 
   const runManualExtract = async () => {
     const companyName = String(company || '').trim()
@@ -717,44 +699,43 @@ export default function UploadPage() {
               Showing <strong>{companyGroups.length}</strong> companies and <strong>{visibleRecords.length}</strong> of {records.length} records
             </p>
 
-            <div className="rl-up-records-layout">
-              <div className="rl-up-company-panel">
-                <p className="rl-up-mini-title">Companies</p>
-                <div className="rl-up-records-table-wrap rl-up-company-table-wrap">
-                  <table className="rl-up-record-table rl-up-company-table">
-                    <thead>
+            <div className="rl-up-company-panel">
+              <p className="rl-up-mini-title">Companies</p>
+              <div className="rl-up-records-table-wrap rl-up-company-table-wrap">
+                <table className="rl-up-record-table rl-up-company-table">
+                  <thead>
+                    <tr>
+                      <th>Company</th>
+                      <th>Industry</th>
+                      <th>Years</th>
+                      <th>Records</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
                       <tr>
-                        <th>Company</th>
-                        <th>Industry</th>
-                        <th>Years</th>
-                        <th>Records</th>
-                        <th>Updated</th>
+                        <td className="rl-up-record-empty" colSpan={5}>
+                          Loading records…
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {loading ? (
-                        <tr>
-                          <td className="rl-up-record-empty" colSpan={5}>
-                            Loading records…
-                          </td>
-                        </tr>
-                      ) : null}
+                    ) : null}
 
-                      {!loading && companyGroups.length === 0 ? (
-                        <tr>
-                          <td className="rl-up-record-empty" colSpan={5}>
-                            No records found.
-                          </td>
-                        </tr>
-                      ) : null}
+                    {!loading && companyGroups.length === 0 ? (
+                      <tr>
+                        <td className="rl-up-record-empty" colSpan={5}>
+                          No records found.
+                        </td>
+                      </tr>
+                    ) : null}
 
-                      {!loading &&
-                        companyGroups.map((group) => {
-                          const active = group.key === selectedCompanyKey
-                          return (
+                    {!loading &&
+                      companyGroups.map((group) => {
+                        const expanded = group.key === selectedCompanyKey
+                        return (
+                          <React.Fragment key={group.key}>
                             <tr
-                              key={group.key}
-                              className={`rl-up-record-row ${active ? 'active' : ''}`}
+                              className={`rl-up-record-row ${expanded ? 'active' : ''}`}
                               onClick={() => {
                                 setSelectedCompanyKey(group.key)
                                 const firstRecordId = group.records[0]?.record_id
@@ -770,79 +751,76 @@ export default function UploadPage() {
                               <td>{group.recordCount}</td>
                               <td>{formatDate(group.latestUpdated)}</td>
                             </tr>
-                          )
-                        })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
 
-              <div className="rl-up-company-detail">
-                <div className="rl-up-company-detail-head">
-                  <div>
-                    <p className="rl-up-mini-title mb-1">Selected Company</p>
-                    <h4>{activeCompanyGroup?.company || '—'}</h4>
-                    <p>
-                      {(activeCompanyGroup?.industry || 'Other')} • {activeCompanyGroup?.recordCount || 0} records
-                    </p>
-                  </div>
-                </div>
+                            {expanded ? (
+                              <tr className="rl-up-company-expand-row">
+                                <td colSpan={5}>
+                                  <div className="rl-up-company-expand">
+                                    <div className="rl-up-company-detail-head">
+                                      <div>
+                                        <p className="rl-up-mini-title mb-1">Selected Company</p>
+                                        <h4>{group.company}</h4>
+                                        <p>
+                                          {(group.industry || 'Other')} • {group.recordCount} records
+                                        </p>
+                                      </div>
+                                    </div>
 
-                <div className="rl-up-records-table-wrap">
-                  <table className="rl-up-record-table">
-                    <thead>
-                      <tr>
-                        <th>Year</th>
-                        <th>Type</th>
-                        <th>Risk Items</th>
-                        <th>Categories</th>
-                        <th>Updated</th>
-                        <th className="text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {!loading && !selectedCompanyRecords.length ? (
-                        <tr>
-                          <td className="rl-up-record-empty" colSpan={6}>
-                            Pick a company to view records.
-                          </td>
-                        </tr>
-                      ) : null}
-
-                      {!loading &&
-                        selectedCompanyRecords.map((r) => {
-                          const active = String(r.record_id) === String(selectedId)
-                          return (
-                            <tr
-                              key={r.record_id}
-                              className={`rl-up-record-row ${active ? 'active' : ''}`}
-                              onClick={() => setSelectedId(String(r.record_id))}
-                            >
-                              <td className="rl-up-company-cell">
-                                <strong>{r.year || '—'}</strong>
-                                <span>{r.record_id || '—'}</span>
-                              </td>
-                              <td>{r.filing_type || '10-K'}</td>
-                              <td>{r.risk_items ?? '—'}</td>
-                              <td>{r.risk_categories ?? '—'}</td>
-                              <td>{formatDate(r.created_at)}</td>
-                              <td className="text-right">
-                                <button
-                                  className={active ? 'btn-primary rl-up-row-btn' : 'btn-secondary rl-up-row-btn'}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setSelectedId(String(r.record_id))
-                                  }}
-                                >
-                                  {active ? 'Loaded' : 'Load'}
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                    </tbody>
-                  </table>
-                </div>
+                                    <div className="rl-up-records-table-wrap rl-up-company-records-wrap">
+                                      <table className="rl-up-record-table rl-up-company-record-table">
+                                        <thead>
+                                          <tr>
+                                            <th>Year</th>
+                                            <th>Type</th>
+                                            <th>Risk Items</th>
+                                            <th>Categories</th>
+                                            <th>Updated</th>
+                                            <th className="text-right">Action</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {group.records.map((r) => {
+                                            const active = String(r.record_id) === String(selectedId)
+                                            return (
+                                              <tr
+                                                key={r.record_id}
+                                                className={`rl-up-record-row ${active ? 'active' : ''}`}
+                                                onClick={() => setSelectedId(String(r.record_id))}
+                                              >
+                                                <td className="rl-up-company-cell">
+                                                  <strong>{r.year || '—'}</strong>
+                                                  <span>{r.record_id || '—'}</span>
+                                                </td>
+                                                <td>{r.filing_type || '10-K'}</td>
+                                                <td>{r.risk_items ?? '—'}</td>
+                                                <td>{r.risk_categories ?? '—'}</td>
+                                                <td>{formatDate(r.created_at)}</td>
+                                                <td className="text-right">
+                                                  <button
+                                                    className={active ? 'btn-primary rl-up-row-btn' : 'btn-secondary rl-up-row-btn'}
+                                                    onClick={(e) => {
+                                                      e.stopPropagation()
+                                                      setSelectedId(String(r.record_id))
+                                                    }}
+                                                  >
+                                                    {active ? 'Loaded' : 'Load'}
+                                                  </button>
+                                                </td>
+                                              </tr>
+                                            )
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : null}
+                          </React.Fragment>
+                        )
+                      })}
+                  </tbody>
+                </table>
               </div>
             </div>
           </section>
