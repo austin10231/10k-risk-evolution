@@ -412,7 +412,7 @@
 - 新增 `scripts/diagnose_item1a_locator.py`（P3）：默认对计划列出的 6 条切片失败 record（Chevron 2021/2022、Exxon 2021、Kroger 2023/2024/2025）跑 edgartools / sec-parser / BS4-regex 三层各自字符数 + 前 500 字 head；可用 `--industry/--company/--year` 任意组合扩展范围。
 - 验证：所有改动文件 `python -c "import …"` 全部通过；分类器本地 13 个 sample title 0 失败；helper 单元行为（bullet 检测、polluted block 整合、skewed/single-bucket 触发判断）通过桌面级冒烟脚本；CIK 提取对 4 种 XBRL 输入与 4 种 verify_cik 场景全部正确。
 - 后续待执行（不在本次代码 commit 内）：跑 `audit_legacy_cik.py` 看 cik_mismatch_report.json、跑 `diagnose_item1a_locator.py` 拿 Chevron/Exxon/Kroger 真根因、用 `migrate_s3_layout.py --write --force-reextract` 重抽全部 34 record。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`b554a05`
 
 ### 30) 后端双轨读：USE_NEW_S3_LAYOUT 环境变量切换 10k_filings/ 新结构
 - `agentcore_deploy/main.py` 新增 4 个常量：`NEW_FILINGS_PREFIX = "10k_filings"`、`NEW_INDEX_KEY = "10k_filings/index.json"`、`USE_NEW_LAYOUT = os.getenv("USE_NEW_S3_LAYOUT","0") == "1"`、`NEW_RECORD_ID_RE`（解析合成 `<dir>_<year>_10K` 的正则）。
