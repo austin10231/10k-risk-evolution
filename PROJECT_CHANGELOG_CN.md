@@ -375,7 +375,7 @@
 - 验证：本地构造的 Textract 风格文本可定位 Item 1A，并抽取出风险条目。  
 
 ### 23) SEC 自动抓取：ticker → CIK 精确映射修复
-- 提交：`待填写`
+- 提交：`bfc1997`
 - `core/sec_edgar.py` 新增 SEC 官方 `company_tickers.json` 的 ticker 精确匹配路径，并加入 24 小时内存缓存。  
 - `find_cik(company_name, ticker)` 现在优先用 ticker 查 CIK，查不到才回退到原 SEC search；search fallback 增加公司名相似度排序，降低误命中概率。  
 - 验证样本：`AAPL → 0000320193`、`JPM → 0000019617`、`TSLA → 0001318605`、`PFE → 0000078003`、`LMT → 0000936468` 全部通过。  
