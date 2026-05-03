@@ -340,3 +340,10 @@
 - 根目录与 Railway runtime requirements 都补充 `edgartools>=5.30`；Railway requirements 同步补齐 `beautifulsoup4/lxml/PyPDF2/certifi`，避免后端部署缺包。  
 - 验证：Apple 2024、Tesla、Lockheed、JPMorgan、Pfizer 的真实 10-K HTML 均可定位 Item 1A，风险条数均超过 8 条；后端 `/health` 本地返回 200。  
 - 备注：验证时发现现有 `find_cik()` 对部分公司名会误命中或遇到 SEC search 500，这属于 SEC CIK 搜索层问题，不属于本 Phase 的 section extraction；后续可单独增强 ticker -> CIK 映射。  
+
+### 18) Upload 优化 Phase 2：sec-parser 语义切片兜底
+- 提交：`386ced3`
+- 在 `core/sec_sections.py` 增加 sec-parser 语义元素解析路径：当 edgartools 无法定位 `Item 1` / `Item 1A` 时，按语义标题切到下一个 Item 标题。  
+- `core/extractor.py` 的统一 locator 顺序变为：edgartools → sec-parser → 原有 BeautifulSoup/正则 fallback，上传输出 schema 不变。  
+- 根目录与 Railway runtime requirements 补充 `sec-parser>=0.58.1`，并把 `lxml` 约束调整为 `>=5.2.2,<6.0`，避免 sec-parser 与新版 lxml 约束冲突。  
+- 验证：强制模拟 edgartools miss 后，Apple 2024 10-K 可由 sec-parser 切出 Item 1 / Item 1A，Item 1A 仍可抽出超过 8 条风险。  
