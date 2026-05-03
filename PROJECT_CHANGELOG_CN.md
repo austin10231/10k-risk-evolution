@@ -382,7 +382,7 @@
 - 额外验证：`download_10k_html_for_company_year("Pfizer Inc", 2024, "PFE")` 返回 `pfe-20231231.htm`，不再误抓其他公司。  
 
 ### 24) Upload 优化 Phase 7：20 份 10-K 回归
-- 提交：`5d1324e`
+- 提交：`22945ab`
 - 新增 `scripts/upload_phase7_regression.py`，用于复跑 10 家公司最近 2 份 10-K 的真实 SEC HTML 回归。  
 - 回归样本：`AAPL / MSFT / NVDA / AMZN / GOOGL / META / TSLA / JPM / PFE / LMT`，共 20 份 10-K。  
 - 结果：Item 1A 定位 `20/20`，达到最小风险条数门槛 `20/20`，平均风险条数 `84.4`，最低风险条数 `11`（PFE 2024），最高风险条数 `330`（JPM 2024）。  
