@@ -12,7 +12,8 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 
-MODEL_ID = "us.amazon.nova-pro-v1:0"
+BEDROCK_CLAUDE_OPUS_47_MODEL_ID = "anthropic.claude-opus-4-7"
+MODEL_ID = BEDROCK_CLAUDE_OPUS_47_MODEL_ID
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -65,12 +66,12 @@ def _resolve_credentials() -> tuple[str, str, str | None]:
 
 def _invoke(prompt: str, max_tokens: int = 2048) -> str:
     body_obj = {
+        "messages": [{"role": "user", "content": [{"text": prompt}]}],
         "inferenceConfig": {
             "maxTokens": max_tokens,
             "temperature": 0.0,
             "topP": 1.0,
         },
-        "messages": [{"role": "user", "content": [{"text": prompt}]}],
     }
     body_json = json.dumps(body_obj, ensure_ascii=False)
 
@@ -90,14 +91,12 @@ def _invoke(prompt: str, max_tokens: int = 2048) -> str:
                 kwargs["aws_session_token"] = session_token
 
         client = boto3.client("bedrock-runtime", **kwargs)
-        response = client.invoke_model(
+        response = client.converse(
             modelId=MODEL_ID,
-            contentType="application/json",
-            accept="application/json",
-            body=body_json,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0, "topP": 1.0},
         )
-        result = json.loads(response["body"].read())
-        return result["output"]["message"]["content"][0]["text"].strip()
+        return response["output"]["message"]["content"][0]["text"].strip()
     except Exception as exc:
         boto3_error = exc
 
@@ -106,7 +105,7 @@ def _invoke(prompt: str, max_tokens: int = 2048) -> str:
         region = _env("BEDROCK_REGION", "us-west-2")
         service = "bedrock-runtime"
         encoded_model_id = quote(MODEL_ID, safe="")
-        endpoint = f"https://bedrock-runtime.{region}.amazonaws.com/model/{encoded_model_id}/invoke"
+        endpoint = f"https://bedrock-runtime.{region}.amazonaws.com/model/{encoded_model_id}/converse"
         parsed = urlparse(endpoint)
         host = parsed.netloc
         canonical_uri = parsed.path
@@ -169,7 +168,7 @@ def _invoke(prompt: str, max_tokens: int = 2048) -> str:
         return result["output"]["message"]["content"][0]["text"].strip()
     except Exception as sigv4_error:
         raise RuntimeError(
-            f"Bedrock invoke failed (boto3={repr(boto3_error)}, sigv4={repr(sigv4_error)})"
+            f"Bedrock converse failed (boto3={repr(boto3_error)}, sigv4={repr(sigv4_error)})"
         ) from sigv4_error
 
 

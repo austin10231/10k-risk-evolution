@@ -421,7 +421,7 @@ def _general_chat_answer(
     target_lang: str,
     llm_invoke: Callable[[str, int], str],
 ) -> str:
-    model_id = _clean_text((context or {}).get("model_id")) or "us.amazon.nova-pro-v1:0"
+    model_id = _clean_text((context or {}).get("model_id")) or "anthropic.claude-opus-4-7"
     lang_rule = "Simplified Chinese" if target_lang == "zh" else "English"
     prompt = f"""You are a helpful assistant similar to ChatGPT.
 You are RiskLens AI assistant.
@@ -454,17 +454,17 @@ Do not output JSON."""
 
 
 def _model_identity_answer(user_query: str, context: dict) -> str:
-    model_id = _clean_text((context or {}).get("model_id")) or "us.amazon.nova-pro-v1:0"
+    model_id = _clean_text((context or {}).get("model_id")) or "anthropic.claude-opus-4-7"
     if _is_chinese_text(user_query):
         return (
-            f"我是 RiskLens AI 助手，底层会调用 Amazon Bedrock 的 `{model_id}`（Nova Pro）来生成回答。"
+            f"我是 RiskLens AI 助手，底层会调用 Amazon Bedrock 的 `{model_id}`（Claude Opus 4.7）来生成回答。"
             "所以这里是有大模型推理的，不只是规则系统。"
-            "如果你希望切到 Nova Lite，我也可以帮你把配置改成 Lite。"
+            "如需切换到 Claude Sonnet 4.6 / Haiku 4.5 等更轻量模型，我也可以帮你改配置。"
         )
     return (
-        f"I’m RiskLens AI, and I generate responses through Amazon Bedrock using `{model_id}` (Nova Pro). "
+        f"I’m RiskLens AI, and I generate responses through Amazon Bedrock using `{model_id}` (Claude Opus 4.7). "
         "So this chat is backed by an LLM, not only rule logic. "
-        "If you prefer Nova Lite, I can help switch the config."
+        "If you prefer a lighter Claude Sonnet 4.6 / Haiku 4.5 model, I can help switch the config."
     )
 
 

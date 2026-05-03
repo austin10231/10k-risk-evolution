@@ -23,7 +23,6 @@ import re
 import time
 import copy
 import hashlib
-import streamlit as st
 import boto3
 from bs4 import BeautifulSoup, Tag
 from core.bedrock import _invoke
@@ -45,12 +44,6 @@ _AI_RISKS_CACHE: dict[str, list[dict]] = {}
 
 
 def _secret(name: str, default: str = "") -> str:
-    try:
-        value = st.secrets.get(name)  # type: ignore[attr-defined]
-        if value not in (None, ""):
-            return str(value)
-    except Exception:
-        pass
     return str(os.getenv(name, default) or default)
 
 
@@ -571,7 +564,7 @@ def extract_item1_overview_bedrock(
     industry: str = "",
 ) -> dict:
     """
-    AI-enhanced Item 1 overview extraction using Bedrock Nova Pro.
+    AI-enhanced Item 1 overview extraction using Bedrock Claude Opus 4.7.
     Falls back to extract_item1_overview() on any failure.
     """
     fallback = extract_item1_overview(html_bytes, company_name, industry)
@@ -624,7 +617,7 @@ def extract_item1a_risks_bedrock(
     company_name: str = "",
 ) -> list[dict]:
     """
-    AI-enhanced Item 1A risk extraction using Bedrock Nova Pro.
+    AI-enhanced Item 1A risk extraction using Bedrock Claude Opus 4.7.
     Returns same structure as extract_item1a_risks():
       [{"category": str, "sub_risks": [str, ...]}, ...]
     Falls back to extract_item1a_risks() on any failure.

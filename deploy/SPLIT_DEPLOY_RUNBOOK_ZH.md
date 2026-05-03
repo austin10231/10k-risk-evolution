@@ -3,7 +3,7 @@
 适用目标：
 - 后端（Agent + 数据处理 + 第三方 API）部署到 Railway
 - 前端（Landing + Product Web UI）部署到 Cloudflare
-- 保持现有 Streamlit 主分支可回滚
+- Streamlit 主栈已下线；回滚以 git tag `pre-split-streamlit` 回看历史版本为准
 
 ---
 
@@ -120,7 +120,7 @@
 
 ## 8) 回滚方案（建议保留）
 
-当日保留原 Streamlit 地址和配置不下线，出现问题时：
-1. Landing 页面“进入产品”按钮临时指回旧 Streamlit 地址
-2. DNS 不改或回退到旧目标
-3. 使用 `pre-split-streamlit` 标签回看稳定版本
+Streamlit 主栈已从当前代码树移除，出现问题时：
+1. DNS 不改或回退到上一个稳定 Cloudflare / Railway 部署
+2. 使用 `pre-split-streamlit` 标签回看旧 Streamlit 稳定版本
+3. 如需恢复旧实现，从 git history 中 cherry-pick 对应文件

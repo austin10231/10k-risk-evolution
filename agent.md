@@ -21,9 +21,9 @@
 - 前端主界面：`frontend/src/*`（React）
 - 后端 API / Agent Runtime：`agentcore_deploy/main.py` + `agentcore_deploy/chat_agent.py`
 
-历史遗留（默认不看）：
+历史遗留（已从当前代码树删除，默认不看）：
 
-- `views/*`、`app.py` 这套是旧的 Streamlit 路径，除非用户明确说“改 Streamlit 版本”，否则不要优先进入。
+- `views/*`、`app.py` 这套旧 Streamlit 路径仅保留在 git history 里。
 
 ---
 
@@ -111,10 +111,7 @@
 
 1. 先确认问题发生在哪一层：前端展示 vs API 返回 vs Agent 路由。
 2. 先看“页面文件 + 对应 API”这两个点，不要先扫全项目。
-3. 只在以下情况进入旧 Streamlit 代码：
-   - 用户明确点名 `views/*` 或 `app.py`
-   - React 页面查不到对应实现
-   - 需要对比历史逻辑迁移
+3. 如需对比旧 Streamlit 逻辑，从 git history 查看已删除的 `views/*` / `app.py`。
 
 ---
 
@@ -123,4 +120,3 @@
 - 非需求范围文件不要改。
 - 能小改就不大改。
 - 每次完成后更新 `PROJECT_CHANGELOG_CN.md`（简明记录改了什么）。
-

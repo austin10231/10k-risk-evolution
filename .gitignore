@@ -1,4 +1,4 @@
-# AWS / Streamlit secrets
+# Local AWS / platform secrets
 .streamlit/secrets.toml
 
 # Python

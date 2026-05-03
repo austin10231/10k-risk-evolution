@@ -3320,9 +3320,9 @@ def _get_model_id() -> str:
         try:
             from agent import get_model_id as _imported_get_model_id
 
-            _MODEL_ID = str(_imported_get_model_id() or "").strip() or "us.amazon.nova-pro-v1:0"
+            _MODEL_ID = str(_imported_get_model_id() or "").strip() or "anthropic.claude-opus-4-7"
         except Exception:
-            _MODEL_ID = "us.amazon.nova-pro-v1:0"
+            _MODEL_ID = "anthropic.claude-opus-4-7"
     return _MODEL_ID
 
 

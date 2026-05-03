@@ -14,7 +14,6 @@ import uuid
 import re
 import io
 import os
-import streamlit as st
 import boto3
 from PyPDF2 import PdfReader, PdfWriter
 from bs4 import BeautifulSoup
@@ -136,12 +135,6 @@ MIN_SCORE = 4.0
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _secret(name: str, default: str = "") -> str:
-    try:
-        value = st.secrets.get(name)  # type: ignore[attr-defined]
-        if value not in (None, ""):
-            return str(value)
-    except Exception:
-        pass
     return str(os.getenv(name, default) or default)
 
 
