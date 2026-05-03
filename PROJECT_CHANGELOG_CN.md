@@ -331,3 +331,12 @@
 - 删除 `.streamlit/config.toml`，但按本次要求保留本地 `.streamlit/secrets.toml`，该文件仍由 `.gitignore` 忽略，不会 push 到 GitHub。  
 - 清理根依赖中的 `streamlit`、`strands-agents`、`plotly`、`yfinance`，并更新 devcontainer / 部署手册 / Codex 导航手册中的旧 Streamlit 文案。  
 - 对外行为：React + Railway 主链路不变；旧 Streamlit 入口不再存在，如需参考可从 git history 查看。  
+
+### 17) Upload 优化 Phase 1：edgartools 作为 HTML Item 定位主路径
+- 提交：`dff5b82`
+- 新增 `core/sec_sections.py`，使用 edgartools 的本地 HTML parser 定位 10-K 的 `part_i_item_1` 与 `part_i_item_1a`，不额外请求 SEC 网络。  
+- `core/extractor.py` 新增 `locate_item1_overview()` / `locate_item1a()`：优先走 edgartools section API，失败时自动回退到原有 BeautifulSoup + 正则切片。  
+- HTML 的 Item 1 overview、Item 1A deterministic extraction、Item 1A Bedrock extraction 都改为先使用统一 section locator；前端输出 schema 仍保持 `[{"category": str, "sub_risks": [str, ...]}]` 不变。  
+- 根目录与 Railway runtime requirements 都补充 `edgartools>=5.30`；Railway requirements 同步补齐 `beautifulsoup4/lxml/PyPDF2/certifi`，避免后端部署缺包。  
+- 验证：Apple 2024、Tesla、Lockheed、JPMorgan、Pfizer 的真实 10-K HTML 均可定位 Item 1A，风险条数均超过 8 条；后端 `/health` 本地返回 200。  
+- 备注：验证时发现现有 `find_cik()` 对部分公司名会误命中或遇到 SEC search 500，这属于 SEC CIK 搜索层问题，不属于本 Phase 的 section extraction；后续可单独增强 ticker -> CIK 映射。  
