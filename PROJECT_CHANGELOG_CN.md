@@ -380,3 +380,11 @@
 - `find_cik(company_name, ticker)` 现在优先用 ticker 查 CIK，查不到才回退到原 SEC search；search fallback 增加公司名相似度排序，降低误命中概率。  
 - 验证样本：`AAPL → 0000320193`、`JPM → 0000019617`、`TSLA → 0001318605`、`PFE → 0000078003`、`LMT → 0000936468` 全部通过。  
 - 额外验证：`download_10k_html_for_company_year("Pfizer Inc", 2024, "PFE")` 返回 `pfe-20231231.htm`，不再误抓其他公司。  
+
+### 24) Upload 优化 Phase 7：20 份 10-K 回归
+- 提交：`5d1324e`
+- 新增 `scripts/upload_phase7_regression.py`，用于复跑 10 家公司最近 2 份 10-K 的真实 SEC HTML 回归。  
+- 回归样本：`AAPL / MSFT / NVDA / AMZN / GOOGL / META / TSLA / JPM / PFE / LMT`，共 20 份 10-K。  
+- 结果：Item 1A 定位 `20/20`，达到最小风险条数门槛 `20/20`，平均风险条数 `84.4`，最低风险条数 `11`（PFE 2024），最高风险条数 `330`（JPM 2024）。  
+- 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
+- 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
