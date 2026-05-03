@@ -15,6 +15,44 @@ from urllib.request import Request, urlopen
 BEDROCK_CLAUDE_OPUS_47_MODEL_ID = "anthropic.claude-opus-4-7"
 MODEL_ID = BEDROCK_CLAUDE_OPUS_47_MODEL_ID
 
+# Priority scoring is computed in Python from three LLM-provided dimensions; the
+# weights and thresholds are duplicated in the LLM prompt for transparency, but
+# Python is the single source of truth — the LLM's own `score`/`priority` fields
+# are intentionally ignored to prevent score↔priority contradictions.
+PRIORITY_HIGH_THRESHOLD = 7.0
+PRIORITY_MEDIUM_THRESHOLD = 4.0
+PRIORITY_DIM_WEIGHTS = (0.4, 0.35, 0.25)  # financial_impact, likelihood, urgency
+_PRIORITY_BATCH_SIZE = 40
+
+
+def _clamp_int_1_10(value, default: int = 5) -> int:
+    try:
+        n = int(round(float(value)))
+    except Exception:
+        n = default
+    return max(1, min(10, n))
+
+
+def _compute_score_from_dims(financial_impact, likelihood, urgency) -> float:
+    fi = _clamp_int_1_10(financial_impact)
+    lk = _clamp_int_1_10(likelihood)
+    ur = _clamp_int_1_10(urgency)
+    raw = (
+        fi * PRIORITY_DIM_WEIGHTS[0]
+        + lk * PRIORITY_DIM_WEIGHTS[1]
+        + ur * PRIORITY_DIM_WEIGHTS[2]
+    )
+    return round(float(raw), 2)
+
+
+def _priority_from_score(score: float) -> str:
+    s = float(score or 0.0)
+    if s >= PRIORITY_HIGH_THRESHOLD:
+        return "High"
+    if s >= PRIORITY_MEDIUM_THRESHOLD:
+        return "Medium"
+    return "Low"
+
 
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
@@ -210,7 +248,9 @@ def _fallback_report(company: str, year: int, user_query: str, error: str) -> di
             "high": {"count": 0, "top": []},
             "medium": {"count": 0, "top": []},
             "low": {"count": 0, "top": []},
+            "unscored": {"count": 0, "top": []},
         },
+        "scoring_status": "failed",
         "executive_summary": f"Report generation encountered an error: {error}",
         "key_findings": [],
         "recommendations": [],
@@ -226,7 +266,13 @@ def _fallback_report(company: str, year: int, user_query: str, error: str) -> di
 
 
 def _build_priority_lists(enriched_risks: list):
-    high, medium, low = [], [], []
+    """Bucket enriched risks into (high, medium, low, unscored).
+
+    A sub_risk with priority=None / score=None lands in `unscored` — the agent
+    layer keeps these visible so downstream code (main.py) can mark RPI as
+    "scoring failed" instead of silently defaulting them to Medium=5.0.
+    """
+    high, medium, low, unscored = [], [], [], []
     for cat_block in enriched_risks:
         for sr in cat_block.get("sub_risks", []):
             if not isinstance(sr, dict):
@@ -234,24 +280,99 @@ def _build_priority_lists(enriched_risks: list):
             entry = {
                 "category": cat_block.get("category", ""),
                 "title": sr.get("title", ""),
-                "score": sr.get("score", 5.0),
+                "score": sr.get("score"),
                 "reasoning": sr.get("reasoning", ""),
             }
-            priority = sr.get("priority", "Medium")
+            priority = sr.get("priority")
             if priority == "High":
                 high.append(entry)
             elif priority == "Low":
                 low.append(entry)
-            else:
+            elif priority == "Medium":
                 medium.append(entry)
+            else:
+                unscored.append(entry)
 
-    high.sort(key=lambda x: x["score"], reverse=True)
-    medium.sort(key=lambda x: x["score"], reverse=True)
-    low.sort(key=lambda x: x["score"], reverse=True)
-    return high, medium, low
+    def _sort_key(x):
+        s = x.get("score")
+        return -1.0 if s is None else float(s)
+
+    high.sort(key=_sort_key, reverse=True)
+    medium.sort(key=_sort_key, reverse=True)
+    low.sort(key=_sort_key, reverse=True)
+    return high, medium, low, unscored
 
 
-def _prioritize_risks_impl(risks: list, company: str, year: int) -> list:
+def _score_one_batch(
+    batch: list,
+    company: str,
+    year: int,
+    batch_index: int,
+    batch_total: int,
+) -> dict:
+    """Score one ≤_PRIORITY_BATCH_SIZE batch via Bedrock.
+
+    Returns {local_id: raw_llm_dict}. On any LLM/parse error returns {} —
+    the caller treats every item in this batch as "unscored" instead of
+    quietly substituting Medium=5.0.
+    """
+    risks_json = json.dumps(
+        [
+            {
+                "id": i,
+                "title": r["title"][:200],
+                "labels": r["labels"],
+                "tags": r.get("tags", [])[:6],
+            }
+            for i, r in enumerate(batch)
+        ],
+        ensure_ascii=False,
+    )
+
+    prompt = f"""You are a senior financial risk analyst evaluating SEC 10-K risk factors for {company} ({year}).
+
+This is batch {batch_index} of {batch_total} for the same filing. Score risks 1-10 in three dimensions:
+1. financial_impact — potential dollar/earnings impact if the risk materializes
+2. likelihood — probability of occurrence in the next 12 months
+3. urgency — how soon action or attention is needed
+
+Risks to evaluate:
+{risks_json}
+
+Return ONLY a JSON array, one object per risk, in this exact format:
+[
+  {{
+    "id": 0,
+    "financial_impact": 8,
+    "likelihood": 6,
+    "urgency": 7,
+    "reasoning": "One sentence explaining the priority."
+  }}
+]
+Do NOT include `score` or `priority` — they are computed deterministically downstream
+from financial_impact/likelihood/urgency. No preamble, no markdown."""
+
+    try:
+        raw = _invoke(prompt, max_tokens=2048)
+        raw = _strip_json_fences(raw)
+        scored = json.loads(raw)
+        if not isinstance(scored, list):
+            return {}
+        return {
+            int(item["id"]): item
+            for item in scored
+            if isinstance(item, dict) and "id" in item
+        }
+    except Exception:
+        return {}
+
+
+def _prioritize_risks_impl(
+    risks: list,
+    company: str,
+    year: int,
+    progress_steps: list | None = None,
+) -> list:
     flat_risks = []
     for cat_block in risks:
         category = cat_block.get("category", "Unknown")
@@ -274,78 +395,69 @@ def _prioritize_risks_impl(risks: list, company: str, year: int) -> list:
     if not flat_risks:
         return risks
 
-    batch = flat_risks[:40]
-    risks_json = json.dumps(
-        [
-            {
-                "id": i,
-                "title": r["title"][:200],
-                "labels": r["labels"],
-                "tags": r.get("tags", [])[:6],
-            }
-            for i, r in enumerate(batch)
-        ],
-        ensure_ascii=False,
-    )
+    total = len(flat_risks)
+    batches: list[list[dict]] = [
+        flat_risks[i : i + _PRIORITY_BATCH_SIZE]
+        for i in range(0, total, _PRIORITY_BATCH_SIZE)
+    ]
 
-    prompt = f"""You are a senior financial risk analyst evaluating SEC 10-K risk factors for {company} ({year}).
+    score_map_global: dict = {}
+    for b_idx, batch in enumerate(batches, start=1):
+        local_scores = _score_one_batch(
+            batch=batch,
+            company=company,
+            year=year,
+            batch_index=b_idx,
+            batch_total=len(batches),
+        )
+        offset = (b_idx - 1) * _PRIORITY_BATCH_SIZE
+        for local_id, item in local_scores.items():
+            score_map_global[offset + int(local_id)] = item
 
-Score each risk below on three dimensions (1-10 each):
-1. financial_impact — potential dollar/earnings impact if the risk materializes
-2. likelihood — probability of occurrence in the next 12 months
-3. urgency — how soon action or attention is needed
-
-Then compute: score = (financial_impact * 0.4) + (likelihood * 0.35) + (urgency * 0.25)
-Assign priority: High if score >= 7, Medium if score >= 4, Low otherwise.
-
-Risks to evaluate:
-{risks_json}
-
-Return ONLY a JSON array, one object per risk, in this exact format:
-[
-  {{
-    "id": 0,
-    "financial_impact": 8,
-    "likelihood": 6,
-    "urgency": 7,
-    "score": 7.15,
-    "priority": "High",
-    "reasoning": "One sentence explaining the priority."
-  }},
-  ...
-]
-No preamble, no markdown, only the JSON array."""
-
-    try:
-        raw = _invoke(prompt, max_tokens=2048)
-        raw = _strip_json_fences(raw)
-        scored = json.loads(raw)
-        score_map = {item["id"]: item for item in scored}
-    except Exception:
-        score_map = {}
+    if isinstance(progress_steps, list):
+        progress_steps.append(
+            f"⚙️ Tool 3a: scored {len(score_map_global)}/{total} risks across {len(batches)} batches"
+        )
 
     enriched_flat = []
-    for i, risk in enumerate(batch):
-        score = score_map.get(i, {})
+    for i, risk in enumerate(flat_risks):
+        raw_score = score_map_global.get(i)
+        if isinstance(raw_score, dict):
+            # Trust only the three LLM-provided dimensions; recompute
+            # score+priority deterministically so the LLM cannot return a
+            # contradiction such as score=2 + priority="High".
+            fi = _clamp_int_1_10(raw_score.get("financial_impact"), default=5)
+            lk = _clamp_int_1_10(raw_score.get("likelihood"), default=5)
+            ur = _clamp_int_1_10(raw_score.get("urgency"), default=5)
+            score: float | None = _compute_score_from_dims(fi, lk, ur)
+            priority: str | None = _priority_from_score(score)
+            reasoning = str(raw_score.get("reasoning", "") or "")
+        else:
+            # LLM did not score this item (batch failure or partial response).
+            # Mark it explicitly unscored — main.py uses this to flag the whole
+            # record's RPI as "scoring failed" instead of faking Medium=5.0.
+            fi, lk, ur = 5, 5, 5
+            score = None
+            priority = None
+            reasoning = ""
+
         enriched_flat.append({
             "category": risk["category"],
             "title": risk["title"],
             "labels": risk["labels"],
             "tags": risk.get("tags", []),
-            "priority": score.get("priority", "Medium"),
-            "score": round(float(score.get("score", 5.0)), 2),
-            "financial_impact": score.get("financial_impact", 5),
-            "likelihood": score.get("likelihood", 5),
-            "urgency": score.get("urgency", 5),
-            "reasoning": score.get("reasoning", ""),
+            "priority": priority,
+            "score": score,
+            "financial_impact": fi,
+            "likelihood": lk,
+            "urgency": ur,
+            "reasoning": reasoning,
         })
 
-    category_map = {}
+    category_map: dict = {}
     for risk in enriched_flat:
         category = risk["category"]
-        if category not in category_map:
-            category_map[category] = []
-        category_map[category].append(risk)
+        category_map.setdefault(category, []).append(risk)
 
     return [{"category": category, "sub_risks": sub_risks} for category, sub_risks in category_map.items()]
 
@@ -357,7 +469,7 @@ def _generate_agent_report_impl(
     compare_data: dict | None = None,
     user_query: str = "",
 ) -> dict:
-    high, medium, low = _build_priority_lists(enriched_risks)
+    high, medium, low, unscored = _build_priority_lists(enriched_risks)
     top_high = json.dumps(high[:5], ensure_ascii=False)
     top_medium = json.dumps(medium[:3], ensure_ascii=False)
 
@@ -416,6 +528,14 @@ Return ONLY the JSON object, no preamble, no markdown fences."""
             "compare_insights": "",
         }
 
+    scored_total = len(high) + len(medium) + len(low)
+    if scored_total == 0 and len(unscored) > 0:
+        scoring_status = "failed"
+    elif len(unscored) > 0:
+        scoring_status = "partial"
+    else:
+        scoring_status = "ok"
+
     return {
         "company": company,
         "year": year,
@@ -424,7 +544,9 @@ Return ONLY the JSON object, no preamble, no markdown fences."""
             "high": {"count": len(high), "top": high[:5]},
             "medium": {"count": len(medium), "top": medium[:3]},
             "low": {"count": len(low), "top": low[:3]},
+            "unscored": {"count": len(unscored), "top": unscored[:3]},
         },
+        "scoring_status": scoring_status,
         **report_content,
     }
 
@@ -518,7 +640,9 @@ def _normalize_report(report: dict, company: str, year: int, user_query: str, en
         "high": {"count": 0, "top": []},
         "medium": {"count": 0, "top": []},
         "low": {"count": 0, "top": []},
+        "unscored": {"count": 0, "top": []},
     })
+    out.setdefault("scoring_status", "missing")
     out.setdefault("executive_summary", "")
     out.setdefault("key_findings", [])
     out.setdefault("recommendations", [])
@@ -546,7 +670,7 @@ def run_agent(
     try:
         total = sum(len(c.get("sub_risks", [])) for c in risks)
         steps.append(f"⚙️ Tool 3: Scoring and prioritizing {total} risk factors...")
-        enriched_risks = _prioritize_risks_impl(risks, company, year)
+        enriched_risks = _prioritize_risks_impl(risks, company, year, progress_steps=steps)
         steps.append("✅ Risk prioritization complete.")
 
         steps.append("📝 Tool 4: Generating structured risk intelligence report...")
