@@ -389,6 +389,14 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 34) 新增 scripts/rescore_agent_priority.py：只重跑 RPI 评分，不重新抽取
+- 用途：当评分管线变化（新 prompt / 新权重 / 新 modelId — 比如 entry 32 把 RPI 切到 Nova Pro）但 `risks` 内容本身仍可信时，可以只刷 `agent_report` 字段而不付一遍 Item 1A 抽取的钱。
+- 工作流程：列 `s3://<bucket>/10k_filings/<industry>/<dir>/<year>_10K_risks.json` 全量 → 对每份读 JSON 取 `result["risks"]` → 调 `extraction_pipeline.attach_agent_priority_report(result, company, year)`（即 `agentcore_deploy.main._generate_agent_priority_report`，复用 entry 26/27 的 RPI 三维评分链 + entry 32 的 extraction modelId）→ 原地覆写 `result["agent_report"]`、新增 `result["agent_report_rescored_at"]` 时间戳 → 把整份 JSON `put_bytes` 写回同一个 key。HTML / `risks` / `company_overview` 不动。
+- CLI 选项：默认 `--dry-run`（只列计划，不调 Bedrock）；`--write` 真跑；`--industry`/`--ticker` 局部 rollout；`--skip-already-scored` 断点续跑（按 `agent_report.scoring_status ∈ {ok, partial}` 或老 record 的 `priority_matrix` 存在判定）；`--limit N` 成本封顶；`--report <path>` 自定义日志路径（默认 `scripts/rescore_agent_priority.report.json`）。失败 record 不打断其他 record，结尾 summary 显示 ok / skipped / failed 分布。
+- 部署用法：`railway run python scripts/rescore_agent_priority.py --dry-run` 干跑、`--write` 真跑（Railway env 注入凭证、命令在本机执行）；或在 Railway 容器里直接 `python scripts/rescore_agent_priority.py --write`。
+- 验证：`python scripts/rescore_agent_priority.py --help` 输出完整 flags；`from scripts import rescore_agent_priority as r; r.JSON_KEY_RE.match("10k_filings/Technology/Apple_AAPL/2025_10K_risks.json")` 命中。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 33) modelId 加上 us. 跨区域 inference profile 前缀 + 完整版本后缀
 - 把 entry 32 引入的两个默认 modelId 改成 Bedrock cross-region inference profile 的标准形态：
   - `amazon.nova-pro-v1:0` → `us.amazon.nova-pro-v1:0`
