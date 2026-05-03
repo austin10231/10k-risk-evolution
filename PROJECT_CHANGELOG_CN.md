@@ -315,3 +315,19 @@
 - 统一修正深色下仍偏亮或偏浅背景的卡片/面板，确保文字和背景层次匹配。  
 - 深色模式聊天继续优化：assistant 回复气泡和 agent 聊天气泡进一步改为深色系，减少刺眼感。  
 - 所有改动都限定在 `rl-theme-dark` 作用域，浅色模式未改动。  
+
+### 15) Bedrock 主模型迁移：Nova Pro → Claude Opus 4.7（Converse API）
+- 提交：`eb5162b`
+- 将 `agentcore_deploy/agent.py` 与 `core/bedrock.py` 的真实 Bedrock 调用统一迁移到 `client.converse(...)`，model id 改为 `anthropic.claude-opus-4-7`。  
+- 同步更新 `agentcore_deploy/main.py` 与 `agentcore_deploy/chat_agent.py` 的兜底 model id 和“我是什么模型”回答文案。  
+- 选择 Converse API 是为了让 Nova / Claude / 其他 Bedrock 模型共享同一套 messages schema，后续换模型主要只改常量。  
+- 对外 API 行为不变；仍返回原有文本/报告结构。  
+- 备注：Claude Opus 4.7 成本明显高于 Nova Pro，Railway 对应 IAM 也需要确认是否具备 `bedrock:Converse` / `bedrock:InvokeModel` 权限。  
+
+### 16) 清理 Streamlit 残留代码
+- 提交：`eb5162b`
+- 删除旧 Streamlit 主栈：`app.py`、`views/*`、`components/*`、`storage/*`、旧 `core/agent.py`、`core/chat_widget.py`、`core/i18n.py`、`core/global_context.py`、`core/comprehend.py`、`core/auto_bootstrap.py`、`core/classifier.py` 以及旧部署包 `risklens_agent.zip`。  
+- 保留当前生产链路需要的 `core/extractor.py`、`core/table_extractor.py`、`core/bedrock.py`，并移除其中的 Streamlit 依赖，secret 统一改为从环境变量读取。  
+- 删除 `.streamlit/config.toml`，但按本次要求保留本地 `.streamlit/secrets.toml`，该文件仍由 `.gitignore` 忽略，不会 push 到 GitHub。  
+- 清理根依赖中的 `streamlit`、`strands-agents`、`plotly`、`yfinance`，并更新 devcontainer / 部署手册 / Codex 导航手册中的旧 Streamlit 文案。  
+- 对外行为：React + Railway 主链路不变；旧 Streamlit 入口不再存在，如需参考可从 git history 查看。  
