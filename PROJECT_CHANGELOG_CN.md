@@ -354,3 +354,10 @@
 - `extract_item1a_risks_bedrock()` 改用 schema `{blocks: [{category, sub_risks: [{title, source_span}]}]}`，再归一化回前端现有 `[{"category": str, "sub_risks": [str]}]`。  
 - 旧的 AI 输出质量门槛从 `coverage 0.85–1.25 + evidence 0.55` 放宽为 `至少 1 条 + evidence_ratio >= 0.4`，减少高质量 LLM 输出被正则 fallback 覆盖的概率。  
 - 验证：使用 fake Bedrock Converse response 验证 `toolUse.input` 解析和 Item 1A schema 归一化；未调用真实 Bedrock，避免本地费用和 model 权限不确定性。  
+
+### 20) Upload 优化 Phase 4：长文本 Item 1A 分块与合并
+- 提交：`8875a59`
+- `core/extractor.py` 新增 `_chunk_item1a_by_headings()`：超长 Item 1A 会优先按内层风险标题分块，无法稳定按标题切时再按段落打包。  
+- Bedrock Item 1A 抽取改为逐 chunk 调用 schema 工具输出，再把相同 category 合并，并按 normalized title 全局去重。  
+- 这样可以避免超长 Item 1A 被固定字符截断，同时保持前端 `category/sub_risks` 输出结构不变。  
+- 验证：本地长文本样本可拆分为多个 chunk；重复 category / title 合并去重逻辑通过。  
