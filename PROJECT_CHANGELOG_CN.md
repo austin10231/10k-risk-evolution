@@ -361,3 +361,15 @@
 - Bedrock Item 1A 抽取改为逐 chunk 调用 schema 工具输出，再把相同 category 合并，并按 normalized title 全局去重。  
 - 这样可以避免超长 Item 1A 被固定字符截断，同时保持前端 `category/sub_risks` 输出结构不变。  
 - 验证：本地长文本样本可拆分为多个 chunk；重复 category / title 合并去重逻辑通过。  
+
+### 21) Upload 优化 Phase 5：旧关键词分类器状态确认
+- 提交：`eb5162b`
+- PLAN 中提到的 `core/classifier.py` 与 `core/bedrock.classify_risks()` 已在 Streamlit 残留清理中删除，当前 React + Railway 主链路不再调用旧关键词分类器。  
+- 本轮用 `rg` 复查 `core/agentcore_deploy/frontend`，未发现 active 的旧 `core.classifier` 或 `classify_risks` 调用。  
+- 备注：SASB-26 精准分类需要真实 Bedrock 输出与人工样本核对，不能只靠本地 fake response 诚实验收；后续应作为单独质量评估任务推进。  
+
+### 22) Upload 优化 Phase 6：PDF 文本路径复用语义 section locator
+- 提交：`be8a348`
+- `extract_item1a_risks_from_text()` 新增 Textract 文本 → 伪 HTML 的转换，再优先走 sec-parser 定位 Item 1A。  
+- 如果 sec-parser 无法在伪 HTML 中定位 Item 1A，会自动回退到旧的纯文本 `_extract_risks_from_text_fallback()`，不改变失败兜底行为。  
+- 验证：本地构造的 Textract 风格文本可定位 Item 1A，并抽取出风险条目。  
