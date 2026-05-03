@@ -395,7 +395,7 @@
 - CLI 选项：默认 `--dry-run`（只列计划，不调 Bedrock）；`--write` 真跑；`--industry`/`--ticker` 局部 rollout；`--skip-already-scored` 断点续跑（按 `agent_report.scoring_status ∈ {ok, partial}` 或老 record 的 `priority_matrix` 存在判定）；`--limit N` 成本封顶；`--report <path>` 自定义日志路径（默认 `scripts/rescore_agent_priority.report.json`）。失败 record 不打断其他 record，结尾 summary 显示 ok / skipped / failed 分布。
 - 部署用法：`railway run python scripts/rescore_agent_priority.py --dry-run` 干跑、`--write` 真跑（Railway env 注入凭证、命令在本机执行）；或在 Railway 容器里直接 `python scripts/rescore_agent_priority.py --write`。
 - 验证：`python scripts/rescore_agent_priority.py --help` 输出完整 flags；`from scripts import rescore_agent_priority as r; r.JSON_KEY_RE.match("10k_filings/Technology/Apple_AAPL/2025_10K_risks.json")` 命中。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`2cfbc6c`
 
 ### 33) modelId 加上 us. 跨区域 inference profile 前缀 + 完整版本后缀
 - 把 entry 32 引入的两个默认 modelId 改成 Bedrock cross-region inference profile 的标准形态：
