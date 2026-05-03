@@ -747,27 +747,22 @@ export default function UploadPage() {
                             >
                               <td className="rl-up-company-cell">
                                 <strong>{group.company}</strong>
-                                <span>{group.years.join(', ')}</span>
                               </td>
                               <td>{group.industry || 'Other'}</td>
                               <td>{group.years.length}</td>
                               <td>{group.recordCount}</td>
-                              <td>{formatDate(group.latestUpdated)}</td>
+                              <td className="rl-up-updated-cell">
+                                <span>{formatDate(group.latestUpdated)}</span>
+                                <span className={`rl-up-expand-caret ${expanded ? 'open' : ''}`} aria-hidden="true">
+                                  ▾
+                                </span>
+                              </td>
                             </tr>
 
                             {expanded ? (
                               <tr className="rl-up-company-expand-row">
                                 <td colSpan={5}>
                                   <div className="rl-up-company-expand">
-                                    <div className="rl-up-company-detail-head">
-                                      <h4>
-                                        {group.company}
-                                        <span>
-                                          {(group.industry || 'Other')} • {group.recordCount} records
-                                        </span>
-                                      </h4>
-                                    </div>
-
                                     <div className="rl-up-records-table-wrap rl-up-company-records-wrap">
                                       <table className="rl-up-record-table rl-up-company-record-table">
                                         <thead>
