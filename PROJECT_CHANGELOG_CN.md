@@ -389,6 +389,14 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 33) modelId 加上 us. 跨区域 inference profile 前缀 + 完整版本后缀
+- 把 entry 32 引入的两个默认 modelId 改成 Bedrock cross-region inference profile 的标准形态：
+  - `amazon.nova-pro-v1:0` → `us.amazon.nova-pro-v1:0`
+  - `deepseek.v3.2` → `us.deepseek.v3.2-v1:0`
+- 命中文件：`core/bedrock.py:23`、`agentcore_deploy/agent.py:28-29`、`agentcore_deploy/main.py:3827/3829/3841/3843`、`agentcore_deploy/chat_agent.py:424/457/458`、`deploy/railway.env.example:22-23`、`.streamlit/secrets.toml:9-10`（gitignored）、`scripts/README.md:31-32`。
+- 验证：`from core.bedrock import EXTRACTION_MODEL_ID` 输出 `us.amazon.nova-pro-v1:0`；`from agentcore_deploy.agent import AGENT_MODEL_ID, get_model_id, get_extraction_model_id` 全部回新值；main / chat_agent 导入通过。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 32) 双模型配置：提取/分类/RPI 用 Nova Pro，agent 对话用 DeepSeek V3.2
 - 拆分原本统一走 Claude Opus 4.7 的 Bedrock 调用路径，按用途拆为两套 modelId：
   - **EXTRACTION**：风险因子提取、9 桶分类兜底、RPI 三维评分、agent 优先级报告 → 默认 `amazon.nova-pro-v1:0`，env `BEDROCK_EXTRACTION_MODEL_ID` 覆盖。

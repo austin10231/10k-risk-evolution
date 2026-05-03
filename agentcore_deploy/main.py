@@ -3824,9 +3824,9 @@ def _get_model_id() -> str:
         try:
             from agent import get_model_id as _imported_get_model_id
 
-            _MODEL_ID = str(_imported_get_model_id() or "").strip() or "deepseek.v3.2"
+            _MODEL_ID = str(_imported_get_model_id() or "").strip() or "us.deepseek.v3.2-v1:0"
         except Exception:
-            _MODEL_ID = "deepseek.v3.2"
+            _MODEL_ID = "us.deepseek.v3.2-v1:0"
     return _MODEL_ID
 
 
@@ -3838,9 +3838,9 @@ def _get_extraction_model_id() -> str:
         try:
             from agent import get_extraction_model_id as _imported_get_extraction_model_id
 
-            _EXTRACTION_MODEL_ID = str(_imported_get_extraction_model_id() or "").strip() or "amazon.nova-pro-v1:0"
+            _EXTRACTION_MODEL_ID = str(_imported_get_extraction_model_id() or "").strip() or "us.amazon.nova-pro-v1:0"
         except Exception:
-            _EXTRACTION_MODEL_ID = "amazon.nova-pro-v1:0"
+            _EXTRACTION_MODEL_ID = "us.amazon.nova-pro-v1:0"
     return _EXTRACTION_MODEL_ID
 
 

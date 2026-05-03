@@ -20,7 +20,7 @@ def _secret(name: str, default: str = "") -> str:
 # ``agentcore_deploy/agent.py`` that delegate here). Override with
 # ``BEDROCK_EXTRACTION_MODEL_ID``. The legacy ``MODEL_ID`` alias is kept so
 # any old import (e.g. ``from core.bedrock import MODEL_ID``) keeps working.
-EXTRACTION_MODEL_ID = _secret("BEDROCK_EXTRACTION_MODEL_ID", "amazon.nova-pro-v1:0")
+EXTRACTION_MODEL_ID = _secret("BEDROCK_EXTRACTION_MODEL_ID", "us.amazon.nova-pro-v1:0")
 MODEL_ID = EXTRACTION_MODEL_ID
 # Back-compat: external callers historically imported this name.
 BEDROCK_CLAUDE_OPUS_47_MODEL_ID = EXTRACTION_MODEL_ID

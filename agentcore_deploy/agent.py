@@ -25,8 +25,8 @@ from urllib.request import Request, urlopen
 # as an alias for AGENT_MODEL_ID so external imports keep returning the
 # same kind of model historically associated with this module's _invoke
 # (which used to back chat).
-EXTRACTION_MODEL_ID = (os.getenv("BEDROCK_EXTRACTION_MODEL_ID") or "amazon.nova-pro-v1:0").strip() or "amazon.nova-pro-v1:0"
-AGENT_MODEL_ID = (os.getenv("BEDROCK_AGENT_MODEL_ID") or "deepseek.v3.2").strip() or "deepseek.v3.2"
+EXTRACTION_MODEL_ID = (os.getenv("BEDROCK_EXTRACTION_MODEL_ID") or "us.amazon.nova-pro-v1:0").strip() or "us.amazon.nova-pro-v1:0"
+AGENT_MODEL_ID = (os.getenv("BEDROCK_AGENT_MODEL_ID") or "us.deepseek.v3.2-v1:0").strip() or "us.deepseek.v3.2-v1:0"
 MODEL_ID = AGENT_MODEL_ID
 # Back-compat alias. Anything still referencing this name will get the agent
 # model, which is what historical callers of ``MODEL_ID`` actually wanted.
