@@ -162,6 +162,218 @@ def _strip_json_fences(text: str) -> str:
     return re.sub(r"```json|```", "", str(text or "")).strip()
 
 
+# ── JSON repair / retry / raw-response logging ────────────────────────────────
+# Nova Pro on Bedrock occasionally hits the maxTokens limit mid-stream and
+# returns a JSON document that is missing its closing brackets, has an open
+# string, or trails a partial element after the last comma. We try a series
+# of best-effort repairs (longest balanced prefix → truncate-at-last-top-comma
+# → LIFO close → empty container) before falling back to a single retry with
+# a stricter prompt suffix and a larger token budget. Every parse failure is
+# logged to stderr so operators can see Nova Pro's literal output.
+
+_RETRY_TOKEN_MULTIPLIER = 2  # max_tokens for the retry call
+_RETRY_PROMPT_SUFFIX_ARRAY = (
+    "\n\nCRITICAL: Output ONE complete JSON array only — no preamble, no "
+    "markdown fences, no commentary. Keep every `reasoning` field under 60 "
+    "characters so the array closes within the response window."
+)
+_RETRY_PROMPT_SUFFIX_OBJECT = (
+    "\n\nCRITICAL: Output ONE complete JSON object only — no preamble, no "
+    "markdown fences, no commentary. Keep every list entry under 80 "
+    "characters so the object closes within the response window."
+)
+_RAW_LOG_MAX_CHARS = 2000
+
+
+def _repair_candidates(s: str) -> list[str]:
+    """Generate candidate repaired versions of a possibly-truncated JSON
+    document, ordered most-data-preserving → least. Caller tries each in
+    order and returns the first that parses. Strategies:
+
+      1. Longest prefix where the outermost container balances.
+      2. Truncate at the last top-level comma + close root container
+         (drops only the partially-emitted last element).
+      3. LIFO close any open string + open containers (handles deeply
+         nested truncations where the outer container never closed).
+      4. Empty container fallback (preserves shape, loses all data).
+    """
+    s = (s or "").strip()
+    if not s or s[0] not in "{[":
+        return [s]
+
+    open_close = {"{": "}", "[": "]"}
+    stack: list[str] = [s[0]]
+    in_string = False
+    escape = False
+    last_balanced_end = -1
+    last_top_level_comma = -1
+
+    for i in range(1, len(s)):
+        ch = s[i]
+        if escape:
+            escape = False
+            continue
+        if in_string:
+            if ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack and open_close[stack[-1]] == ch:
+                stack.pop()
+                if not stack:
+                    last_balanced_end = i
+            # else: unbalanced close — ignored, will be picked up by repair below
+        elif ch == "," and len(stack) == 1:
+            last_top_level_comma = i
+
+    candidates: list[str] = []
+
+    if last_balanced_end >= 0:
+        candidates.append(s[: last_balanced_end + 1])
+
+    if last_top_level_comma > 0:
+        candidates.append(s[:last_top_level_comma] + open_close[s[0]])
+
+    repaired = s
+    if in_string:
+        repaired += '"'
+    while stack:
+        repaired += open_close[stack.pop()]
+    candidates.append(repaired)
+
+    candidates.append("[]" if s[0] == "[" else "{}")
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for cand in candidates:
+        if cand and cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+    return out
+
+
+def _parse_json_with_repair(raw: str):
+    """Try parsing `raw` as JSON; on failure, attempt every repair strategy
+    in order. Returns ``(parsed_or_None, repair_used, error_str)``. On
+    success ``error_str`` is empty; on total failure ``parsed`` is None and
+    ``error_str`` describes what broke."""
+    s = (raw or "").strip()
+    if not s:
+        return None, False, "empty response"
+
+    s_clean = _strip_json_fences(s)
+    if not s_clean:
+        return None, False, "empty after fence strip"
+
+    for i, ch in enumerate(s_clean):
+        if ch in "{[":
+            s_clean = s_clean[i:]
+            break
+    else:
+        return None, False, "no_json_root_found"
+
+    try:
+        return json.loads(s_clean), False, ""
+    except json.JSONDecodeError as exc:
+        first_err = f"{type(exc).__name__}: {exc}"
+
+    last_err = first_err
+    for cand in _repair_candidates(s_clean):
+        try:
+            return json.loads(cand), True, ""
+        except json.JSONDecodeError as exc:
+            last_err = f"{type(exc).__name__}: {exc}"
+            continue
+
+    return None, False, f"all_repair_strategies_failed (last={last_err}; first={first_err})"
+
+
+def _log_raw_response(label: str, raw: str) -> None:
+    """Print the raw LLM response to stderr so operators can inspect what
+    Nova Pro emitted when JSON parsing fails. Truncated to keep stderr
+    readable."""
+    snippet = str(raw or "")
+    truncated_note = ""
+    if len(snippet) > _RAW_LOG_MAX_CHARS:
+        truncated_note = f" [truncated; total {len(snippet)} chars]"
+        snippet = snippet[:_RAW_LOG_MAX_CHARS]
+    print(
+        f"  · {label}: raw_response{truncated_note}={snippet!r}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _invoke_with_json_retry(
+    prompt: str,
+    max_tokens: int,
+    *,
+    expect: str,                   # "array" or "object"
+    label: str,                    # for stderr logging context
+):
+    """Call ``_invoke_extraction``, parse the response as JSON of the shape
+    given by ``expect``, retry once on failure.
+
+    Returns ``(parsed_or_None, raw_text_of_last_attempt)``. On both attempts
+    failing the raw response is dumped to stderr (truncated to 2 KB)."""
+    expected_type = list if expect == "array" else dict
+
+    raw1 = _invoke_extraction(prompt, max_tokens=max_tokens)
+    parsed1, repaired1, err1 = _parse_json_with_repair(raw1)
+    if isinstance(parsed1, expected_type):
+        if repaired1:
+            print(
+                f"  · {label}: parsed via JSON repair (Bedrock returned malformed/truncated)",
+                file=sys.stderr,
+                flush=True,
+            )
+        return parsed1, raw1
+
+    print(
+        f"  · {label}: attempt-1 JSON parse failed ({err1}); retrying once with stricter prompt",
+        file=sys.stderr,
+        flush=True,
+    )
+    _log_raw_response(f"{label} attempt-1", raw1)
+
+    suffix = _RETRY_PROMPT_SUFFIX_ARRAY if expect == "array" else _RETRY_PROMPT_SUFFIX_OBJECT
+    retry_max_tokens = int(max_tokens * _RETRY_TOKEN_MULTIPLIER)
+    try:
+        raw2 = _invoke_extraction(prompt + suffix, max_tokens=retry_max_tokens)
+    except Exception as exc:
+        print(
+            f"  · {label}: attempt-2 Bedrock call raised {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None, raw1
+
+    parsed2, repaired2, err2 = _parse_json_with_repair(raw2)
+    if isinstance(parsed2, expected_type):
+        if repaired2:
+            print(
+                f"  · {label}: attempt-2 parsed via JSON repair",
+                file=sys.stderr,
+                flush=True,
+            )
+        return parsed2, raw2
+
+    print(
+        f"  · {label}: attempt-2 also failed ({err2}); giving up",
+        file=sys.stderr,
+        flush=True,
+    )
+    _log_raw_response(f"{label} attempt-2", raw2)
+    return None, raw2
+
+
 def _clamp_int_1_10(value, default: int = 5) -> int:
     try:
         n = int(round(float(value)))
@@ -238,22 +450,27 @@ Do NOT include `score` or `priority` — they are computed deterministically dow
 from financial_impact/likelihood/urgency. No preamble, no markdown."""
 
     try:
-        raw = _invoke_extraction(prompt, max_tokens=2048)
-        scored = json.loads(_strip_json_fences(raw))
-        if not isinstance(scored, list):
-            return {}
-        return {
-            int(item["id"]): item
-            for item in scored
-            if isinstance(item, dict) and "id" in item
-        }
+        parsed, _raw = _invoke_with_json_retry(
+            prompt,
+            max_tokens=2048,
+            expect="array",
+            label=f"batch {batch_index}/{batch_total}",
+        )
     except Exception as exc:
         print(
-            f"  · batch {batch_index}/{batch_total} scoring failed: "
+            f"  · batch {batch_index}/{batch_total} Bedrock call failed: "
             f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
             flush=True,
         )
         return {}
+    if not isinstance(parsed, list):
+        return {}
+    return {
+        int(item["id"]): item
+        for item in parsed
+        if isinstance(item, dict) and "id" in item
+    }
 
 
 def _prioritize_risks(
@@ -413,11 +630,25 @@ Generate a JSON report with exactly this structure:
 Return ONLY the JSON object, no preamble, no markdown fences."""
 
     try:
-        raw = _invoke_extraction(prompt, max_tokens=1500)
-        report_content = json.loads(_strip_json_fences(raw))
+        parsed, _raw = _invoke_with_json_retry(
+            prompt,
+            max_tokens=1500,
+            expect="object",
+            label=f"agent_report({company} {year})",
+        )
     except Exception as exc:
+        parsed = None
+        print(
+            f"  · agent_report({company} {year}) Bedrock call failed: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+    if isinstance(parsed, dict):
+        report_content = parsed
+    else:
         report_content = {
-            "executive_summary": f"Report generation encountered an error: {type(exc).__name__}: {exc}",
+            "executive_summary": "Report generation failed: JSON parse error after retry (see stderr for raw Nova Pro response).",
             "key_findings": [],
             "recommendations": [],
             "risk_themes": [],

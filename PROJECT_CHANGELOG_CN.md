@@ -389,6 +389,28 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 36) rescore_agent_priority.py：Nova Pro 截断 JSON 容错（修复 + 重试 + 原始日志）
+- 现象：跑 Apple 2020 时 Nova Pro 偶发返回截断 JSON（`Unterminated string` / `Expecting value`），脚本直接 fail 整批 record。
+- 改法：在 `_invoke_extraction` 之上加一层 `_invoke_with_json_retry`，两个 LLM 调用点（`_score_one_batch` 批量评分、`_generate_agent_report` 报告生成）都改走它。
+- 修复策略（按数据保留度从高到低尝试）：
+  1. **最长 balanced prefix**：扫描原文记录最外层容器最后一次平衡的位置，截到那里。
+  2. **最后一个 top-level comma + 关闭根容器**：丢掉最后一个未完成的元素。
+  3. **LIFO close**：未关闭的 string 补 `"`，剩余 stack 按相反顺序补 `}` / `]`，处理深层截断。
+  4. **空容器兜底**：保留 shape，丢全部数据，确保解析不抛异常。
+- 重试策略：第 1 次解析失败时，prompt 加 `CRITICAL: Output ONE complete JSON ...` 后缀（数组要求 `reasoning` < 60 字符、对象要求每条 list entry < 80 字符），`max_tokens` 翻倍（2048→4096 / 1500→3000），再调一次 Bedrock。
+- 日志：每次 attempt 失败把原始返回截断到 2KB 打到 stderr，前缀 `· {label}: raw_response=...`，方便从 Railway 日志直接看 Nova Pro 实际吐了什么。
+- 验证：本地 8 个单测全过——
+  - well-formed → 直接 parse、`repair_used=False`
+  - 截断数组（最常见模式：`[..., {...partial`）→ 保留完整元素 + 关闭 `]`，丢 partial
+  - 截断对象 + 未关闭字符串 → 补 `"` + LIFO close 后可解析
+  - markdown fences 包裹 → strip 后正常 parse
+  - 末尾有杂文字 → 在 first `[`/`{` 之前的内容被 trim
+  - 完全 garbage → 返回 `None`、err 含 `no_json_root_found`
+  - 深层嵌套截断（`{"a":{"b":[1,2,{"c":"unfinished`）→ 顶层 key 保留
+  - 边缘 case（空字符串、纯空白、孤立 `[`）→ 兜底到 `None` / `[]`
+- 同步性：所有改动只在 `scripts/rescore_agent_priority.py` 内部，prompt suffix 与 batch / 阈值常量与 `agentcore_deploy/agent.py` 一致。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 35) rescore_agent_priority.py 改成完全自包含，去掉 agentcore_deploy 依赖
 - 现象：在本地 / Railway 运行 entry 34 引入的 `scripts/rescore_agent_priority.py` 时报 `ModuleNotFoundError: No module named 'agent'`。根因是脚本通过 `extraction_pipeline.attach_agent_priority_report` → `agentcore_deploy.main._generate_agent_priority_report` → `_get_run_agent` → `from agent import run_agent` 调链下到一个 AgentCore 部署专用的扁平 import（`from agent import ...` 只有把 `agentcore_deploy/` 加入 `sys.path` 时才解析得到，其它运行环境直接挂）。
 - 改法：脚本不再 `import scripts.extraction_pipeline` 也不再 `import agentcore_deploy.*`，scoring 整条链 inline 进脚本本身，仅依赖 `boto3` + `scripts.industry_mapping`。
