@@ -305,12 +305,12 @@ export default function UploadPage() {
 
   useEffect(() => {
     if (!companyGroups.length) {
-      setSelectedCompanyKey('')
+      if (selectedCompanyKey) setSelectedCompanyKey('')
       return
     }
-    const hasCurrent = companyGroups.some((g) => g.key === selectedCompanyKey)
-    const nextKey = hasCurrent ? selectedCompanyKey : companyGroups[0].key
-    if (nextKey && nextKey !== selectedCompanyKey) setSelectedCompanyKey(nextKey)
+    if (selectedCompanyKey && !companyGroups.some((g) => g.key === selectedCompanyKey)) {
+      setSelectedCompanyKey('')
+    }
   }, [companyGroups, selectedCompanyKey])
 
   const runManualExtract = async () => {
@@ -700,7 +700,6 @@ export default function UploadPage() {
             </p>
 
             <div className="rl-up-company-panel">
-              <p className="rl-up-mini-title">Companies</p>
               <div className="rl-up-records-table-wrap rl-up-company-table-wrap">
                 <table className="rl-up-record-table rl-up-company-table">
                   <thead>
@@ -737,6 +736,10 @@ export default function UploadPage() {
                             <tr
                               className={`rl-up-record-row ${expanded ? 'active' : ''}`}
                               onClick={() => {
+                                if (expanded) {
+                                  setSelectedCompanyKey('')
+                                  return
+                                }
                                 setSelectedCompanyKey(group.key)
                                 const firstRecordId = group.records[0]?.record_id
                                 if (firstRecordId) setSelectedId(String(firstRecordId))
@@ -757,13 +760,12 @@ export default function UploadPage() {
                                 <td colSpan={5}>
                                   <div className="rl-up-company-expand">
                                     <div className="rl-up-company-detail-head">
-                                      <div>
-                                        <p className="rl-up-mini-title mb-1">Selected Company</p>
-                                        <h4>{group.company}</h4>
-                                        <p>
+                                      <h4>
+                                        {group.company}
+                                        <span>
                                           {(group.industry || 'Other')} • {group.recordCount} records
-                                        </p>
-                                      </div>
+                                        </span>
+                                      </h4>
                                     </div>
 
                                     <div className="rl-up-records-table-wrap rl-up-company-records-wrap">
@@ -775,7 +777,7 @@ export default function UploadPage() {
                                             <th>Risk Items</th>
                                             <th>Categories</th>
                                             <th>Updated</th>
-                                            <th className="text-right">Action</th>
+                                            <th>Action</th>
                                           </tr>
                                         </thead>
                                         <tbody>
@@ -787,15 +789,12 @@ export default function UploadPage() {
                                                 className={`rl-up-record-row ${active ? 'active' : ''}`}
                                                 onClick={() => setSelectedId(String(r.record_id))}
                                               >
-                                                <td className="rl-up-company-cell">
-                                                  <strong>{r.year || '—'}</strong>
-                                                  <span>{r.record_id || '—'}</span>
-                                                </td>
+                                                <td className="rl-up-company-year-cell">{r.year || '—'}</td>
                                                 <td>{r.filing_type || '10-K'}</td>
                                                 <td>{r.risk_items ?? '—'}</td>
                                                 <td>{r.risk_categories ?? '—'}</td>
                                                 <td>{formatDate(r.created_at)}</td>
-                                                <td className="text-right">
+                                                <td>
                                                   <button
                                                     className={active ? 'btn-primary rl-up-row-btn' : 'btn-secondary rl-up-row-btn'}
                                                     onClick={(e) => {

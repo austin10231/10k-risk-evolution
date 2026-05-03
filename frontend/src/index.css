@@ -1210,8 +1210,6 @@ select.input {
 .rl-workspace-app.rl-theme-dark .rl-up-form,
 .rl-workspace-app.rl-theme-dark .rl-up-results,
 .rl-workspace-app.rl-theme-dark .rl-up-records,
-.rl-workspace-app.rl-theme-dark .rl-up-company-panel,
-.rl-workspace-app.rl-theme-dark .rl-up-company-detail,
 .rl-workspace-app.rl-theme-dark .rl-up-result-meta,
 .rl-workspace-app.rl-theme-dark .rl-up-records-table-wrap,
 .rl-workspace-app.rl-theme-dark .rl-tables-accordion,
@@ -1282,7 +1280,7 @@ select.input {
 }
 
 .rl-workspace-app.rl-theme-dark .rl-up-company-cell span,
-.rl-workspace-app.rl-theme-dark .rl-up-company-detail-head p,
+.rl-workspace-app.rl-theme-dark .rl-up-company-detail-head h4 span,
 .rl-workspace-app.rl-theme-dark .rl-up-mini-title,
 .rl-workspace-app.rl-theme-dark .rl-up-result-meta span,
 .rl-workspace-app.rl-theme-dark .rl-tables-result-sub,
@@ -4804,12 +4802,8 @@ select.input {
   @apply flex w-full flex-wrap items-center justify-end gap-2 md:w-auto;
 }
 
-.rl-up-company-panel,
-.rl-up-company-detail {
-  border: 1px solid #dbe3ef;
-  border-radius: 14px;
-  background: #ffffff;
-  padding: 10px;
+.rl-up-company-panel {
+  margin-top: 10px;
 }
 
 .rl-up-mini-title {
@@ -4822,10 +4816,6 @@ select.input {
 }
 
 .rl-up-company-detail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
   margin-bottom: 8px;
 }
 
@@ -4834,12 +4824,15 @@ select.input {
   color: #0f172a;
   font-size: 1.02rem;
   font-weight: 800;
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.rl-up-company-detail-head p {
-  margin: 3px 0 0;
+.rl-up-company-detail-head h4 span {
   color: #64748b;
-  font-size: 0.76rem;
+  font-size: 0.82rem;
   font-weight: 600;
 }
 
@@ -4869,6 +4862,25 @@ select.input {
 
 .rl-up-company-record-table {
   min-width: 860px;
+}
+
+.rl-up-company-record-table thead th,
+.rl-up-company-record-table tbody td {
+  text-align: center !important;
+}
+
+.rl-up-company-year-cell {
+  font-size: 0.76rem !important;
+  font-weight: 700;
+  color: #334155;
+}
+
+.rl-up-company-record-table .rl-up-row-btn {
+  min-height: 26px;
+  min-width: 56px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  border-radius: 9px;
 }
 
 .rl-up-records-table-wrap {
