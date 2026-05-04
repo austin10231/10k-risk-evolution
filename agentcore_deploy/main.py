@@ -65,6 +65,7 @@ _RUN_AGENT = None
 _RUN_CHAT_AGENT = None
 _LLM_INVOKE = None
 _LLM_EXTRACTION_INVOKE = None
+_LLM_INVOKE_WITH_TOOLS = None
 _MODEL_ID = None
 _EXTRACTION_MODEL_ID = None
 
@@ -3817,6 +3818,19 @@ def _get_extraction_llm_invoke():
     return _LLM_EXTRACTION_INVOKE
 
 
+def _get_llm_invoke_with_tools():
+    """ReAct-orchestrator LLM invoker — wraps Bedrock Converse with
+    ``toolConfig`` for the chat agent's multi-step loop. Returns the
+    callable from ``agent.invoke_llm_with_tools`` so chat_agent can
+    consume it without importing agent directly."""
+    global _LLM_INVOKE_WITH_TOOLS
+    if _LLM_INVOKE_WITH_TOOLS is None:
+        from agent import invoke_llm_with_tools as _imported_with_tools
+
+        _LLM_INVOKE_WITH_TOOLS = _imported_with_tools
+    return _LLM_INVOKE_WITH_TOOLS
+
+
 def _get_model_id() -> str:
     """Chat-agent model id (DeepSeek by default). Surfaced in chat_context."""
     global _MODEL_ID
@@ -4204,7 +4218,6 @@ def _agent_query(payload: dict) -> dict:
     record_id = str(payload.get("record_id", "") or "").strip()
     compare_record_id = str(payload.get("compare_record_id", "") or "").strip()
     history = _coerce_chat_history(payload.get("history", []))
-    target_lang = _detect_target_lang(user_query, history)
 
     selected_record = None
     selected_result = None
@@ -4240,235 +4253,14 @@ def _agent_query(payload: dict) -> dict:
         if "error" not in cmp_payload:
             compare_data = cmp_payload
 
-    run_agent = _get_run_agent()
     llm_invoke = _get_llm_invoke()
 
-    def _polish_business_answer(raw_text: str, query: str, mode: str) -> str:
-        text = str(raw_text or "").strip()
-        if not text:
-            return text
-        lang_label = "Simplified Chinese" if target_lang == "zh" else "English"
-        prompt = f"""You are a professional 10-K risk analyst assistant.
-
-User question:
-{str(query or '').strip()}
-
-Draft answer:
-{text}
-
-Rewrite the draft answer to be:
-- more natural and human,
-- concise but professional,
-- grounded in the same facts (do not add unsupported claims),
-- strictly in {lang_label} only,
-- never use Spanish or any third language.
-
-Context mode: {mode}
-
-Return plain text only."""
-        try:
-            polished = str(llm_invoke(prompt, 700) or "").strip()
-            if polished:
-                polished_text = _strip_markdown_artifacts(polished)
-                if _looks_like_target_lang(polished_text, target_lang):
-                    return polished_text
-        except Exception:
-            pass
-        return _strip_markdown_artifacts(text)
-
-    def tool_risk_analysis(*, query: str, history: List[dict], context: dict) -> dict:
-        if not risks:
-            msg = (
-                "I cannot find extracted risk data yet. Please upload or select a filing first, "
-                "then I can run risk analysis."
-            )
-            return {
-                "response": {
-                    "type": "action",
-                    "action": "navigate",
-                    "target": "upload_page",
-                    "params": {"company": company, "year": year},
-                    "message": msg,
-                },
-                "tool_payload": {"has_risks": False},
-            }
-
-        report = run_agent(
-            user_query=query or "Summarize the most important risks.",
-            company=company,
-            year=year,
-            risks=risks,
-            compare_data=None,
-        )
-        message = str(report.get("direct_answer", "") or report.get("executive_summary", "") or "").strip()
-        if not message:
-            message = "Risk analysis completed."
-        message = _polish_business_answer(message, query, "risk_analysis")
-        return {
-            "response": {"type": "text", "content": message},
-            "tool_payload": {
-                "has_risks": True,
-                "risk_count": sum(len(c.get("sub_risks", [])) for c in risks if isinstance(c, dict)),
-            },
-            "risk_report": report,
-        }
-
-    def tool_compare_risk(*, query: str, history: List[dict], context: dict) -> dict:
-        if not compare_data:
-            msg = (
-                "I need two filings to compare. Please choose a baseline filing in Compare, "
-                "then ask me again for deltas."
-            )
-            return {
-                "response": {
-                    "type": "action",
-                    "action": "navigate",
-                    "target": "compare_page",
-                    "params": {"record_id": record_id, "company": company, "year": year},
-                    "message": msg,
-                },
-                "tool_payload": {"has_compare_data": False},
-            }
-
-        report = run_agent(
-            user_query=query or "Compare risk deltas and summarize key changes.",
-            company=company,
-            year=year,
-            risks=risks,
-            compare_data=compare_data,
-        )
-        message = str(report.get("direct_answer", "") or report.get("compare_insights", "") or report.get("executive_summary", "")).strip()
-        if not message:
-            message = "Risk comparison completed."
-        message = _polish_business_answer(message, query, "compare_risk")
-        return {
-            "response": {
-                "type": "action",
-                "action": "navigate",
-                "target": "compare_page",
-                "params": {
-                    "record_id": record_id,
-                    "compare_record_id": compare_record_id,
-                    "company": company,
-                    "year": year,
-                },
-                "message": message,
-            },
-            "tool_payload": {
-                "has_compare_data": True,
-                "new_count": len(compare_data.get("new_risks", [])) if isinstance(compare_data, dict) else 0,
-                "removed_count": len(compare_data.get("removed_risks", [])) if isinstance(compare_data, dict) else 0,
-            },
-            "risk_report": report,
-        }
-
-    def tool_stock_query(*, query: str, history: List[dict], context: dict) -> dict:
-        ticker = _resolve_agent_ticker(user_query=query, company=company, context_ticker=context_ticker)
-        if not ticker:
-            return {
-                "response": {
-                    "type": "text",
-                    "content": "Please provide a ticker (for example AAPL) so I can fetch stock data here in chat.",
-                },
-                "tool_payload": {"ticker": ""},
-            }
-
-        quote_payload = _stock_quote(ticker, lite=True)
-        if quote_payload.get("error"):
-            return {
-                "response": {
-                    "type": "text",
-                    "content": f"I could not fetch stock data for {ticker}: {quote_payload.get('error')}",
-                },
-                "tool_payload": {"ticker": ticker, "error": quote_payload.get("error")},
-            }
-
-        price = quote_payload.get("price")
-        pct = quote_payload.get("change_percent")
-        chg = quote_payload.get("change")
-        volume = quote_payload.get("volume")
-        source = str(quote_payload.get("source", "") or "").strip()
-        if isinstance(price, (int, float)) and isinstance(pct, (int, float)):
-            summary = f"{ticker} is trading at {price:.2f}, with a daily move of {pct:+.2f}% ({chg:+.2f})."
-            if isinstance(volume, (int, float)) and volume > 0:
-                summary += f" Volume: {int(volume):,}."
-            if source:
-                summary += f" Source: {source}."
-        else:
-            summary = f"I fetched the latest stock snapshot for {ticker}."
-            if source:
-                summary += f" Source: {source}."
-
-        summary = _polish_business_answer(summary, query, "stock_query")
-
-        return {
-            "response": {
-                "type": "text",
-                "content": summary,
-            },
-            "tool_payload": {"ticker": ticker, "quote": quote_payload},
-        }
-
-    def tool_news_query(*, query: str, history: List[dict], context: dict) -> dict:
-        ticker = _resolve_agent_ticker(user_query=query, company=company, context_ticker=context_ticker)
-        company_for_news = company
-        if not company_for_news and ticker:
-            company_for_news = ticker
-
-        if not company_for_news and not ticker:
-            return {
-                "response": {
-                    "type": "text",
-                    "content": "Please provide a company name or ticker so I can fetch relevant news here in chat.",
-                },
-                "tool_payload": {"company": "", "ticker": ""},
-            }
-
-        news_payload = _fetch_news(company_for_news, ticker, 30, 8)
-        if news_payload.get("error"):
-            return {
-                "response": {
-                    "type": "text",
-                    "content": f"I could not fetch news right now: {news_payload.get('error')}",
-                },
-                "tool_payload": {"company": company_for_news, "ticker": ticker, "error": news_payload.get("error")},
-            }
-
-        items = news_payload.get("items", []) if isinstance(news_payload.get("items"), list) else []
-        top_rows = []
-        for row in items[:3]:
-            if not isinstance(row, dict):
-                continue
-            title = str(row.get("title", "") or "").strip()
-            if not title:
-                continue
-            source = str(row.get("source", "") or "").strip()
-            published_at = str(row.get("published_at", "") or "").strip()
-            extra_bits = [x for x in [source, published_at] if x]
-            if extra_bits:
-                top_rows.append(f"{title} ({' · '.join(extra_bits)})")
-            else:
-                top_rows.append(title)
-
-        if top_rows:
-            summary = f"I found {len(items)} recent headlines for {ticker or company_for_news}. Top headlines: " + " | ".join(top_rows)
-        else:
-            summary = f"I found no major recent headlines for {ticker or company_for_news}."
-
-        summary = _polish_business_answer(summary, query, "news_query")
-
-        return {
-            "response": {
-                "type": "text",
-                "content": summary,
-            },
-            "tool_payload": {
-                "company": company_for_news,
-                "ticker": ticker,
-                "items_count": len(items),
-                "provider": news_payload.get("provider", ""),
-            },
-        }
+    # ── ReAct wiring (entry 43, AGENT_UPGRADE_PLAN.md Step 4) ────────────
+    # The router_v2 closure tools are gone; chat_agent now runs a Bedrock
+    # Converse `toolUse` loop over six stateless handlers from agent_tools.
+    # The previous `_polish_business_answer` is no longer applied (the LLM
+    # produces the final natural-language answer directly inside the loop;
+    # an extra polish pass would risk drifting the cited risk titles).
 
     chat_context = {
         "company": company,
@@ -4484,18 +4276,45 @@ Return plain text only."""
         "source_page": str(payload.get("source_page", "") or "").strip(),
     }
 
+    # Build agent tools registry + pre-compute available-data summary so the
+    # system prompt can name what's in the index (saves the LLM one extra
+    # tool call on every cold conversation).
+    from agent_tools import build_tool_handlers, get_tool_specs
+
+    tool_handlers = build_tool_handlers(backend_module=sys.modules[__name__])
+    tool_specs = get_tool_specs()
+    try:
+        list_companies_handler = tool_handlers.get("list_available_companies")
+        if callable(list_companies_handler):
+            companies_blob = list_companies_handler(limit=50) or {}
+            company_rows = companies_blob.get("companies", []) if isinstance(companies_blob, dict) else []
+            summary_lines = []
+            for row in company_rows:
+                if not isinstance(row, dict):
+                    continue
+                comp = str(row.get("company", "") or "").strip()
+                tk = str(row.get("ticker", "") or "").strip()
+                yrs = row.get("years") or []
+                if comp and yrs:
+                    yr_label = f"{min(yrs)}-{max(yrs)}" if len(yrs) > 1 else str(yrs[0])
+                    summary_lines.append(f"  - {comp}{f' ({tk})' if tk else ''}: {yr_label}")
+            available_companies_summary = "\n".join(summary_lines) if summary_lines else "(no filings yet)"
+        else:
+            available_companies_summary = "(no list_available_companies handler)"
+    except Exception as exc:
+        available_companies_summary = f"(failed to read index: {type(exc).__name__})"
+
+    llm_invoke_with_tools = _get_llm_invoke_with_tools()
     run_chat_agent = _get_run_chat_agent()
     report = run_chat_agent(
         user_query=user_query,
         history=history,
         context=chat_context,
         llm_invoke=llm_invoke,
-        tools={
-            "risk_analysis": tool_risk_analysis,
-            "compare_risk": tool_compare_risk,
-            "stock_query": tool_stock_query,
-            "news_query": tool_news_query,
-        },
+        llm_invoke_with_tools=llm_invoke_with_tools,
+        tools=tool_handlers,
+        tool_specs=tool_specs,
+        available_companies_summary=available_companies_summary,
     )
 
     return {
