@@ -410,7 +410,7 @@
 - 删除 5 份已完成的 plan：`RPI_OPTIMIZATION_PLAN.md`（落到 entry 26-28）、`CATEGORY_OPTIMIZATION_PLAN.md`（entry 25 + 31）、`S3_PLAN.md`（entry 29 + 30）、`EXTRACTION_FIX_PLAN.md`（entry 31）、`UPLOAD_OPTIMIZATION_PLAN.md`（entry 19-24）。`PLAN.md` / `DASHBOARD_REDESIGN_PLAN.md` / `AGENTS.md` / `agent.md` / `README.md` / `PROJECT_CHANGELOG_CN.md` 保留。
 - 验证：`npm --prefix frontend run build` 通过（54 modules, 158.79 KB CSS / 390.40 KB JS）；grep 确认 `recent` / `companiesOrdered` / `yearsOrdered.map` 旧符号已无残留；不动后端、不动数据契约、不动 Category Intelligence Tab。
 - 行为变化（用户可感知）：Risk Pulse Tab 整张图占满中央，filter 不再挤五行，76 家公司在 compact 模式下 1 屏可见 ≥25 家（4K 屏更多），2020 列在多数页面自动消失，含 2020 数据的页面会自动恢复显示；偏好刷新页面后保留。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`d0cc3bb`
 
 ### 36) rescore_agent_priority.py：Nova Pro 截断 JSON 容错（修复 + 重试 + 原始日志）
 - 现象：跑 Apple 2020 时 Nova Pro 偶发返回截断 JSON（`Unterminated string` / `Expecting value`），脚本直接 fail 整批 record。
