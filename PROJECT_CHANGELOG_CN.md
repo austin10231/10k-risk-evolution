@@ -389,6 +389,39 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 45) Agent ReAct 升级 batch 2：chat_agent ReAct loop + main.py 接线
+- AGENT_UPGRADE_PLAN.md Step 3 + Step 4 落地。chat agent 从 router_v2 切换到 react_v1：LLM 走 Bedrock Converse `toolUse` loop 自主调最多 6 次工具，单次工具结果截 16K 字符，总 context 400K 字符（~100K token）兜底。
+- `agentcore_deploy/chat_agent.py` 全面重写 `run_chat_agent`：
+  - 删 `INTENTS` / `BUSINESS_INTENTS` 常量；删 `_classify_intent` / `_fallback_intent` / `_enforce_intent` / `_is_10k_topic` / `_looks_like_compare_request` / `_looks_like_data_driven_10k_request` 6 个 router_v2 残留 helper（无外部调用，已确认）。
+  - 新增 5 个 ReAct helper：`_build_react_system_prompt`（user context + available data + 7 条行为规范）、`_seed_messages`（history → Bedrock messages 格式 + 首条 user 保证）、`_approx_chars`（粗估 messages JSON 字节）、`_serialize_tool_result`（把 handler 输出包成 Converse `toolResult.content`，超 16K 字符截断）、`_force_finalize`（命中 max_iter 时让 LLM 总结 tool trace 兜底）+ `_extract_response_text`。
+  - 保留全部语言相关 helper（`_detect_target_lang` / `_enforce_output_language` / `_rewrite_in_language` 等）+ model identity short-circuit（用户问"你是什么模型"直接 rule-based 回，不走 ReAct）。
+  - `run_chat_agent` 新签名：`(*, user_query, history, context, llm_invoke, llm_invoke_with_tools, tools, tool_specs, available_companies_summary="")`。返回字段保留 router_v2 的 `agent_version` / `intent` / `intent_confidence` / `intent_reason` / `response` / `tool_payload` / `memory` / `tool_trace` / `direct_answer` / `executive_summary` / `runtime_ms` 全部 key（前端零改动），值映射到 ReAct 语义（`agent_version="react_v1"` / `intent="react_multi_step"` / `intent_reason="react: <state> (N/6 step(s))"`）。
+  - ReAct loop：每次 LLM 调用解析 `contentBlocks`，逐个 `toolUse` 块执行对应 handler、把所有 `toolResult` 块塞回下一轮 user 消息。`load_company_risks` / `compare_risks` 的输出额外保存为 `risk_report` 字段、合并到顶层（让旧 UI 还能读 `priority_matrix` 等结构）。
+  - 5 个 mock unit test 全过：text-only 1 步、toolUse → toolResult → text 2 步、6 步耗尽 max_iter → force_finalize、tool handler 抛异常 → loop 继续返回 error 给 LLM、model identity short-circuit。
+- `agentcore_deploy/main.py:_agent_query` 改装：
+  - 删 4 个 closure tools（`tool_risk_analysis` / `tool_compare_risk` / `tool_stock_query` / `tool_news_query`），共 ~190 行。
+  - 删 inline `_polish_business_answer`（ReAct 直接产终答，多一道 polish 反而风险偏移引用的 risk title）+ orphan `target_lang = _detect_target_lang(...)` + `run_agent = _get_run_agent()` 赋值。
+  - 新增：`from agent_tools import build_tool_handlers, get_tool_specs`；mount 阶段 `tool_handlers = build_tool_handlers(backend_module=sys.modules[__name__])`、`tool_specs = get_tool_specs()`、同步调一次 `list_available_companies(limit=50)` 编译出 `available_companies_summary` 字符串注入 system prompt（让 LLM 不必再调 list 工具开始）。
+  - 顶层模块加 `_LLM_INVOKE_WITH_TOOLS = None` cache + `_get_llm_invoke_with_tools()` getter（lazy import `from agent import invoke_llm_with_tools`），与 `_get_llm_invoke()` / `_get_extraction_llm_invoke()` 同模式。
+  - `chat_context` 不变，照样含 `model_id` / `extraction_model_id` / `has_risks` / `risk_count` / `has_compare_data` / `source_page` 等字段供 system prompt 渲染。
+- 双模型分配（与 entry 32 + entry 43 一致）：ReAct orchestrator 走 `AGENT_MODEL_ID = "deepseek.v3-v1:0"`（probe 实测支持 toolUse、输出干净无 `<thinking>` 噪音）；handler 内部如未来需要结构化 LLM 子调用走 `EXTRACTION_MODEL_ID = "us.amazon.nova-pro-v1:0"`。
+- API 契约不变：`POST /api/agent/query` 输入 / 输出形状 0 改动；前端 chat 组件无需修改。
+- 后续：还没做 SigV4 fallback for `invoke_llm_with_tools`（先信 boto3）；如果生产 Railway 实际跑起来发现 boto3 路径有问题再补。生产 Railway env 现在生效的 `BEDROCK_AGENT_MODEL_ID` 如果还是旧的 `us.deepseek.v3.2-v1:0` 需要手动改成 `deepseek.v3-v1:0`，不然 Bedrock validate 直接拒。
+- 提交：`20c339d`
+
+### 44) probe_deepseek_tooluse.py：Bedrock Converse toolUse 支持探测
+- 一个独立 probe 脚本：用一个 fake `get_weather` tool spec 跑 Bedrock `client.converse(toolConfig=...)`，逐模型报告：modelId 是否合法、是否支持 toolUse、是否真的 emit toolUse 块。落 `scripts/probe_deepseek_tooluse.py` + `.report.json`（gitignored）。
+- 实测发现 entry 33 默认的 `us.deepseek.v3.2-v1:0` 是无效 modelId（直接 `ValidationException: model identifier is invalid`），生产 chat agent 路径会全部挂在 boto3 调用层。**真实可用的 DeepSeek 是 `deepseek.v3-v1:0`**（无 `us.` 前缀、无 `.2` 子版本）；该 modelId 完全支持 Bedrock Converse toolUse。`us.deepseek.r1-v1:0` 则明确返回 `This model doesn't support tool use`，不能作 ReAct orchestrator。
+- 这次 probe 直接驱动了 entry 43 的 modelId fix；脚本本身保留以便未来切换模型时可重复验证。
+- 提交：`7fad749`
+
+### 43) modelId bug fix：us.deepseek.v3.2-v1:0 → deepseek.v3-v1:0
+- entry 33 把 AGENT_MODEL_ID 默认值定为 `us.deepseek.v3.2-v1:0`——但该 modelId 在我们账户里**根本不存在**（probe_deepseek_tooluse.py 实测 `ValidationException: model identifier is invalid`）。生产 chat agent 任何不被 env 覆盖的代码路径直接挂。
+- 真实可用的 DeepSeek 是 `deepseek.v3-v1:0`（无 `us.` 前缀、无 `.2` 子版本）；同时支持 Bedrock Converse toolUse，可继续作为 ReAct orchestrator。
+- 命中 6 处（与 entry 33 hit list 完全对应）：`agentcore_deploy/agent.py` `AGENT_MODEL_ID` 默认；`agentcore_deploy/main.py` `_MODEL_ID` fallback 2 处；`agentcore_deploy/chat_agent.py` model_identity fallback 2 处；`deploy/railway.env.example` 示例值；`scripts/README.md` export 示例。`.streamlit/secrets.toml`（gitignored）也已就地更新。
+- Railway 生产环境如手动设了 `BEDROCK_AGENT_MODEL_ID` 旧值需同步改。
+- 提交：`98b7556`
+
 ### 42) Agent ReAct 升级 batch 1：invoke_llm_with_tools + agent_tools 注册表
 - `AGENT_UPGRADE_PLAN.md` Step 1 + Step 2 落地，**未触碰 chat_agent.py / main.py**——chat 链路仍是 router_v2，本次只是把 ReAct 的 LLM 调用底座 + 工具集铺好；Step 3+4（重写 run_chat_agent + 改 _agent_query）放第二批。
 - `agentcore_deploy/agent.py`：新增 `invoke_llm_with_tools(*, system, messages, tool_specs, max_tokens, model_id, tool_choice) -> dict`。
