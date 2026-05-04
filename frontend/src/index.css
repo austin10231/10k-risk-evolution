@@ -7411,19 +7411,32 @@ select.input {
   flex: 1 1 auto;
 }
 
-/* Vertical filter stack inside the left column — replaces the old
- * horizontal `rl-heatmap-filter-row`. Each cell uses `rl-heatmap-filter-cell`
- * (label-on-top + full-width input/select). */
-.rl-heatmap-filter-stack {
+/* Horizontal single-row filter bar inside the left column. Each cell is a
+ * flex-column (label-on-top + input). Sizing: --wide for Company Search,
+ * --narrow for Rows / Page selects, default for Industry / Sort. flex-wrap
+ * is the safety net so very narrow viewports break gracefully into a
+ * second row instead of overflowing. */
+.rl-heatmap-filter-bar {
   display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem 0.6rem;
 }
 
 .rl-heatmap-filter-cell {
   display: flex;
   flex-direction: column;
+  flex: 1 1 130px;
   min-width: 0;
+}
+
+.rl-heatmap-filter-cell--wide {
+  flex: 2 1 200px;
+}
+
+.rl-heatmap-filter-cell--narrow {
+  flex: 0 1 80px;
 }
 
 /* Compact heatmap cell — ~28px tall (heatmap is now compact-only) */

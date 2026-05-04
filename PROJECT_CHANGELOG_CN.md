@@ -389,6 +389,16 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 40) Risk Pulse filter 改回横排单行（左栏 how-to-read 下方）
+- 用户反馈 entry 39 的"5 行竖排"占太多左栏空间——改回横排单行，但保持 entry 39 的"filter 在左栏 how-to-read 下方"位置不变。
+- `frontend/src/pages/DashboardPage.jsx`：把 `<div className="rl-heatmap-filter-stack">`（竖排容器）改成 `<div className="rl-heatmap-filter-bar">`（横排）；Search cell 加 `--wide` 修饰、Rows/Page + Page cell 加 `--narrow` 修饰，让宽窄不一致以挤进单行。短化 label 字面：
+  - "Sort" 选项 `RPI (high → low)` → `RPI ↓`、`Company A → Z` → `A → Z`
+  - "Rows / Page" → `Rows`
+- `frontend/src/index.css`：删 `.rl-heatmap-filter-stack`；新增 `.rl-heatmap-filter-bar`（flex-row + flex-wrap + align-items:end + gap 0.5/0.6rem，wrap 是窄屏兜底而非常态）；新增 `.rl-heatmap-filter-cell--wide`（`flex: 2 1 200px`，让 Search 占两份宽度）+ `.rl-heatmap-filter-cell--narrow`（`flex: 0 1 80px`，让 Rows / Page 占最小宽度）。默认 cell `flex: 1 1 130px`。
+- 验证：`npm --prefix frontend run build` 通过（54 modules / 158.96 KB CSS / 391.13 KB JS / 882ms）；grep 确认 `rl-heatmap-filter-stack` 已从 src 内全部移除。
+- 行为变化：Risk Pulse Tab 左栏从 5 行 filter 列表压成 1 行（节约 ~200px 纵向高度），heatmap 表格相应再上移；右栏 Scope Snapshot 之前靠 `flex: 1 1 auto` 撑高对齐左栏，现在左栏变矮、Scope Snapshot 几乎不需要撑高、右栏自然贴合左栏底部。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 39) Upload "How risk scoring works" 三步说明 + Dashboard filter 折回左栏（双层布局）
 - 用户提问："上传后会发生什么？"——加两处显式说明，避免靠 chat agent 兜底。
 - **Upload 页**新增 `<HowScoringWorksCard>`（`frontend/src/pages/UploadPage.jsx`）：

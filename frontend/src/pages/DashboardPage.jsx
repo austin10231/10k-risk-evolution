@@ -430,8 +430,8 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="rl-heatmap-filter-stack mt-3">
-                    <label className="rl-heatmap-filter-cell">
+                  <div className="rl-heatmap-filter-bar mt-3">
+                    <label className="rl-heatmap-filter-cell rl-heatmap-filter-cell--wide">
                       <span className="section-title">Company Search</span>
                       <input className="input mt-1" placeholder="Filter companies..." value={heatSearch} onChange={(e) => setHeatSearch(e.target.value)} />
                     </label>
@@ -448,13 +448,13 @@ export default function DashboardPage() {
                     <label className="rl-heatmap-filter-cell">
                       <span className="section-title">Sort</span>
                       <select className="input mt-1" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
-                        <option value="rpi">RPI (high → low)</option>
-                        <option value="name">Company A → Z</option>
+                        <option value="rpi">RPI ↓</option>
+                        <option value="name">A → Z</option>
                       </select>
                     </label>
 
-                    <label className="rl-heatmap-filter-cell">
-                      <span className="section-title">Rows / Page</span>
+                    <label className="rl-heatmap-filter-cell rl-heatmap-filter-cell--narrow">
+                      <span className="section-title">Rows</span>
                       <select className="input mt-1" value={heatPageSize} onChange={(e) => setHeatPageSize(Number(e.target.value) || 10)}>
                         {[10, 20, 40, 80].map((n) => (
                           <option key={n} value={n}>{n}</option>
@@ -462,7 +462,7 @@ export default function DashboardPage() {
                       </select>
                     </label>
 
-                    <label className="rl-heatmap-filter-cell">
+                    <label className="rl-heatmap-filter-cell rl-heatmap-filter-cell--narrow">
                       <span className="section-title">Page</span>
                       <select className="input mt-1" value={heatPage} onChange={(e) => setHeatPage(Number(e.target.value) || 1)}>
                         {Array.from({ length: totalHeatPages }, (_, i) => i + 1).map((p) => (
