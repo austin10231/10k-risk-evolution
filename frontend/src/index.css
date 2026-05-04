@@ -3747,6 +3747,19 @@ select.input {
   text-align: right;
 }
 
+.rl-stock-company-price-starred {
+  grid-template-columns: auto min-content;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+}
+
+.rl-stock-company-price-starred strong,
+.rl-stock-company-price-starred em {
+  grid-column: 1;
+  justify-self: end;
+}
+
 .rl-stock-company-price strong {
   color: #0f172a;
   font-size: 1.02rem;
@@ -3774,6 +3787,13 @@ select.input {
   cursor: pointer;
   user-select: none;
   transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.rl-stock-company-price-starred .rl-stock-fav-star {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  justify-self: center;
 }
 
 .rl-stock-fav-star:hover,

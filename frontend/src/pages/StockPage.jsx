@@ -2509,7 +2509,7 @@ export default function StockPage() {
                         <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
                       </div>
                     </div>
-                    <div className="rl-stock-company-price">
+                    <div className="rl-stock-company-price rl-stock-company-price-starred">
                       <strong>{fmtPrice(row.price ?? row.data?.price)}</strong>
                       <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
                     </div>
@@ -2559,7 +2559,7 @@ export default function StockPage() {
                         <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
                       </div>
                     </div>
-                    <div className="rl-stock-company-price">
+                    <div className="rl-stock-company-price rl-stock-company-price-starred">
                       <span
                         className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
                         role="button"
@@ -2599,7 +2599,7 @@ export default function StockPage() {
                         <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
                       </div>
                     </div>
-                    <div className="rl-stock-company-price">
+                    <div className="rl-stock-company-price rl-stock-company-price-starred">
                       <span
                         className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
                         role="button"
@@ -2647,7 +2647,7 @@ export default function StockPage() {
                         <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
                       </div>
                     </div>
-                    <div className="rl-stock-company-price">
+                    <div className="rl-stock-company-price rl-stock-company-price-starred">
                       <span
                         className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
                         role="button"
@@ -2896,7 +2896,7 @@ export default function StockPage() {
                         <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
                       </div>
                     </div>
-                    <div className="rl-stock-company-price">
+                    <div className="rl-stock-company-price rl-stock-company-price-starred">
                       <span
                         className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
                         role="button"
@@ -2936,7 +2936,7 @@ export default function StockPage() {
                         <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
                       </div>
                     </div>
-                    <div className="rl-stock-company-price">
+                    <div className="rl-stock-company-price rl-stock-company-price-starred">
                       <span
                         className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
                         role="button"
@@ -2983,7 +2983,7 @@ export default function StockPage() {
                         <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
                       </div>
                     </div>
-                    <div className="rl-stock-company-price">
+                    <div className="rl-stock-company-price rl-stock-company-price-starred">
                       <span
                         className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
                         role="button"

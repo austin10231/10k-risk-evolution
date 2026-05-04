@@ -2,7 +2,7 @@
 
 ## 0) 目标
 
-在不修改后端、不改数据契约的前提下，把 Dashboard `Risk Pulse` 标签的浏览体验从"翻 8 页才能看完 76 家公司、年份列大半是 —"重构成"全宽热力图、空年份自动隐藏、紧凑视图一屏看完一半公司、Priority Mix / Scope Snapshot 上移做横向 summary cards"。涉及的具体痛点：
+在不修改后端、不改数据契约的前提下，把 Dashboard `Risk Pulse` 标签的浏览体验从"翻 8 页才能看完 76 家公司、年份列大半是 —"重构成"顶部双栏 header（左：标题 + how-to-read；右：Priority Mix + Scope Snapshot 对齐）→ 中部单行 filter → 底部全宽 heatmap 表格"的三层结构，配合空年份列自动隐藏 + 紧凑视图。涉及的具体痛点：
 
 | 痛点 | 期望 |
 |---|---|
@@ -32,7 +32,7 @@
 - `agentcore_deploy/main.py` — 后端已经给了所需全部数据：
   - `priority_heatmap.companies` 已经是 `key=lambda c: (-max_rpi_by_company.get(c, -1.0), c.lower())`，即 max RPI DESC 排好，未评分公司落底（main.py L2023-2027）
   - `priority_heatmap.years` 是 scope 下所有出现过的 year 去重排序，**问题不在后端**——是前端把"全部年份"硬塞进 thead 而没有按当前 viewport 做交集
-  - `priority_totals` / `priority_heatmap.avg_rpi` / `metrics.records_with_priority` 全都已经在 payload 里，summary cards 直接拼即可
+  - `priority_totals` / `priority_heatmap.avg_rpi` / `metrics.records_with_priority` 全都已经在 payload 里，右栏 Priority Mix + Scope Snapshot 直接读这些字段拼即可
 - 其他 page、`AppShell`、`api.js`、后端任何模块
 
 ---
@@ -427,17 +427,7 @@ const sortedCompanies = useMemo(() => {
 
 `filteredCompanies` 与 `pagedCompanies` 引用 `companiesOrdered` 的地方全改成 `sortedCompanies`。
 
-UI（filter grid 内部加一个 sort 选择器）：
-
-```jsx
-<div>
-  <label className="section-title">Sort</label>
-  <select className="input mt-2" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
-    <option value="rpi">RPI (high → low)</option>
-    <option value="name">Company A → Z</option>
-  </select>
-</div>
-```
+UI：Sort 选择器已在 §3.1 的新 filter row 中包含；本节只负责 `sortedCompanies` 派生 + page-reset 联动。
 
 切 `sortMode` 时 page reset 到 1（已有 useEffect 监听 `industry / heatSearch / heatPageSize`，把 `sortMode` 加进同一份 deps）：
 
@@ -477,7 +467,11 @@ useEffect(() => {
 执行完成后逐项验证：
 
 - [ ] `npm --prefix frontend run build` 通过；无 ESLint warning
-- [ ] Risk Pulse Tab：删了 RECENT FILINGS 块、PRIORITY MIX / SCOPE SNAPSHOT 上移到顶部 summary row、热力图占满整宽（>= xl 屏 1280px 时也是 full width）
+- [ ] Risk Pulse Tab 三层布局正确：
+  - 顶部 stripe：左半是 "Priority Heatmap" 标题 + "How to read quickly" 灰色框；右半是 "Priority Mix"（H/M/L 三色卡）+ "Scope Snapshot"（Avg RPI / With Priority），高度与左半 visually 对齐
+  - 中部 stripe：filter row 一行排完 7 个控件（Search / Industry / Sort / Rows / Page / Compact toggle / Show empty year columns toggle / Refresh），窄屏自动 wrap
+  - 底部 stripe：heatmap 表格**全宽**（不再被右侧 panel 挤压）
+  - RECENT FILINGS 块**已删除**
 - [ ] 默认视图（compact off / showAllYears off / sortMode='rpi'）：
   - 当前 page 上没人有 2020 数据时，2020 列不显示
   - 翻到包含 2020 数据公司的页时，2020 列自动出现
@@ -494,13 +488,14 @@ useEffect(() => {
 - [ ] localStorage：刷新页面后三个偏好（compact / showAllYears / sortMode）都被记住
 - [ ] hover tooltip 正常显示（行高变化不应破坏 `tooltipPosition` 计算）
 - [ ] industry filter / company search / page size 旧功能不回归
-- [ ] 暗色主题（如有）下 summary cards / compact cells 文字颜色对比度仍达标——需手动看一眼
+- [ ] 暗色主题（如有）下 Priority Mix 右栏 / compact cells 文字颜色对比度仍达标——需手动看一眼
 
 ---
 
 ## 6) 注意事项 / 可能踩的坑
 
 1. **`effectiveYears` 与 `pagedCompanies` 互相影响**：列数随翻页变动是有意设计；但要避免列宽抖动让用户视觉不适。table 用了 `min-w-full`，列数减少时表会自动收缩，OK。如果发现抖动严重，备选方案：把列宽固定（每列固定 60px），列数变少时整张表左对齐而非 stretch。
+1.5. **顶部 stripe 双栏 vs filter / table 单层**：注意三层都在**同一个 `panelClass` 容器内**（共享外层圆角 / 模糊背景），中间不要再嵌套 panel 容器，避免双层卡片视觉重；右栏 `rl-heatmap-priority-side` 用轻量背景，与外层 panel 区分开但不抢戏。
 2. **`max_rpi_by_company` 在后端已经计算好**——前端不需要再算一遍。如果用户要"按当前 industry scope 重新算 max RPI"，后端的 scope-aware 逻辑（main.py L2012-2027）已经按 scope 算了，前端透传即可。
 3. **未评分公司的位置**：后端把它们放到 `(-1.0, name)` 排序键，所以默认 RPI 排序时这些公司在最底部——切到 `name` 模式时就按字母混在中间。这个行为符合直觉，无需特殊处理。
 4. **`heatPageSize` 改默认值**：当前默认 10。改成 20 是个轻微的行为变化——会让首屏拉取的数据量看起来更多（其实数据本来就在 payload 里，是渲染量增加）。如果担心 perf 退化，把默认保持 10、只在 compact 时强行升到 40。
@@ -508,7 +503,7 @@ useEffect(() => {
 6. **不要触碰 Category Intelligence Tab**：本次只动 Risk Pulse 的 `activeTab === 'pulse'` 分支（L348-532）。Category Tab（L534-637）保持原样。
 7. **CSS 命名空间**：新加的 class 全部用 `rl-heatmap-*` 前缀，与现有 CSS 风格一致；不要复用 `metric-card` 等通用 class，避免误改其他 page。
 8. **后端不动**：本次重排不需要任何 backend 改动。如果后续想做"按 scope 显示 min year"的服务端预过滤优化，可以另起一份 plan，本次不做。
-9. **rl-heatmap-filter-grid 现有 CSS（index.css L2592-2603）**已经支持新增的 children 自动 wrap，不需要改 grid 容器规则。
+9. **`.rl-heatmap-filter-grid` 现有 CSS（index.css L2592-2603）**：filter row 改用 flex，**不再走 grid**，所以新加的 `.rl-heatmap-filter-row` 是独立 class；旧的 `.rl-heatmap-filter-grid` 规则**保留**（grep 全仓库确认无别处使用后再决定是否清理，本次不删）。
 10. **PROJECT_CHANGELOG_CN.md 规则**：本计划落地后必须按现有 changelog 风格在文档末尾新增一条 entry（37 号），包括 commit hash 回填——execute 阶段处理，本计划不做。
 
 ---
