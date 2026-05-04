@@ -258,6 +258,85 @@ def invoke_llm_extraction(prompt: str, max_tokens: int = 1200) -> str:
     return _invoke(prompt, max_tokens=max_tokens, model_id=EXTRACTION_MODEL_ID)
 
 
+def invoke_llm_with_tools(
+    *,
+    system: str | None,
+    messages: list,
+    tool_specs: list,
+    max_tokens: int = 2000,
+    model_id: str | None = None,
+    tool_choice: dict | None = None,
+) -> dict:
+    """Bedrock Converse call with ``toolConfig`` for ReAct-style multi-step
+    agents (AGENT_UPGRADE_PLAN.md §3.2 / §8 Step 1).
+
+    Returns the assistant message verbatim — caller is responsible for
+    walking ``contentBlocks`` to find ``text`` vs ``toolUse`` blocks.
+
+    ``messages`` MUST be in Bedrock Converse shape: each entry is
+    ``{"role": "user"|"assistant", "content": [<block>, ...]}`` where each
+    block is one of ``{"text": str}``, ``{"toolUse": {...}}``,
+    ``{"toolResult": {...}}``. The first non-system message must be from
+    role ``user``; Bedrock rejects anything else with 400.
+
+    ``tool_specs`` is the list of canonical Converse toolSpec dicts
+    (``[{"toolSpec": {"name": ..., "description": ..., "inputSchema": {"json": ...}}}]``).
+
+    ``tool_choice`` defaults to ``{"auto": {}}`` (LLM decides whether to
+    call any tool). Pass ``{"any": {}}`` to force at least one tool call,
+    or ``{"tool": {"name": "<name>"}}`` to force a specific tool.
+
+    Selected ``model_id`` defaults to AGENT_MODEL_ID. Override the model
+    via ``BEDROCK_AGENT_TOOL_MODEL_ID`` env at the caller (we read at
+    invocation time so a redeploy can flip orchestrator model without
+    re-importing this module). If the chosen DeepSeek/Nova/Claude profile
+    rejects ``toolConfig`` the underlying ``client.converse`` raises
+    ``ValidationException`` and we propagate it untouched — let the caller
+    decide whether to fall back to text-only mode.
+    """
+    selected_model_id = (
+        (model_id or _env("BEDROCK_AGENT_TOOL_MODEL_ID") or AGENT_MODEL_ID).strip()
+        or AGENT_MODEL_ID
+    )
+    chosen_tool_choice = tool_choice if isinstance(tool_choice, dict) else {"auto": {}}
+
+    import boto3
+
+    region = _env("BEDROCK_REGION", "us-west-2")
+    kwargs = {"region_name": region}
+    access_key = _env("AWS_ACCESS_KEY_ID")
+    secret_key = _env("AWS_SECRET_ACCESS_KEY")
+    session_token = _env("AWS_SESSION_TOKEN")
+    if access_key and secret_key:
+        kwargs["aws_access_key_id"] = access_key
+        kwargs["aws_secret_access_key"] = secret_key
+        if session_token:
+            kwargs["aws_session_token"] = session_token
+
+    client = boto3.client("bedrock-runtime", **kwargs)
+    converse_kwargs = {
+        "modelId": selected_model_id,
+        "messages": messages,
+        "inferenceConfig": {
+            "maxTokens": int(max_tokens),
+            "temperature": 0.0,
+            "topP": 1.0,
+        },
+        "toolConfig": {"tools": list(tool_specs or []), "toolChoice": chosen_tool_choice},
+    }
+    if system:
+        converse_kwargs["system"] = [{"text": str(system)}]
+
+    response = client.converse(**converse_kwargs)
+    output_msg = response.get("output", {}).get("message", {}) if isinstance(response, dict) else {}
+    return {
+        "stopReason": str(response.get("stopReason", "") or ""),
+        "contentBlocks": list(output_msg.get("content", []) or []),
+        "usage": dict(response.get("usage", {}) or {}),
+        "modelId": selected_model_id,
+    }
+
+
 def get_model_id() -> str:
     """Public model id for chat-context display ("what model are you")."""
     return AGENT_MODEL_ID

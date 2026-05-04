@@ -389,6 +389,23 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 42) Agent ReAct 升级 batch 1：invoke_llm_with_tools + agent_tools 注册表
+- `AGENT_UPGRADE_PLAN.md` Step 1 + Step 2 落地，**未触碰 chat_agent.py / main.py**——chat 链路仍是 router_v2，本次只是把 ReAct 的 LLM 调用底座 + 工具集铺好；Step 3+4（重写 run_chat_agent + 改 _agent_query）放第二批。
+- `agentcore_deploy/agent.py`：新增 `invoke_llm_with_tools(*, system, messages, tool_specs, max_tokens, model_id, tool_choice) -> dict`。
+  - 直接走 boto3 `bedrock-runtime.converse(...)` + `toolConfig`；不实现 SigV4 fallback，先信 boto3。
+  - 默认 model_id 优先 env `BEDROCK_AGENT_TOOL_MODEL_ID`、再 fallback `AGENT_MODEL_ID`，方便部署期切换 orchestrator 模型而不改代码。
+  - `tool_choice` 默认 `{"auto": {}}`（LLM 自己决定调不调），可传 `{"any": {}}` 或 `{"tool": {"name": ...}}`。
+  - 返回 `{stopReason, contentBlocks, usage, modelId}`，contentBlocks 原样透传 `output.message.content`，调用方 walk 找 text vs toolUse 块。
+  - Bedrock 拒绝 `toolConfig` 时（如某些 inference profile 未开 tool use）`ValidationException` 不吞，直接抛给上层决定降级。
+- `agentcore_deploy/agent_tools.py`：新文件，~520 行。
+  - `TOOL_SPECS` dict：6 个 Bedrock Converse `toolSpec` 定义（load_company_risks / compare_risks / stock_quote / fetch_news / list_available_companies / search_risks_by_keyword），含完整 JSON Schema、descriptions（写给 LLM 看）、required 字段。
+  - `build_tool_handlers(*, backend_module=None) -> Dict[str, Callable]`：返回 6 个 closure handler，每个签名 `(**kwargs) -> dict`，把 LLM `toolUse.input` 直接 unpack。`backend_module` 默认 lazy import `agentcore_deploy.main`，避免 main → chat_agent → agent_tools → main 的环。
+  - 每个 handler stateless：从 backend 现取数据，不依赖任何 chat context closure。`load_company_risks` / `compare_risks` 通过 company-or-ticker + year 解析 record；`list_available_companies` 聚合 `_load_index()`；`search_risks_by_keyword` 全量扫所有 record（76 record × ≤80 sub_risks ≈ 6K 匹配，本地 < 50ms）。
+  - `serialize_tool_result(payload, max_chars=16000)` helper 负责把 handler 输出包成 Converse 的 `toolResult.content` 块，超长截断到 16000 字符 ≈ 4000 token（plan §6 guardrail）。
+- 验证：`python -c "from agent_tools import ..."` 6 个 handler 全部可调用、TOOL_SPECS 6 条齐全、serialize_tool_result 三种 case（success / error / truncated）均符合预期。
+- 后续：batch 2 会写 `chat_agent.run_chat_agent` 的 ReAct loop + `_agent_query` 接线；同时跑一个 probe 脚本验 `us.deepseek.v3.2-v1:0` 是否真的支持 Converse `toolConfig.toolChoice.auto`，结果决定 orchestrator 模型选 DeepSeek 还是降级到 Nova Pro。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 41) Upload "How risk scoring works" 改成折叠 hint（B 方案）
 - 用户反馈 entry 39 的靛蓝 stepper info card 视觉太重。改成折叠式 disclosure：
   - 默认状态：单行 muted 灰字 `ⓘ How risk scoring works ▸`，slate-50 浅底 + slate-200 浅边框，几乎跟周围背景融为一体。
