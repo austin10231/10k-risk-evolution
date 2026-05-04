@@ -4,6 +4,8 @@ import { useGlobalConfig } from '../lib/globalConfig'
 import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
 
 const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000
+const DASHBOARD_PERSIST_MAX_AGE_MS = 60 * 60 * 1000
+const DASHBOARD_PERSIST_KEY = 'rl.dashboard.summaryCache.v1'
 const dashboardSummaryCache = {
   data: null,
   ts: 0,
@@ -30,6 +32,32 @@ function _writePulsePrefs(prefs) {
     window.localStorage.setItem(PULSE_PREFS_KEY, JSON.stringify(prefs))
   } catch {
     // SSR / private mode / quota — safe to ignore.
+  }
+}
+
+function _readDashboardPersistedCache() {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(DASHBOARD_PERSIST_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    const ts = safeNumber(parsed?.ts, 0)
+    const data = parsed?.data
+    if (!ts || !data || typeof data !== 'object') return null
+    if (Date.now() - ts > DASHBOARD_PERSIST_MAX_AGE_MS) return null
+    return { ts, data }
+  } catch {
+    return null
+  }
+}
+
+function _writeDashboardPersistedCache(data, ts = Date.now()) {
+  if (typeof window === 'undefined') return
+  try {
+    if (!data || typeof data !== 'object') return
+    window.localStorage.setItem(DASHBOARD_PERSIST_KEY, JSON.stringify({ ts, data }))
+  } catch {
+    // storage quota / private mode — safe to ignore.
   }
 }
 
@@ -152,6 +180,7 @@ export default function DashboardPage() {
       }
       dashboardSummaryCache.data = nextData
       dashboardSummaryCache.ts = Date.now()
+      _writeDashboardPersistedCache(nextData, dashboardSummaryCache.ts)
       return nextData
     })
 
@@ -175,6 +204,13 @@ export default function DashboardPage() {
 
   useEffect(() => {
     mountedRef.current = true
+    if (!dashboardSummaryCache.data) {
+      const persisted = _readDashboardPersistedCache()
+      if (persisted?.data) {
+        dashboardSummaryCache.data = persisted.data
+        dashboardSummaryCache.ts = safeNumber(persisted.ts, 0)
+      }
+    }
     const hasCache = Boolean(dashboardSummaryCache.data)
     const cacheAge = Date.now() - safeNumber(dashboardSummaryCache.ts)
     const cacheFresh = hasCache && cacheAge < DASHBOARD_CACHE_TTL_MS

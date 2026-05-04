@@ -106,7 +106,7 @@ _AGENT_REPORTS_CACHE_TTL_SECONDS = 90
 _RECORDS_LIST_CACHE: Dict[str, Dict[str, Any]] = {}
 _RECORDS_LIST_CACHE_TTL_SECONDS = 30
 _DASHBOARD_SUMMARY_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
-_DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 120
+_DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 300
 
 
 def _env(name: str, default: str = "") -> str:
