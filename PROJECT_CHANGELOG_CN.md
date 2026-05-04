@@ -389,6 +389,18 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 47) AppShell：顶部导航栏 sticky + 内容区独立滚动
+- 现状问题：聊天页（AgentPage / DashboardPage / etc.）顶部导航栏（`.rl-workspace-tabs-wrap` — Logo / Upload & Records / Stock / News / Dashboard / Compare / Tables / 语言切换 / 主题切换）虽然 CSS 里写了 `position: sticky; top: 0`，但同一规则末尾又写了一行 `position: relative;` 把前面的 sticky 完全 override 掉了；同时整个 viewport 用 window 级别滚动（`.rl-app` 是 `min-h-screen` 没有 overflow lock），用户在聊天里向下翻就把导航栏一起滚出视野了。
+- 修法：把右侧主区改成 flex column + 内部滚动容器结构（用户原方案的字面落地）：
+  - `.rl-app`：`min-h-screen` → `height: 100vh; overflow: hidden`，锁住 viewport，禁掉 window 级滚动。左侧 sidebar (`.rl-sidebar`) 之前已经是 `h-screen sticky top-0`，行为不变（从用户视角一模一样）。
+  - `.rl-workspace-main`（即 `<main>` 元素）：删 `min-height: 100vh`，加 `display: flex; flex-direction: column; height: 100vh; min-height: 0; overflow: hidden`。本身的 radial-gradient 背景 + ::before 网格 + ::after vignette 都保留不动。
+  - `.rl-workspace-tabs-wrap`：删掉规则末尾被覆盖的那行 `position: relative;`（让 `position: sticky; top: 0;` 真正生效）；`z-index` 从 22 提到 50（用户要求，确保盖在聊天气泡 / dock / 任何 panel 之上，但低于 hover popup 的 z-80）；加 `flex-shrink: 0` 防 flex column 把它压扁。
+  - 新增 `.rl-workspace-content` 规则：`flex: 1 1 auto; min-height: 0; overflow-y: auto;`——这是唯一的滚动容器，所有 page children（AgentPage 聊天 / DashboardPage / UploadPage / 等等）的内容只在这一层滚。`min-height: 0` 是 flex column 必备，防 flex item 用 min-content 自动撑爆 overflow。
+- 不动：`.rl-sidebar`（继续 `h-screen sticky top-0`，视觉位置不变）、`.rl-mobile-topbar`（自己 `position: fixed`，移动端独立流程）、`.rl-global-dock` 聊天 composer（`position: fixed; bottom: 10px; z-index: 44`，浮在 viewport 底部和 nav 不冲突）、所有 page 内组件的 layout。
+- 验证：`npm --prefix frontend run build` 通过（54 modules / 159.37 KB CSS / 391.84 KB JS / 1.87s）；浏览器里 AgentPage 长聊天向下滚顶部 nav 不动、Dashboard heatmap 长表格向下滚 nav 也不动；左 sidebar 始终在视口左侧、聊天 composer 始终在视口底部；hover popup（z-80）依然能盖在 nav 之上不被遮挡。
+- 行为变化：window 级滚动彻底没了，用户感知到的是"整个 app 像一个原生应用，nav 永远在顶部、sidebar 永远在左边、聊天 / 页面内容滚动只发生在中央那块区域"。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 46) agent_tools.py：中文公司名 alias 映射，修中文查询匹配错乱 bug
 - 现象：用户用中文「苹果」走 `load_company_risks` 时匹配不上正确的 record。`_find_record` 是 case-insensitive equality 匹配 `company` 字段（小写后），中文 needle "苹果" 永远匹配不到任何索引中的英文 "Apple"，导致 handler 走到失败 path。
 - 修法：在 agent_tools.py 加 `CHINESE_COMPANY_ALIASES` 表（103 条，覆盖 industry_mapping 全部 80 个 ticker 的常用中文名），加 `_resolve_company_alias(raw)` helper：拿 input 字符串先 strip、再去字典查；命中就返回 canonical 英文名（与 `industry_mapping.COMPANIES[*].name` 字段精确对齐），否则原值返回。

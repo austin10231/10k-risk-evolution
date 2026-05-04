@@ -64,7 +64,13 @@ select.input {
 }
 
 .rl-app {
-  @apply relative flex min-h-screen w-full;
+  /* Lock the viewport so window-level scroll is disabled; the chat / page
+   * content scrolls inside its own container (see `.rl-workspace-content`).
+   * The top nav (`.rl-workspace-tabs-wrap`) then stays pinned at the top
+   * of the right column without window-scroll interference. */
+  @apply relative flex w-full;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .rl-sidebar {
@@ -629,6 +635,16 @@ select.input {
   @apply px-8 py-8;
 }
 
+/* Workspace inner is the only scroll container in the right column —
+ * the top tabs stay sticky above it, the chat composer floats fixed
+ * below it. `min-height: 0` defeats flex's default min-content size so
+ * `overflow-y: auto` actually clips. */
+.rl-workspace-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .rl-workspace-app {
   --sidebar-width: 272px;
   --dock-height: 0px;
@@ -645,7 +661,13 @@ select.input {
 
 .rl-workspace-main {
   position: relative;
-  min-height: 100vh;
+  /* Flex column so the sticky tabs sit on top and the workspace-content
+   * region claims the remaining height as its own scroll container. */
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background:
     radial-gradient(78% 44% at 50% -8%, rgba(125, 211, 252, 0.3), rgba(125, 211, 252, 0) 70%),
     linear-gradient(180deg, rgba(222, 234, 248, 0.9) 0%, rgba(214, 227, 244, 0.94) 100%);
@@ -678,16 +700,19 @@ select.input {
 }
 
 .rl-workspace-tabs-wrap {
+  /* Stays pinned at the top of `.rl-workspace-main` — works both as the
+   * first child of the flex column (visually pinned by layout) and as a
+   * sticky element if the workspace later allows window-level scroll. */
   position: sticky;
   top: 0;
-  z-index: 22;
+  z-index: 50;
+  flex-shrink: 0;
   padding: 14px 24px 0;
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(212, 225, 243, 0.76);
   backdrop-filter: blur(7px);
   display: flex;
   justify-content: center;
-  position: relative;
 }
 
 .rl-workspace-tabs {
