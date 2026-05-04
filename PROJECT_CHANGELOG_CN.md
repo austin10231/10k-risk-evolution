@@ -397,7 +397,7 @@
 - `frontend/src/index.css`：删 `.rl-heatmap-filter-stack`；新增 `.rl-heatmap-filter-bar`（flex-row + flex-wrap + align-items:end + gap 0.5/0.6rem，wrap 是窄屏兜底而非常态）；新增 `.rl-heatmap-filter-cell--wide`（`flex: 2 1 200px`，让 Search 占两份宽度）+ `.rl-heatmap-filter-cell--narrow`（`flex: 0 1 80px`，让 Rows / Page 占最小宽度）。默认 cell `flex: 1 1 130px`。
 - 验证：`npm --prefix frontend run build` 通过（54 modules / 158.96 KB CSS / 391.13 KB JS / 882ms）；grep 确认 `rl-heatmap-filter-stack` 已从 src 内全部移除。
 - 行为变化：Risk Pulse Tab 左栏从 5 行 filter 列表压成 1 行（节约 ~200px 纵向高度），heatmap 表格相应再上移；右栏 Scope Snapshot 之前靠 `flex: 1 1 auto` 撑高对齐左栏，现在左栏变矮、Scope Snapshot 几乎不需要撑高、右栏自然贴合左栏底部。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`953ef8f`
 
 ### 39) Upload "How risk scoring works" 三步说明 + Dashboard filter 折回左栏（双层布局）
 - 用户提问："上传后会发生什么？"——加两处显式说明，避免靠 chat agent 兜底。
