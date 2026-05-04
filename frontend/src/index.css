@@ -7409,6 +7409,9 @@ select.input {
   /* Push the Scope Snapshot card to absorb whatever vertical slack the
    * left column has (the filter list usually makes the left taller). */
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 /* Horizontal single-row filter bar inside the left column. Each cell is a
