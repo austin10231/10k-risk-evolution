@@ -8,8 +8,10 @@
 |---|---|
 | 2020 列大量公司是 "—" | 当前 paged 视野里没有 2020 数据时，自动隐藏 2020 列；用户筛选/翻页让 2020 公司进入视野时再恢复 |
 | 76 家公司分页 10/页要翻 8 页 | 加 compact view 把行高从 44px → 28px，一屏可见公司数 ≈ 翻倍 |
-| 右侧 RECENT FILINGS 窄、稀疏、占用横向空间 | 整块删掉，热力图扩展到全宽 |
-| Priority Mix / Scope Snapshot 在右栏，需眼睛左右扫 | 上移到热力图上方，做一行横向 summary cards |
+| 右侧 RECENT FILINGS 窄、稀疏、占用横向空间 | 整块删掉 |
+| Priority Mix 留在右栏但布局松散；Scope Snapshot 单独占一格 | Priority Mix **保留在右栏**（用户偏好），与左侧 Priority Heatmap 标题 + "How to read quickly" 区块**顶部对齐**；Scope Snapshot 内容（Avg RPI / With Priority）并进 Priority Mix 块尾部；不再做横向 summary cards row |
+| 搜索 / 筛选 / 排序 / 翻页 4-5 个控件堆成 5 行（current `rl-heatmap-filter-grid`），占大量纵向空间 | 压成**一行**横排（flex-wrap 兜底），与上方双栏分离开 |
+| 表格本身宽度被右栏挤压 | 双栏只覆盖**顶部** header 区域；filter row 和 **heatmap 表格**移到双栏下方独立分层、整张表格**全宽** |
 | RPI 排序方向不直观 | 后端**已经按 max RPI DESC 排好**，前端只透传——但当前 UI 没有任何提示让用户感知；加一个 sort toggle 显式说明，并允许切回 A-Z |
 
 > 把方案完全写完后扔给 Codex 执行；这个文档里**不动一行代码**。
@@ -22,8 +24,8 @@
 
 | 文件 | 改动量 | 说明 |
 |---|---|---|
-| `/Users/mr.tian/Desktop/10k-risk-evolution/frontend/src/pages/DashboardPage.jsx` | 中等 | Risk Pulse Tab 整块重排；加 3 个 state（`compactView` / `showAllYears` / `sortMode`）+ 3 个 useMemo（`effectiveYears` / `sortedCompanies` / `summaryCards`）；删 Recent Filings；上移 Priority Mix / Scope Snapshot |
-| `/Users/mr.tian/Desktop/10k-risk-evolution/frontend/src/index.css` | 小 | 新增 `.rl-heatmap-summary-row`、`.rl-heatmap-cell-compact`、`.rl-heatmap-row-compact` 三个 class，沿用现有暗色主题分支 |
+| `/Users/mr.tian/Desktop/10k-risk-evolution/frontend/src/pages/DashboardPage.jsx` | 中等 | Risk Pulse Tab 拆三层（顶部双栏 header / 单行 filter / 全宽表格）；加 3 个 state（`compactView` / `showAllYears` / `sortMode`）+ 2 个 useMemo（`effectiveYears` / `sortedCompanies`）；删 Recent Filings；Priority Mix 内合并 Scope Snapshot 内容 |
+| `/Users/mr.tian/Desktop/10k-risk-evolution/frontend/src/index.css` | 小 | 新增 `.rl-heatmap-filter-row`、`.rl-heatmap-priority-side`、`.rl-heatmap-cell-compact` 等 class；保留并裁剪现有 `.rl-heatmap-filter-grid`（filter 不再走 grid 布局） |
 
 **不需要改**：
 
@@ -46,109 +48,257 @@ DashboardPage.jsx 关键行号（执行时如发现行号已漂移，按 anchor 
 | `L191-195` | `const recent = useMemo(...)` | **删除**——recent_records 不再展示 |
 | `L222-228` | `companiesOrdered = priorityHeatmap.companies` (后端已 RPI DESC) | 改为 `sortedCompanies`：根据 `sortMode` 切换，`'rpi'` 直接用 `priorityHeatmap.companies`，`'name'` 走 `[...companies].sort((a,b)=>a.localeCompare(b))` |
 | `L230-234` | `yearsOrdered = priorityHeatmap.years` | 不变；新增派生 `effectiveYears` |
-| `L286-291` | `metricTiles` 4 张大卡片 | 拆成 4 个标准 metric + 5 个新的 summary cards（H/M/L/AvgRPI/WithPriority），共一排紧凑 |
-| `L361-485` | `<section className="grid gap-4 xl:grid-cols-[1.75fr_1fr]">` 双栏 | 改单栏：去掉 grid 包装，热力图 `<div>` 直接占据 `<section>` |
-| `L487-529` | 右侧 panel：Priority Mix + Scope Snapshot + Recent Filings | Priority Mix + Scope Snapshot 内容上移到 summary cards row；Recent Filings 整块删 |
+| `L286-291` | `metricTiles` 4 张大卡片 | **保留不变**（顶部 4 张大 metric tiles 仍是 page 第一排，不再插入新的 summary cards row） |
+| `L361-530` | `<section className="grid gap-4 xl:grid-cols-[1.75fr_1fr]">` 顶层双栏 | **去掉 section 级双栏**；改成单 `<section>` 包一个 `panelClass` 的 `<div>`，里面再分**三层**（顶部双栏 header / 单行 filter / 全宽表格） |
+| `L362-485` | 左栏 heatmap 全块（标题 + how-to-read + filter grid + table）混在一起 | 拆成 3 段：①header 双栏左半（标题 + how-to-read），②filter row（独立一层、单行），③table（独立一层、全宽） |
+| `L381-423` | `rl-heatmap-filter-grid`（5 列 grid，约占 4-5 行高度） | 替换为 `rl-heatmap-filter-row`（flex 一行 + flex-wrap 兜底），并新增 Sort 选择器 + Compact toggle |
+| `L487-529` | 右侧 panel：Priority Mix + Scope Snapshot + Recent Filings | 改造成 **header 双栏右半**：保留 Priority Mix 三色卡（H/M/L），把 Scope Snapshot 的 Avg RPI / With Priority 并进同一个 panel 尾部；删 Recent Filings；整体 max-width 320px、与左半 header 顶对齐 |
 | `L432-484` | `<table>` 渲染 thead/tbody | thead 用 `effectiveYears` 替代 `yearsOrdered`；cell `<a>`/`<div>` className 在 compact 模式下走 `.rl-heatmap-cell-compact` |
 | `L399-407` | "Rows / Page" 选项 `[8, 10, 14, 20]` | 加大上限：`[10, 20, 40, 80]`；compact view 下默认推到 40 |
-| `L361 section` 之前 | metricTiles row | 在 metricTiles row 之后插入 **summary cards row**（5 张紧凑卡） |
 
 ---
 
 ## 3) 具体改动步骤
 
-### 3.1 删 Recent Filings + 全宽热力图
+### 3.1 重排 Risk Pulse 布局：三层结构（顶部双栏 / 单行 filter / 全宽表格）
 
-**改 `<section>` 容器（L361）**
+**总体目标的最终 layout**：
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ panelClass 容器（一个 div）                                              │
+│ ┌──────────────────────────────────────┬─────────────────────────────┐  │
+│ │ Priority Heatmap title + subtitle    │                             │  │
+│ │ How to read quickly box              │   Priority Mix              │  │
+│ │  (left half of top stripe)           │   ─ High / Medium / Low     │  │
+│ │                                      │   Scope Snapshot            │  │
+│ │                                      │   ─ Avg RPI                 │  │
+│ │                                      │   ─ With Priority X / Y     │  │
+│ │                                      │  (right half, ≈320px wide)  │  │
+│ └──────────────────────────────────────┴─────────────────────────────┘  │
+│                                                                          │
+│ ┌──────────────────────────────────────────────────────────────────────┐ │
+│ │ Filter row (single line, full width):                                │ │
+│ │  Search | Industry | Sort | Rows | Page | Compact toggle | Refresh   │ │
+│ └──────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│ "Showing X-Y / N"                                                        │
+│                                                                          │
+│ ┌──────────────────────────────────────────────────────────────────────┐ │
+│ │ Heatmap table (FULL width, no right-side panel anymore)              │ │
+│ └──────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**JSX 重写示意**（替换原 L361-530 的整块 `<section>`）：
 
 ```jsx
-// 旧
-<section className="grid gap-4 xl:grid-cols-[1.75fr_1fr]">
-  <div className={`${panelClass} p-4`}>
-    {/* heatmap */}
-  </div>
-  <div className={`${panelClass} p-4`}>
-    {/* Priority Mix + Scope Snapshot + Recent Filings */}
-  </div>
-</section>
+{/* 删除 recent useMemo（L191-195）的全部代码块 */}
 
-// 新
 <section>
   <div className={`${panelClass} p-4`}>
-    {/* heatmap full width */}
+    {/* TOP STRIPE — header double-column */}
+    <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+      {/* LEFT: heatmap headline + how-to-read */}
+      <div>
+        <div className="section-headline">
+          <div className="section-rail" />
+          <div>
+            <p className="section-title-strong">Priority Heatmap</p>
+            <p className="section-sub">Cards display RPI only. Hover a card for company/year risk detail and stock info.</p>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
+          <p className="font-semibold text-slate-700">How to read quickly:</p>
+          <p className="mt-1">RPI (0-100) is weighted by H/M/L counts. Higher RPI means higher pressure from high-priority risks. "—" indicates a filing whose risks couldn't be scored.</p>
+          <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
+            <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#22c55e' }} />Lower pressure</span>
+            <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#f59e0b' }} />Mid pressure</span>
+            <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#ef4444' }} />High pressure</span>
+          </div>
+        </div>
+      </div>
+
+      {/* RIGHT: Priority Mix + Scope Snapshot (combined) */}
+      <aside className="rl-heatmap-priority-side">
+        <p className="section-title">Priority Mix</p>
+        <div className="mt-2 grid grid-cols-3 gap-2 text-center text-sm">
+          <div className="rounded-xl border border-red-200/90 bg-red-50/70 p-2.5">
+            <p className="font-extrabold text-red-600">High</p>
+            <p className="mt-0.5 text-base font-extrabold text-red-700">{loading ? '…' : safeNumber(priorityTotals.high)}</p>
+          </div>
+          <div className="rounded-xl border border-amber-200/90 bg-amber-50/70 p-2.5">
+            <p className="font-extrabold text-amber-600">Medium</p>
+            <p className="mt-0.5 text-base font-extrabold text-amber-700">{loading ? '…' : safeNumber(priorityTotals.medium)}</p>
+          </div>
+          <div className="rounded-xl border border-emerald-200/90 bg-emerald-50/70 p-2.5">
+            <p className="font-extrabold text-emerald-600">Low</p>
+            <p className="mt-0.5 text-base font-extrabold text-emerald-700">{loading ? '…' : safeNumber(priorityTotals.low)}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Scope Snapshot</p>
+          <p className="mt-1 text-sm font-semibold text-slate-700">
+            Average RPI:{' '}
+            {priorityHeatmap.avg_rpi === null || priorityHeatmap.avg_rpi === undefined
+              ? '—'
+              : safeNumber(priorityHeatmap.avg_rpi).toFixed(1)}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            Rows with priority data: {safeNumber(metrics.records_with_priority)} / {safeNumber(metrics.records)}
+          </p>
+        </div>
+      </aside>
+    </div>
+
+    {/* MIDDLE STRIPE — filter row, single line, full width */}
+    <div className="rl-heatmap-filter-row mt-4">
+      <label className="rl-heatmap-filter-cell">
+        <span className="section-title">Company Search</span>
+        <input className="input mt-1" placeholder="Filter companies..." value={heatSearch} onChange={(e) => setHeatSearch(e.target.value)} />
+      </label>
+
+      <label className="rl-heatmap-filter-cell">
+        <span className="section-title">Industry Group</span>
+        <select className="input mt-1" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+          {industryOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+      </label>
+
+      <label className="rl-heatmap-filter-cell">
+        <span className="section-title">Sort</span>
+        <select className="input mt-1" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
+          <option value="rpi">RPI (high → low)</option>
+          <option value="name">Company A → Z</option>
+        </select>
+      </label>
+
+      <label className="rl-heatmap-filter-cell rl-heatmap-filter-cell--narrow">
+        <span className="section-title">Rows / Page</span>
+        <select className="input mt-1" value={heatPageSize} onChange={(e) => setHeatPageSize(Number(e.target.value) || 10)}>
+          {[10, 20, 40, 80].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </label>
+
+      <label className="rl-heatmap-filter-cell rl-heatmap-filter-cell--narrow">
+        <span className="section-title">Page</span>
+        <select className="input mt-1" value={heatPage} onChange={(e) => setHeatPage(Number(e.target.value) || 1)}>
+          {Array.from({ length: totalHeatPages }, (_, i) => i + 1).map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </label>
+
+      <label className="rl-heatmap-toggle-cell">
+        <input type="checkbox" checked={compactView} onChange={(e) => setCompactView(e.target.checked)} />
+        <span>Compact</span>
+      </label>
+
+      <label className="rl-heatmap-toggle-cell">
+        <input type="checkbox" checked={showAllYears} onChange={(e) => setShowAllYears(e.target.checked)} />
+        <span>Show empty year columns</span>
+      </label>
+
+      <button className="btn-secondary rl-heatmap-filter-cell--action" onClick={() => load({ force: true })} disabled={loading}>
+        {loading ? 'Refreshing…' : 'Refresh'}
+      </button>
+    </div>
+
+    <p className="mt-2 text-xs font-semibold text-slate-600">Showing {heatRangeLabel} / {filteredCompanies.length}</p>
+
+    {/* BOTTOM STRIPE — full-width table */}
+    {pagedCompanies.length === 0 || effectiveYears.length === 0 ? (
+      <div className="mt-3 rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+        No priority heatmap data available for the selected scope.
+      </div>
+    ) : (
+      <div className="mt-3 overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr>
+              <th className="w-48 py-2 pr-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Company</th>
+              {effectiveYears.map((y) => (
+                <th key={y} className="py-2 px-1 text-center text-xs font-bold uppercase tracking-[0.08em] text-slate-500">{y}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pagedCompanies.map((c) => (
+              <tr key={c} className="border-t border-slate-100/80">
+                <td className={`${compactView ? 'py-1 pr-2' : 'py-2 pr-3'} font-semibold text-slate-800`}>{c}</td>
+                {effectiveYears.map((y) => {
+                  /* … cell render — see §3.4 for compact-view className branching */
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
   </div>
 </section>
 ```
 
-**删除 `recent` useMemo（L191-195）**：整段移除，没有别的地方引用。
+**关键点**：
+- 只有**顶部 stripe** 是双栏（`xl:grid-cols-[1fr_320px]`）；filter row 和 table 都是单层全宽。
+- 右栏宽度固定 `320px`（vs. 现在的 fr 比例），保证不会随表格宽度变化跳动。
+- xl 断点（≥1280px）以下双栏自动塌成单列（grid 默认行为）；窄屏下 Priority Mix 会落到 how-to-read 下方，filter row 自动 wrap，table 仍可横向滚动。
 
-**删除右侧 panel 的 Priority Mix / Scope Snapshot / Recent Filings（L487-529）**：连同包裹的 `<div>` 一起删，因为整个二列 grid 已经塌成单列。
+**删除项**：
+- `recent` useMemo（L191-195）整段移除
+- 旧 filter grid（L381-423）的 5 个 `<div>` cell + Refresh 按钮整体替换为新 filter row
+- 旧的右栏 `<div className={`${panelClass} p-4`}>`（L487-529）整个删掉，里面的 Priority Mix + Scope Snapshot 内容已并入新 header 双栏右半（**注意**：不再用 `panelClass`，因为它已经在外层 panel 内部，避免双层 panel 视觉重；改用 `rl-heatmap-priority-side` 的轻量边框/背景），Recent Filings 整段直接删
 
-### 3.2 Priority Mix / Scope Snapshot → 横向 summary cards
+### 3.2 单行 filter row：CSS 收尾
 
-在 `metricTiles` 那个 `<section>`（L350-359）之后插入一个新的 summary row：
-
-```jsx
-{/* Existing — 4 large metric tiles */}
-<section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-  {metricTiles.map(...)}
-</section>
-
-{/* New — 5 compact summary cards */}
-<section className="grid gap-2 sm:grid-cols-3 xl:grid-cols-5">
-  <div className="rl-heatmap-summary-card border-red-200/90 bg-red-50/70">
-    <p className="rl-heatmap-summary-label text-red-600">High</p>
-    <p className="rl-heatmap-summary-value text-red-700">{loading ? '…' : safeNumber(priorityTotals.high)}</p>
-  </div>
-  <div className="rl-heatmap-summary-card border-amber-200/90 bg-amber-50/70">
-    <p className="rl-heatmap-summary-label text-amber-600">Medium</p>
-    <p className="rl-heatmap-summary-value text-amber-700">{loading ? '…' : safeNumber(priorityTotals.medium)}</p>
-  </div>
-  <div className="rl-heatmap-summary-card border-emerald-200/90 bg-emerald-50/70">
-    <p className="rl-heatmap-summary-label text-emerald-600">Low</p>
-    <p className="rl-heatmap-summary-value text-emerald-700">{loading ? '…' : safeNumber(priorityTotals.low)}</p>
-  </div>
-  <div className="rl-heatmap-summary-card border-slate-200/85 bg-slate-50/85">
-    <p className="rl-heatmap-summary-label text-slate-500">Avg RPI</p>
-    <p className="rl-heatmap-summary-value text-slate-700">
-      {priorityHeatmap.avg_rpi === null || priorityHeatmap.avg_rpi === undefined
-        ? '—'
-        : safeNumber(priorityHeatmap.avg_rpi).toFixed(1)}
-    </p>
-  </div>
-  <div className="rl-heatmap-summary-card border-slate-200/85 bg-slate-50/85">
-    <p className="rl-heatmap-summary-label text-slate-500">With Priority</p>
-    <p className="rl-heatmap-summary-value text-slate-700">
-      {safeNumber(metrics.records_with_priority)}/{safeNumber(metrics.records)}
-    </p>
-  </div>
-</section>
-```
-
-CSS 在 `frontend/src/index.css` 末尾追加（**不要替换现有规则**）：
+CSS 在 `frontend/src/index.css` 末尾追加（**不要替换现有 `.rl-heatmap-filter-grid` 规则；保留它供后续如有别处使用**）：
 
 ```css
-/* Dashboard heatmap summary cards (DASHBOARD_REDESIGN_PLAN entry 1) */
-.rl-heatmap-summary-card {
-  border: 1px solid;
-  border-radius: 0.75rem;       /* matches existing rounded-xl */
-  padding: 0.55rem 0.75rem;
+/* Heatmap filter — single horizontal row (DASHBOARD_REDESIGN_PLAN §3.1) */
+.rl-heatmap-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.6rem 0.75rem;
+}
+.rl-heatmap-filter-cell {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  flex: 1 1 160px;          /* grow but cap default min so search 不被挤太短 */
+  min-width: 0;
 }
-.rl-heatmap-summary-label {
-  font-size: 0.68rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.rl-heatmap-filter-cell--narrow { flex: 0 1 110px; }
+.rl-heatmap-filter-cell--action {
+  flex: 0 0 auto;
+  align-self: stretch;
+  margin-top: 1.4rem;        /* 对齐 input 下边缘（避开 label 顶部空间） */
 }
-.rl-heatmap-summary-value {
-  font-size: 1.15rem;
-  font-weight: 900;
-  line-height: 1.1;
+.rl-heatmap-toggle-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  align-self: stretch;
+  padding: 0 0.4rem;
+  margin-top: 1.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+.rl-heatmap-toggle-cell input { accent-color: #2563eb; }
+
+/* Right-side Priority Mix panel (combined with Scope Snapshot)  §3.1 */
+.rl-heatmap-priority-side {
+  align-self: start;            /* 顶部对齐左侧 section-headline */
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 ```
+
+**注意**：`align-items: end;` 让 filter cells 的 `<input>`/`<select>` 底部对齐；toggle 和 button 通过 `margin-top: 1.4rem` 手工补到同一基线。如果实际渲染发现 1.4rem 偏一点，调到 1.3 / 1.5rem 都行，验收时按视觉调整。
 
 ### 3.3 年份列动态（核心）
 
@@ -173,31 +323,13 @@ const effectiveYears = useMemo(() => {
 
 **空状态保护**：`pagedCompanies.length === 0 || effectiveYears.length === 0` 时显示 "No priority heatmap data ..."（沿用 L427-430 的现有空状态）。
 
-**Toggle UI**：在 heatmap filter grid（L381）加一个 checkbox "Show empty year columns"：
+**Toggle UI**：已在 §3.1 的新 `rl-heatmap-filter-row` 中加入 "Show empty year columns" 复选框，本节只负责 `effectiveYears` 派生 + thead/tbody 渲染替换。
 
-```jsx
-<label className="rl-heatmap-toggle">
-  <input type="checkbox" checked={showAllYears} onChange={(e) => setShowAllYears(e.target.checked)} />
-  <span>Show empty year columns</span>
-</label>
-```
-
-**注意**：`effectiveYears` 依赖 `pagedCompanies`，翻页/换 page size/换 industry 都会让列数变化——这是有意设计，但要在表头加一个小说明文字（hover tooltip 或紧贴 thead 的灰色脚注）："Year columns hidden when no company on this page has data for that year. Toggle 'Show empty year columns' to lock all years visible."
+**注意**：`effectiveYears` 依赖 `pagedCompanies`，翻页/换 page size/换 industry 都会让列数变化——这是有意设计，但要在 thead 上方放一个小说明文字（hover tooltip 或紧贴表头的灰色脚注）："Year columns hidden when no company on this page has data for that year. Toggle 'Show empty year columns' to lock all years visible."
 
 ### 3.4 Compact view
 
-加 state：`const [compactView, setCompactView] = useState(false)`
-
-在 filter grid 加一个 toggle button（与 Refresh 按钮同排）：
-
-```jsx
-<button
-  className={`btn-secondary ${compactView ? 'is-active' : ''}`}
-  onClick={() => setCompactView((v) => !v)}
->
-  {compactView ? '✓ Compact' : 'Compact view'}
-</button>
-```
+加 state：`const [compactView, setCompactView] = useState(false)`。Compact 复选框 UI 已在 §3.1 的新 filter row 中包含，本节只负责 cell className 切换与行高调整。
 
 修改 cell 渲染（L460-475），抽两套 className：
 
