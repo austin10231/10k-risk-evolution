@@ -405,7 +405,7 @@
 - 行为变化：
   - 用户感知：filter 仅剩 5 个控件（Search / Industry / Sort / Rows / Page），整体高度比 entry 37 再矮一截；不再需要 Compact 开关，默认就是紧凑模式；不再需要手动 Refresh。
   - 跳转感知：从 dashboard 点击 cell 不会再去 LibraryPage，直接落在 UploadPage 的 records tab 上、对应公司组自动展开、目标 record 高亮选中。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`66b231e`
 
 ### 37) Dashboard Risk Pulse 三层布局重构 + 删除 5 个已完成 plan 文件
 - 落地 `DASHBOARD_REDESIGN_PLAN.md` 全部改动。Risk Pulse Tab 从"左 1.75fr 热力图 + 右 1fr 多块拼接"改成单 panel 三层结构：
