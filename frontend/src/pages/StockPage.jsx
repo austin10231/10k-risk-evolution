@@ -29,6 +29,7 @@ const TABLE_SECTIONS = [
 
 const STOCK_LAST_TICKER_KEY = 'rl_stock_last_ticker_v1'
 const STOCK_RECENT_TICKERS_KEY = 'rl_stock_recent_tickers_v1'
+const STOCK_STARRED_TICKERS_KEY = 'rl_stock_starred_tickers_v1'
 const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v3_'
 const STOCK_BUNDLE_LEGACY_PREFIXES = ['rl_stock_bundle_v2_', 'rl_stock_bundle_v1_']
 const STOCK_BUNDLE_TTL_MS = 1000 * 60 * 60 * 12
@@ -256,6 +257,16 @@ function readRecentTickers() {
 
 function writeRecentTickers(list) {
   writeLocalJson(STOCK_RECENT_TICKERS_KEY, mergeTickers(list).slice(0, 12))
+}
+
+function readStarredTickers() {
+  const raw = readLocalJson(STOCK_STARRED_TICKERS_KEY, [])
+  if (!Array.isArray(raw)) return []
+  return mergeTickers(raw).slice(0, 20)
+}
+
+function writeStarredTickers(list) {
+  writeLocalJson(STOCK_STARRED_TICKERS_KEY, mergeTickers(list).slice(0, 20))
 }
 
 function cacheKeyForTicker(ticker, lite = false) {
@@ -1229,6 +1240,7 @@ export default function StockPage() {
 
   const [selectedTicker, setSelectedTicker] = useState('AAPL')
   const [watchlist, setWatchlist] = useState(DEFAULT_TICKERS)
+  const [starredTickers, setStarredTickers] = useState(() => readStarredTickers())
   const [bundleMap, setBundleMap] = useState({})
   const [loadingTicker, setLoadingTicker] = useState('')
   const [error, setError] = useState('')
@@ -1291,6 +1303,25 @@ export default function StockPage() {
       return next
     })
   }, [])
+
+  const starredTickerSet = useMemo(() => new Set(starredTickers.map((t) => normalizeTicker(t)).filter(Boolean)), [starredTickers])
+
+  const toggleStarredTicker = useCallback((rawTicker) => {
+    const sym = normalizeTicker(rawTicker)
+    if (!sym) return
+    const adding = !starredTickerSet.has(sym)
+    setStarredTickers((prev) => {
+      const nextSet = new Set(prev.map((t) => normalizeTicker(t)).filter(Boolean))
+      if (nextSet.has(sym)) nextSet.delete(sym)
+      else nextSet.add(sym)
+      const next = Array.from(nextSet).slice(0, 20)
+      writeStarredTickers(next)
+      return next
+    })
+    if (adding) {
+      setWatchlist((prev) => mergeTickers([sym], prev, uploadedCompanies.map((c) => c.ticker), DEFAULT_TICKERS).slice(0, 14))
+    }
+  }, [starredTickerSet, uploadedCompanies])
 
   const fetchBundle = useCallback(
     async (rawTicker, options = {}) => {
@@ -2019,6 +2050,35 @@ export default function StockPage() {
     return map
   }, [trackedRows])
 
+  const starredRows = useMemo(
+    () =>
+      starredTickers
+        .map((rawTicker) => normalizeTicker(rawTicker))
+        .filter(Boolean)
+        .map((ticker) => {
+          const existing = trackedRowByTicker[ticker]
+          if (existing) return existing
+          const payload = bundleMap[ticker]?.data || null
+          const company = String(payload?.name || ticker)
+          return {
+            ticker,
+            company,
+            industry: resolveEquitySector({
+              filingIndustry: '',
+              quoteSector: payload?.sector,
+              ticker,
+              company,
+            }),
+            data: payload,
+            change_percent: resolveChangePercent(payload),
+            market_cap: resolveMarketCap(payload),
+            volume: Number(payload?.volume || 0),
+          }
+        })
+        .slice(0, 8),
+    [starredTickers, trackedRowByTicker, bundleMap],
+  )
+
   const selectedChange = resolveChange(data)
   const selectedChangePercent = resolveChangePercent(data)
   const selectedMarketCap = resolveMarketCap(data) || trackedRowByTicker[normalizeTicker(selectedTicker)]?.market_cap || null
@@ -2208,6 +2268,15 @@ export default function StockPage() {
       return { x, y, row, placeBelow }
     })
   }, [])
+
+  const toggleStarFromEvent = useCallback(
+    (event, rawTicker) => {
+      event.preventDefault()
+      event.stopPropagation()
+      toggleStarredTicker(rawTicker)
+    },
+    [toggleStarredTicker],
+  )
 
   return (
     <div className="rl-page-shell rl-up-page rl-stock-page">
@@ -2474,11 +2543,53 @@ export default function StockPage() {
         <aside className="rl-stock-side">
           <section className="rl-stock-side-card">
             <div className="rl-stock-side-head">
+              <p>My Watchlist</p>
+              <span>{starredRows.length} names</span>
+            </div>
+            <div className="rl-stock-company-list">
+              {starredRows.map((row) => {
+                const pct = Number(row.data?.change_percent)
+                const isStarred = starredTickerSet.has(normalizeTicker(row.ticker))
+                return (
+                  <button key={`watchlist-${row.ticker}`} className="rl-stock-company-item" onClick={() => openDetail(row.ticker)}>
+                    <div className="rl-stock-company-mini">
+                      <CompanyLogo ticker={row.ticker} company={row.company} />
+                      <div>
+                        <p>{row.company}</p>
+                        <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
+                      </div>
+                    </div>
+                    <div className="rl-stock-company-price">
+                      <span
+                        className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={isStarred ? `Remove ${row.ticker} from watchlist` : `Add ${row.ticker} to watchlist`}
+                        onClick={(e) => toggleStarFromEvent(e, row.ticker)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') toggleStarFromEvent(e, row.ticker)
+                        }}
+                      >
+                        {isStarred ? '★' : '☆'}
+                      </span>
+                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : '—'}</em>
+                    </div>
+                  </button>
+                )
+              })}
+              {!starredRows.length ? <p className="rl-stock-muted">Use ☆ in any list to add companies you care about.</p> : null}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card">
+            <div className="rl-stock-side-head">
               <p>Popular Companies</p>
             </div>
             <div className="rl-stock-company-list">
               {popularRows.map((row) => {
                 const pct = Number(row.data?.change_percent)
+                const isStarred = starredTickerSet.has(normalizeTicker(row.ticker))
                 return (
                   <button key={`popular-${row.ticker}`} className="rl-stock-company-item" onClick={() => openDetail(row.ticker)}>
                     <div className="rl-stock-company-mini">
@@ -2489,6 +2600,18 @@ export default function StockPage() {
                       </div>
                     </div>
                     <div className="rl-stock-company-price">
+                      <span
+                        className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={isStarred ? `Remove ${row.ticker} from watchlist` : `Add ${row.ticker} to watchlist`}
+                        onClick={(e) => toggleStarFromEvent(e, row.ticker)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') toggleStarFromEvent(e, row.ticker)
+                        }}
+                      >
+                        {isStarred ? '★' : '☆'}
+                      </span>
                       <strong>{fmtPrice(row.data?.price)}</strong>
                       <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : '—'}</em>
                     </div>
@@ -2513,21 +2636,36 @@ export default function StockPage() {
               ))}
             </div>
             <div className="rl-stock-board-list">
-              {boardRows.map((row) => (
-                <button key={`board-${row.ticker}`} className="rl-stock-board-item" onClick={() => openDetail(row.ticker)}>
-                  <div className="rl-stock-company-mini">
-                    <CompanyLogo ticker={row.ticker} company={row.company} />
-                    <div>
-                      <p>{row.company}</p>
-                      <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
+              {boardRows.map((row) => {
+                const isStarred = starredTickerSet.has(normalizeTicker(row.ticker))
+                return (
+                  <button key={`board-${row.ticker}`} className="rl-stock-board-item" onClick={() => openDetail(row.ticker)}>
+                    <div className="rl-stock-company-mini">
+                      <CompanyLogo ticker={row.ticker} company={row.company} />
+                      <div>
+                        <p>{row.company}</p>
+                        <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="rl-stock-company-price">
-                    <strong>{fmtPrice(row.data?.price)}</strong>
-                    <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
-                  </div>
-                </button>
-              ))}
+                    <div className="rl-stock-company-price">
+                      <span
+                        className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={isStarred ? `Remove ${row.ticker} from watchlist` : `Add ${row.ticker} to watchlist`}
+                        onClick={(e) => toggleStarFromEvent(e, row.ticker)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') toggleStarFromEvent(e, row.ticker)
+                        }}
+                      >
+                        {isStarred ? '★' : '☆'}
+                      </span>
+                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
+                    </div>
+                  </button>
+                )
+              })}
               {!boardRows.length ? <p className="rl-stock-muted">Load tracked quotes to populate board.</p> : null}
             </div>
           </section>
@@ -2742,25 +2880,81 @@ export default function StockPage() {
 
           <section className="rl-stock-side-card">
             <div className="rl-stock-side-head">
+              <p>My Watchlist</p>
+              <span>{starredRows.length} names</span>
+            </div>
+            <div className="rl-stock-company-list">
+              {starredRows.map((row) => {
+                const pct = Number(row.data?.change_percent)
+                const isStarred = starredTickerSet.has(normalizeTicker(row.ticker))
+                return (
+                  <button key={`watchlist-detail-${row.ticker}`} className="rl-stock-company-item" onClick={() => openDetail(row.ticker)}>
+                    <div className="rl-stock-company-mini">
+                      <CompanyLogo ticker={row.ticker} company={row.company} />
+                      <div>
+                        <p>{row.company}</p>
+                        <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
+                      </div>
+                    </div>
+                    <div className="rl-stock-company-price">
+                      <span
+                        className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={isStarred ? `Remove ${row.ticker} from watchlist` : `Add ${row.ticker} to watchlist`}
+                        onClick={(e) => toggleStarFromEvent(e, row.ticker)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') toggleStarFromEvent(e, row.ticker)
+                        }}
+                      >
+                        {isStarred ? '★' : '☆'}
+                      </span>
+                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : '—'}</em>
+                    </div>
+                  </button>
+                )
+              })}
+              {!starredRows.length ? <p className="rl-stock-muted">Use ☆ in any list to add companies you care about.</p> : null}
+            </div>
+          </section>
+
+          <section className="rl-stock-side-card">
+            <div className="rl-stock-side-head">
               <p>Peers</p>
               <span>{detailPeers.length} names</span>
             </div>
             <div className="rl-stock-company-list">
-              {detailPeers.map((row) => (
-                <button key={`peer-${row.ticker}`} className="rl-stock-company-item" onClick={() => openDetail(row.ticker)}>
-                  <div className="rl-stock-company-mini">
-                    <CompanyLogo ticker={row.ticker} company={row.company} />
-                    <div>
-                      <p>{row.company}</p>
-                      <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
+              {detailPeers.map((row) => {
+                const isStarred = starredTickerSet.has(normalizeTicker(row.ticker))
+                return (
+                  <button key={`peer-${row.ticker}`} className="rl-stock-company-item" onClick={() => openDetail(row.ticker)}>
+                    <div className="rl-stock-company-mini">
+                      <CompanyLogo ticker={row.ticker} company={row.company} />
+                      <div>
+                        <p>{row.company}</p>
+                        <span>{row.ticker} · {row.data?.exchange || row.industry || 'US'}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="rl-stock-company-price">
-                    <strong>{fmtPrice(row.data?.price)}</strong>
-                    <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
-                  </div>
-                </button>
-              ))}
+                    <div className="rl-stock-company-price">
+                      <span
+                        className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={isStarred ? `Remove ${row.ticker} from watchlist` : `Add ${row.ticker} to watchlist`}
+                        onClick={(e) => toggleStarFromEvent(e, row.ticker)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') toggleStarFromEvent(e, row.ticker)
+                        }}
+                      >
+                        {isStarred ? '★' : '☆'}
+                      </span>
+                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </section>
 
@@ -2778,21 +2972,36 @@ export default function StockPage() {
               ))}
             </div>
             <div className="rl-stock-board-list">
-              {boardRows.map((row) => (
-                <button key={`board-detail-${row.ticker}`} className="rl-stock-board-item" onClick={() => openDetail(row.ticker)}>
-                  <div className="rl-stock-company-mini">
-                    <CompanyLogo ticker={row.ticker} company={row.company} />
-                    <div>
-                      <p>{row.company}</p>
-                      <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
+              {boardRows.map((row) => {
+                const isStarred = starredTickerSet.has(normalizeTicker(row.ticker))
+                return (
+                  <button key={`board-detail-${row.ticker}`} className="rl-stock-board-item" onClick={() => openDetail(row.ticker)}>
+                    <div className="rl-stock-company-mini">
+                      <CompanyLogo ticker={row.ticker} company={row.company} />
+                      <div>
+                        <p>{row.company}</p>
+                        <span>{row.ticker} · {row.data?.exchange || 'US'}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="rl-stock-company-price">
-                    <strong>{fmtPrice(row.data?.price)}</strong>
-                    <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
-                  </div>
-                </button>
-              ))}
+                    <div className="rl-stock-company-price">
+                      <span
+                        className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={isStarred ? `Remove ${row.ticker} from watchlist` : `Add ${row.ticker} to watchlist`}
+                        onClick={(e) => toggleStarFromEvent(e, row.ticker)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') toggleStarFromEvent(e, row.ticker)
+                        }}
+                      >
+                        {isStarred ? '★' : '☆'}
+                      </span>
+                      <strong>{fmtPrice(row.data?.price)}</strong>
+                      <em className={toneClass(row.change_percent)}>{fmtPct(row.change_percent)}</em>
+                    </div>
+                  </button>
+                )
+              })}
               {!boardRows.length ? <p className="rl-stock-muted">Load tracked quotes to populate board.</p> : null}
             </div>
           </section>

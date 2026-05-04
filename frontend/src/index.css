@@ -1092,6 +1092,7 @@ select.input {
 .rl-workspace-app.rl-theme-dark .rl-stock-chart-tile-top span,
 .rl-workspace-app.rl-theme-dark .rl-stock-company-mini p,
 .rl-workspace-app.rl-theme-dark .rl-stock-company-price strong,
+.rl-workspace-app.rl-theme-dark .rl-stock-fav-star,
 .rl-workspace-app.rl-theme-dark .rl-stock-quote-price,
 .rl-workspace-app.rl-theme-dark .rl-stock-kpi-table strong,
 .rl-workspace-app.rl-theme-dark .rl-stock-profile-list strong,
@@ -1122,6 +1123,23 @@ select.input {
 .rl-workspace-app.rl-theme-dark .rl-stock-market-news-body em,
 .rl-workspace-app.rl-theme-dark .rl-stock-spotlight-note {
   color: #94a3b8;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-fav-star {
+  border-color: rgba(100, 116, 139, 0.62);
+  background: rgba(30, 41, 59, 0.92);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-fav-star:hover,
+.rl-workspace-app.rl-theme-dark .rl-stock-fav-star:focus-visible {
+  border-color: rgba(96, 165, 250, 0.75);
+  color: #93c5fd;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-stock-fav-star.active {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.72);
+  background: rgba(120, 53, 15, 0.38);
 }
 
 .rl-workspace-app.rl-theme-dark .rl-stock-fin-year-select,
@@ -3730,6 +3748,8 @@ select.input {
   display: grid;
   gap: 2px;
   text-align: right;
+  position: relative;
+  padding-right: 20px;
 }
 
 .rl-stock-company-price strong {
@@ -3743,6 +3763,39 @@ select.input {
   font-style: normal;
   font-size: 0.92rem;
   font-weight: 700;
+}
+
+.rl-stock-fav-star {
+  position: absolute;
+  top: -1px;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: rgba(255, 255, 255, 0.82);
+  color: #94a3b8;
+  font-size: 0.74rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.rl-stock-fav-star:hover,
+.rl-stock-fav-star:focus-visible {
+  border-color: rgba(59, 130, 246, 0.46);
+  color: #3b82f6;
+  outline: none;
+}
+
+.rl-stock-fav-star.active {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.55);
+  background: rgba(254, 243, 199, 0.92);
 }
 
 .rl-stock-spotlight-body {
