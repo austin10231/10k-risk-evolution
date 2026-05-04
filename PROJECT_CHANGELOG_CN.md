@@ -399,7 +399,7 @@
 - 涵盖范围：Technology（苹果 / 微软 / 谷歌 / 英伟达 / 思科 / 英特尔 / 甲骨文 / Adobe / Salesforce）、Consumer Cyclical（亚马逊 / 特斯拉 / 麦当劳 / 耐克 / 星巴克 / 优步 / 缤客 / 家得宝 / 劳氏）、Consumer Defensive（宝洁 / 可口可乐 / 百事 / 沃尔玛 / 好市多 / 菲利普莫里斯 / 高露洁 / 亿滋 / 克罗格 / 塔吉特）、Communication Services（Meta / 网飞 / 迪士尼 / 康卡斯特 / AT&T）、Industrials（波音 / 卡特彼勒 / 霍尼韦尔 / 联合太平洋 / 通用电气 / 洛克希德马丁 / RTX / 迪尔 / 摩托罗拉）、Financial Services（摩根大通 / 高盛 / 摩根士丹利 / 美国银行 / 维萨 / 万事达 / 贝莱德 / 伯克希尔）、Energy（埃克森美孚 / 雪佛龙 / 康菲石油 / 斯伦贝谢 / 马拉松石油 / 瓦莱罗）、Utilities（杜克能源 / 南方电力 / 下一时代能源 / 道明尼能源）、Materials（林德 / 空气化工 / 自由港 / 纽蒙特 / 陶氏 / 杜邦）、Real Estate（普洛斯 / 美国电塔 / 皇冠城堡 / 西蒙地产）、Healthcare（联合健康 / 强生 / 辉瑞 / 礼来 / 艾伯维 / 默克 / 赛默飞 / 雅培）。每家公司常常有 2-3 个常见中文别名（"苹果" / "苹果公司"、"摩根大通" 单条、"默克" / "默沙东"），都列入。
 - 验证：本地 mock backend 单测覆盖：`苹果` / `微软` / `Apple`（passthrough）/ `AAPL`（ticker）/ 未知公司 / 错年份的 error 仍带 available_years，全部通过。
 - 行为不变：英文输入完全不受影响；ticker 输入完全不受影响。仅当 input 命中中文 alias 表时才走翻译路径。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`3d41ab7`
 
 ### 45) Agent ReAct 升级 batch 2：chat_agent ReAct loop + main.py 接线
 - AGENT_UPGRADE_PLAN.md Step 3 + Step 4 落地。chat agent 从 router_v2 切换到 react_v1：LLM 走 Bedrock Converse `toolUse` loop 自主调最多 6 次工具，单次工具结果截 16K 字符，总 context 400K 字符（~100K token）兜底。
