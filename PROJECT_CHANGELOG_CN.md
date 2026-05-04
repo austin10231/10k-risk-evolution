@@ -389,6 +389,24 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 38) Risk Pulse filter row 收紧 + heatmap 链接改到 records tab
+- 收紧 filter row：删 `Show empty year columns` / `Compact` 复选框 + `Refresh` 按钮（自动刷新已由 `DASHBOARD_CACHE_TTL_MS=5min` 缓存 TTL + ensure-priority 后台 load 兜底）。
+- heatmap 永远走 compact 渲染：移除 `compactView` / `showAllYears` 两个 state + 对应的 localStorage 持久化字段；`effectiveYears` 派生不再依赖 toggle，永远按当前 paged viewport 收敛；cell render 拆掉 compact-vs-default 的二选一分支，永远使用 `.rl-heatmap-cell-compact`。
+- `heatPageSize` 默认从 10 提升到 40（compact 行高下一屏依然容得下），page size options `[10, 20, 40, 80]`。
+- 状态栏文字保留 sort 提示与"Year columns without data on this page are hidden"说明，删掉条件分支后改为常驻提示。
+- localStorage prefs 简化：`rl.dashboard.pulsePrefs.v1` 现在只存 `sortMode`，旧字段（`compactView`/`showAllYears`）会被覆盖丢弃，无需手动迁移。
+- CSS（`frontend/src/index.css`）：移除不再使用的 `.rl-heatmap-toggle-cell` + `.rl-heatmap-filter-cell--action` 规则；保留 `.rl-heatmap-filter-cell` / `--narrow` / `.rl-heatmap-cell-compact`；旧的 `.rl-heatmap-filter-grid` 规则继续保留待 grep 取证。
+- heatmap cell 点击跳转改成新路由：`/library?record_id=…` → `/upload?tab=records&record_id=…`（用户已弃用 LibraryPage，records 真实入口在 UploadPage 的 records tab）。
+- `frontend/src/pages/UploadPage.jsx`：mount 阶段解析 `window.location.search`：
+  - `?tab=records` → 自动 `setTab('records')`
+  - `?record_id=<rid>` → `setSelectedId(rid)` + 把 rid 作为 `preferRid` 传给 `refreshRecords`，等 records 拉回后查匹配 record 的 `company` 字段，自动 `setSelectedCompanyKey(company.toLowerCase())` 让对应公司组展开，cancellation flag 防 race。
+  - URL 异常（malformed querystring）try/catch 兜底 fallback 到默认 ingest tab。
+- 验证：`npm --prefix frontend run build` 通过（54 modules / 157.41 KB CSS / 389.50 KB JS / 789ms）；grep 确认 DashboardPage 内已无 `compactView`/`showAllYears`/`/library?` 残留；CSS 内已无 `.rl-heatmap-toggle-cell`。
+- 行为变化：
+  - 用户感知：filter 仅剩 5 个控件（Search / Industry / Sort / Rows / Page），整体高度比 entry 37 再矮一截；不再需要 Compact 开关，默认就是紧凑模式；不再需要手动 Refresh。
+  - 跳转感知：从 dashboard 点击 cell 不会再去 LibraryPage，直接落在 UploadPage 的 records tab 上、对应公司组自动展开、目标 record 高亮选中。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 37) Dashboard Risk Pulse 三层布局重构 + 删除 5 个已完成 plan 文件
 - 落地 `DASHBOARD_REDESIGN_PLAN.md` 全部改动。Risk Pulse Tab 从"左 1.75fr 热力图 + 右 1fr 多块拼接"改成单 panel 三层结构：
   - **顶部双栏 header**：左 `1fr` 是 Priority Heatmap 标题 + How to read quickly 灰色框；右 `320px` 是 Priority Mix（H/M/L 三色卡）合并 Scope Snapshot（Avg RPI / Rows with priority），与左半顶部对齐。

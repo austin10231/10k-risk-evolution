@@ -10,9 +10,8 @@ const dashboardSummaryCache = {
   inFlight: null,
 }
 
-// localStorage key for the three Risk Pulse view preferences:
-// compactView (smaller row), showAllYears (lock all years visible),
-// sortMode ('rpi' | 'name'). Read once at mount, write on every change.
+// localStorage key for the Risk Pulse view preference (currently only
+// `sortMode` — 'rpi' | 'name'). Read once at mount, write on every change.
 const PULSE_PREFS_KEY = 'rl.dashboard.pulsePrefs.v1'
 
 function _readPulsePrefs() {
@@ -91,30 +90,23 @@ export default function DashboardPage() {
   const [industry, setIndustry] = useState('All Industries')
   const [selectedCategory, setSelectedCategory] = useState('')
   const [heatSearch, setHeatSearch] = useState('')
-  const [heatPageSize, setHeatPageSize] = useState(10)
+  const [heatPageSize, setHeatPageSize] = useState(40)
   const [heatPage, setHeatPage] = useState(1)
   const [hoverPopup, setHoverPopup] = useState(null)
   const [stockCache, setStockCache] = useState({})
 
-  // Risk Pulse view preferences (DASHBOARD_REDESIGN_PLAN §3.3-3.5).
-  const [compactView, setCompactView] = useState(() => Boolean(_readPulsePrefs().compactView))
-  const [showAllYears, setShowAllYears] = useState(() => Boolean(_readPulsePrefs().showAllYears))
+  // Risk Pulse view preference — only `sortMode` is user-tweakable now.
+  // Heatmap renders compact by default, year columns always collapse to the
+  // current paged viewport; refresh runs implicitly via the dashboard cache
+  // TTL + ensure-priority background load.
   const [sortMode, setSortMode] = useState(() => {
     const v = _readPulsePrefs().sortMode
     return v === 'name' ? 'name' : 'rpi'
   })
 
   useEffect(() => {
-    _writePulsePrefs({ compactView, showAllYears, sortMode })
-  }, [compactView, showAllYears, sortMode])
-
-  // When the user enables compact view we widen the default page size so the
-  // tighter rows actually deliver more visible companies per screen.
-  useEffect(() => {
-    if (compactView && heatPageSize <= 14) setHeatPageSize(40)
-    // intentionally no else-branch — leaving compact mode keeps the user's chosen size
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compactView])
+    _writePulsePrefs({ sortMode })
+  }, [sortMode])
 
   useSlidingTabIndicator(tabsRef, [activeTab])
 
@@ -312,17 +304,16 @@ export default function DashboardPage() {
     return `${start + 1}-${end}`
   }, [filteredCompanies.length, heatPage, heatPageSize])
 
-  // Effective year columns — when showAllYears is off, hide year columns
-  // where no company on the current page has data. Avoids the "2020 mostly
-  // —" wall when a single legacy filing forces the column on for everyone.
+  // Effective year columns — hide year columns where no company on the
+  // current page has data. Avoids the "2020 mostly —" wall when a single
+  // legacy filing forces the column on for the other 75 companies.
   const effectiveYears = useMemo(() => {
-    if (showAllYears) return yearsOrdered
     if (!pagedCompanies.length || !heatCellMap.size) return yearsOrdered
     const filtered = yearsOrdered.filter((y) => pagedCompanies.some((c) => heatCellMap.has(`${c}__${y}`)))
     // Defensive: if the viewport has no data at all, fall back to full year list
     // so the empty-state message has something to anchor to.
     return filtered.length ? filtered : yearsOrdered
-  }, [yearsOrdered, pagedCompanies, heatCellMap, showAllYears])
+  }, [yearsOrdered, pagedCompanies, heatCellMap])
 
   useEffect(() => {
     const options = categoryCounts.map((x) => String(x.category || '').trim()).filter(Boolean)
@@ -511,26 +502,12 @@ export default function DashboardPage() {
                     ))}
                   </select>
                 </label>
-
-                <label className="rl-heatmap-toggle-cell">
-                  <input type="checkbox" checked={compactView} onChange={(e) => setCompactView(e.target.checked)} />
-                  <span>Compact</span>
-                </label>
-
-                <label className="rl-heatmap-toggle-cell" title="Lock all year columns visible even when the current page has no data for them.">
-                  <input type="checkbox" checked={showAllYears} onChange={(e) => setShowAllYears(e.target.checked)} />
-                  <span>Show empty year columns</span>
-                </label>
-
-                <button className="btn-secondary rl-heatmap-filter-cell--action" onClick={() => load({ force: true })} disabled={loading}>
-                  {loading ? 'Refreshing…' : 'Refresh'}
-                </button>
               </div>
 
               <p className="mt-2 text-xs font-semibold text-slate-600">
                 Showing {heatRangeLabel} / {filteredCompanies.length}
                 {sortMode === 'rpi' ? <span className="ml-2 text-slate-500">· Sorted by RPI (high → low); unscored companies fall to the bottom.</span> : null}
-                {!showAllYears ? <span className="ml-2 text-slate-500">· Year columns without data on this page are hidden.</span> : null}
+                <span className="ml-2 text-slate-500">· Year columns without data on this page are hidden.</span>
               </p>
 
               {/* Bottom stripe — full-width heatmap table */}
@@ -543,9 +520,9 @@ export default function DashboardPage() {
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr>
-                        <th className={`w-48 ${compactView ? 'py-1 pr-2' : 'py-2 pr-3'} text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500`}>Company</th>
+                        <th className="w-48 py-1 pr-2 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Company</th>
                         {effectiveYears.map((y) => (
-                          <th key={y} className={`${compactView ? 'py-1 px-1' : 'py-2 px-1'} text-center text-xs font-bold uppercase tracking-[0.08em] text-slate-500`}>
+                          <th key={y} className="py-1 px-1 text-center text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
                             {y}
                           </th>
                         ))}
@@ -554,7 +531,7 @@ export default function DashboardPage() {
                     <tbody>
                       {pagedCompanies.map((c) => (
                         <tr key={c} className="border-t border-slate-100/80">
-                          <td className={`${compactView ? 'py-1 pr-2' : 'py-2 pr-3'} font-semibold text-slate-800`}>{c}</td>
+                          <td className="py-1 pr-2 font-semibold text-slate-800">{c}</td>
                           {effectiveYears.map((y) => {
                             const cell = heatCellMap.get(`${c}__${y}`)
                             const total = safeNumber(cell?.total)
@@ -565,36 +542,22 @@ export default function DashboardPage() {
                             const isUnscored = cell && (rpi === null || rpi === undefined)
                             const display = isUnscored ? '—' : Number(rpi).toFixed(0)
 
-                            const linkClass = compactView
-                              ? 'rl-heatmap-cell-compact'
-                              : 'mx-auto flex h-11 w-[78px] flex-col items-center justify-center rounded-lg border border-white/70 text-[10px] font-bold text-slate-800 transition-transform hover:scale-[1.03]'
-                            const emptyClass = compactView
-                              ? 'rl-heatmap-cell-compact rl-heatmap-cell-compact--empty'
-                              : 'mx-auto flex h-11 w-[78px] items-center justify-center rounded-lg border border-slate-200/70 bg-slate-100/70 text-[10px] font-semibold text-slate-400'
-
                             return (
-                              <td key={`${c}-${y}`} className={compactView ? 'py-1 px-1' : 'py-2 px-1'}>
+                              <td key={`${c}-${y}`} className="py-1 px-1">
                                 {cell ? (
                                   <a
-                                    href={`/library?record_id=${encodeURIComponent(cell.record_id || '')}`}
+                                    href={`/upload?tab=records&record_id=${encodeURIComponent(cell.record_id || '')}`}
                                     onMouseEnter={(e) => setHoverPopup({ cell, x: e.clientX, y: e.clientY })}
                                     onMouseMove={(e) => setHoverPopup((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev))}
                                     onMouseLeave={() => setHoverPopup(null)}
                                     title={isUnscored ? 'Risk scoring unavailable for this filing' : undefined}
-                                    className={linkClass}
+                                    className="rl-heatmap-cell-compact"
                                     style={{ backgroundColor: bg }}
                                   >
-                                    {compactView ? (
-                                      <span className="text-[12px] font-black leading-none">{display}</span>
-                                    ) : (
-                                      <>
-                                        <span className="text-[9px] font-black tracking-[0.04em]">RPI</span>
-                                        <span className="mt-[2px] text-[13px] leading-none font-black">{display}</span>
-                                      </>
-                                    )}
+                                    <span className="text-[12px] font-black leading-none">{display}</span>
                                   </a>
                                 ) : (
-                                  <div className={emptyClass}>—</div>
+                                  <div className="rl-heatmap-cell-compact rl-heatmap-cell-compact--empty">—</div>
                                 )}
                               </td>
                             )

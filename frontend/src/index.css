@@ -7413,32 +7413,7 @@ select.input {
   flex: 0 1 110px;
 }
 
-.rl-heatmap-filter-cell--action {
-  flex: 0 0 auto;
-  align-self: stretch;
-  margin-top: 1.4rem;
-}
-
-.rl-heatmap-toggle-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex: 0 0 auto;
-  align-self: stretch;
-  padding: 0 0.4rem;
-  margin-top: 1.4rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #475569;
-  cursor: pointer;
-  user-select: none;
-}
-
-.rl-heatmap-toggle-cell input {
-  accent-color: #2563eb;
-}
-
-/* Compact heatmap cell — ~28px tall vs the default ~44px */
+/* Compact heatmap cell — ~28px tall (heatmap is now compact-only) */
 .rl-heatmap-cell-compact {
   margin: 0 auto;
   display: flex;

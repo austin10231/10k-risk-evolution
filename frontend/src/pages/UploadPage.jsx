@@ -193,7 +193,35 @@ export default function UploadPage() {
   }
 
   useEffect(() => {
-    refreshRecords()
+    // Honor `?tab=records&record_id=…` deep links (e.g. from the Dashboard
+    // heatmap). When a record_id is present, force the records tab open,
+    // hand the id to refreshRecords as the selected row, and once records
+    // come back expand the matching company group.
+    let preferRid = ''
+    let cancelled = false
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search || '')
+        const t = String(params.get('tab') || '').toLowerCase()
+        const rid = String(params.get('record_id') || '').trim()
+        if (t === 'records' || rid) setTab('records')
+        if (rid) {
+          preferRid = rid
+          setSelectedId(rid)
+        }
+      } catch {
+        // Malformed URL — fall through to default tab.
+      }
+    }
+    refreshRecords(preferRid).then((items) => {
+      if (cancelled || !preferRid || !Array.isArray(items)) return
+      const match = items.find((r) => String(r?.record_id || '') === preferRid)
+      const companyKey = match?.company ? String(match.company).toLowerCase() : ''
+      if (companyKey) setSelectedCompanyKey(companyKey)
+    })
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
