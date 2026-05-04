@@ -389,6 +389,28 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 41) Upload "How risk scoring works" 改成折叠 hint（B 方案）
+- 用户反馈 entry 39 的靛蓝 stepper info card 视觉太重。改成折叠式 disclosure：
+  - 默认状态：单行 muted 灰字 `ⓘ How risk scoring works ▸`，slate-50 浅底 + slate-200 浅边框，几乎跟周围背景融为一体。
+  - 展开后：原来的 3 步内容（Extract / Score 3 dimensions / See on Dashboard）保持不变。
+- 首次访问 UX：localStorage key `rl.upload.scoringHintSeen.v1`——首次进 ingest tab 默认展开（让新用户先看一遍），用户点击折叠后 / 任何 toggle 触发后写入 seen 标记，后续访问保持折叠。
+- 实现：`<section className="rl-pipeline-card">` → `<details className="rl-pipeline-hint" open={...} onToggle={...}>`，原生 disclosure 元素，零额外 dep。
+- `frontend/src/pages/UploadPage.jsx`：
+  - 加 `SCORING_HINT_SEEN_KEY` 模块级常量。
+  - 加 `scoringHintOpen` state（lazy init 从 localStorage 读）+ `handleScoringHintToggle` 处理函数（写 localStorage + 同步 React state）。
+  - JSX 替换：用 `<details>`/`<summary>` 包住原 3 步内容，summary 显示 `ⓘ How risk scoring works`。
+- `frontend/src/index.css`：
+  - 移除 `.rl-pipeline-card` / `-head` / `-icon` / `-title` 这 4 个靛蓝色重视觉规则。
+  - 新增 `.rl-pipeline-hint` 系列：slate-200/80 浅边框 + slate-50/45 浅底 + summary 处理（隐藏原生 `▼` marker、用 `::after ▸` + rotate(90deg) 旋转动画、hover 加深颜色）。
+  - 保留所有 `.rl-pipeline-step*` 步骤本身样式（包括 ≥1024px 横排 + < 1024px 竖排 + 箭头），只换包装容器。
+  - 顶部块注释更新到 entry 41，旧"3-step pipeline card"描述废止。
+- 验证：`npm --prefix frontend run build` 通过（54 modules / 159.39 KB CSS / 391.46 KB JS / 805ms）；grep 确认 `rl-pipeline-card` 在 src 内零引用。
+- 行为变化：
+  - 老用户（已 seen）：进 ingest tab 只看到一行小灰字，几乎无视觉干扰；想了解就点开。
+  - 新用户：第一次访问展开一次让你先扫一眼内容，关掉后下次默认折叠。
+  - 多设备 / 隐私模式：localStorage 失败兜底到默认折叠（避免重复展开打扰）。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 40) Risk Pulse filter 改回横排单行（左栏 how-to-read 下方）
 - 用户反馈 entry 39 的"5 行竖排"占太多左栏空间——改回横排单行，但保持 entry 39 的"filter 在左栏 how-to-read 下方"位置不变。
 - `frontend/src/pages/DashboardPage.jsx`：把 `<div className="rl-heatmap-filter-stack">`（竖排容器）改成 `<div className="rl-heatmap-filter-bar">`（横排）；Search cell 加 `--wide` 修饰、Rows/Page + Page cell 加 `--narrow` 修饰，让宽窄不一致以挤进单行。短化 label 字面：

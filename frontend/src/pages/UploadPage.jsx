@@ -6,6 +6,8 @@ import GlobalConfigInlineEditor from '../components/GlobalConfigInlineEditor'
 import { companyOverview, groupedRiskTitles, riskCategoryCount, riskItemCount } from '../lib/records'
 import useSlidingTabIndicator from '../lib/useSlidingTabIndicator'
 
+const SCORING_HINT_SEEN_KEY = 'rl.upload.scoringHintSeen.v1'
+
 const YEARS = Array.from({ length: 16 }, (_, i) => String(2025 - i))
 const INDUSTRIES = [
   'Technology',
@@ -142,6 +144,29 @@ export default function UploadPage() {
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  // "How risk scoring works" hint — default open on first visit, collapsed
+  // afterwards once the user has seen it (or actively closed it). Stored
+  // under localStorage key SCORING_HINT_SEEN_KEY.
+  const [scoringHintOpen, setScoringHintOpen] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      return !window.localStorage.getItem(SCORING_HINT_SEEN_KEY)
+    } catch {
+      return false
+    }
+  })
+
+  const handleScoringHintToggle = (e) => {
+    const next = Boolean(e?.target?.open)
+    setScoringHintOpen(next)
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(SCORING_HINT_SEEN_KEY, '1')
+    } catch {
+      // SSR / private mode / quota — safe to ignore.
+    }
+  }
 
   const [search, setSearch] = useState('')
   const [company, setCompany] = useState('')
@@ -464,11 +489,15 @@ export default function UploadPage() {
       </section>
 
       {tab === 'ingest' ? (
-        <section className="rl-pipeline-card">
-          <div className="rl-pipeline-card-head">
-            <span className="rl-pipeline-card-icon" aria-hidden="true">ⓘ</span>
-            <p className="rl-pipeline-card-title">How risk scoring works</p>
-          </div>
+        <details
+          className="rl-pipeline-hint"
+          open={scoringHintOpen}
+          onToggle={handleScoringHintToggle}
+        >
+          <summary className="rl-pipeline-hint-summary">
+            <span className="rl-pipeline-hint-icon" aria-hidden="true">ⓘ</span>
+            <span className="rl-pipeline-hint-label">How risk scoring works</span>
+          </summary>
           <div className="rl-pipeline-steps">
             <div className="rl-pipeline-step">
               <span className="rl-pipeline-step-num">1</span>
@@ -488,7 +517,7 @@ export default function UploadPage() {
               <p className="rl-pipeline-step-body">Aggregated into RPI (Risk Priority Index, 0-100) per filing.</p>
             </div>
           </div>
-        </section>
+        </details>
       ) : null}
 
       {tab === 'ingest' ? (

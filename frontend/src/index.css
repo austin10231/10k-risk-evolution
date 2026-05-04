@@ -7466,47 +7466,70 @@ select.input {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Upload page — "How risk scoring works" 3-step pipeline card
- * (changelog entry 39)
+ * Upload page — "How risk scoring works" collapsible hint
+ * (changelog entry 41)
  *
- * Subtle indigo-accented info card placed above the manual / auto fetch
- * forms so users learn the extraction → scoring → dashboard pipeline
- * before they upload. Steps stack vertically below the xl breakpoint.
+ * Replaces the bold indigo card from entry 39 with a low-contrast
+ * <details>/<summary> disclosure: a single muted line until the user
+ * clicks; then expands to reveal the 3-step pipeline. First-time visitors
+ * see it open by default (driven by localStorage SCORING_HINT_SEEN_KEY in
+ * UploadPage.jsx); afterwards stays collapsed.
  * ────────────────────────────────────────────────────────────────────── */
 
-.rl-pipeline-card {
-  border: 1px solid rgba(165, 180, 252, 0.7);   /* indigo-200/70 */
-  background: rgba(238, 242, 255, 0.55);        /* indigo-50/55 */
-  border-radius: 0.75rem;
-  padding: 0.85rem 1rem;
+.rl-pipeline-hint {
+  border: 1px solid rgba(226, 232, 240, 0.8);   /* slate-200/80 */
+  background: rgba(248, 250, 252, 0.45);        /* slate-50/45 */
+  border-radius: 0.55rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.78rem;
+  color: #475569;                                /* slate-600 */
 }
 
-.rl-pipeline-card-head {
+.rl-pipeline-hint[open] {
+  padding-bottom: 0.7rem;
+}
+
+.rl-pipeline-hint-summary {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 0.6rem;
+  gap: 0.4rem;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: #64748b;                                /* slate-500 */
 }
 
-.rl-pipeline-card-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 9999px;
-  background: rgba(99, 102, 241, 0.18);          /* indigo-500/18 */
-  color: #4338ca;                                /* indigo-700 */
+.rl-pipeline-hint-summary::-webkit-details-marker { display: none; }
+.rl-pipeline-hint-summary::marker { content: ''; }
+
+.rl-pipeline-hint-summary::after {
+  content: '▸';
+  margin-left: auto;
+  color: #94a3b8;                                /* slate-400 */
+  font-size: 0.7rem;
+  transition: transform 150ms ease;
+}
+
+.rl-pipeline-hint[open] .rl-pipeline-hint-summary::after {
+  transform: rotate(90deg);
+}
+
+.rl-pipeline-hint-summary:hover { color: #334155; }    /* slate-700 */
+.rl-pipeline-hint-summary:hover::after { color: #64748b; }
+
+.rl-pipeline-hint-icon {
   font-size: 0.85rem;
-  font-weight: 700;
+  color: #94a3b8;                                /* slate-400 */
+  line-height: 1;
 }
 
-.rl-pipeline-card-title {
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #3730a3;                                /* indigo-800 */
+.rl-pipeline-hint-label {
+  flex: 0 1 auto;
+}
+
+.rl-pipeline-hint .rl-pipeline-steps {
+  margin-top: 0.7rem;
 }
 
 .rl-pipeline-steps {
