@@ -404,7 +404,7 @@
   - `serialize_tool_result(payload, max_chars=16000)` helper 负责把 handler 输出包成 Converse 的 `toolResult.content` 块，超长截断到 16000 字符 ≈ 4000 token（plan §6 guardrail）。
 - 验证：`python -c "from agent_tools import ..."` 6 个 handler 全部可调用、TOOL_SPECS 6 条齐全、serialize_tool_result 三种 case（success / error / truncated）均符合预期。
 - 后续：batch 2 会写 `chat_agent.run_chat_agent` 的 ReAct loop + `_agent_query` 接线；同时跑一个 probe 脚本验 `us.deepseek.v3.2-v1:0` 是否真的支持 Converse `toolConfig.toolChoice.auto`，结果决定 orchestrator 模型选 DeepSeek 还是降级到 Nova Pro。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`86a143a`
 
 ### 41) Upload "How risk scoring works" 改成折叠 hint（B 方案）
 - 用户反馈 entry 39 的靛蓝 stepper info card 视觉太重。改成折叠式 disclosure：
