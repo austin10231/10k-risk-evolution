@@ -389,6 +389,29 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 37) Dashboard Risk Pulse 三层布局重构 + 删除 5 个已完成 plan 文件
+- 落地 `DASHBOARD_REDESIGN_PLAN.md` 全部改动。Risk Pulse Tab 从"左 1.75fr 热力图 + 右 1fr 多块拼接"改成单 panel 三层结构：
+  - **顶部双栏 header**：左 `1fr` 是 Priority Heatmap 标题 + How to read quickly 灰色框；右 `320px` 是 Priority Mix（H/M/L 三色卡）合并 Scope Snapshot（Avg RPI / Rows with priority），与左半顶部对齐。
+  - **中部单行 filter row**：Search / Industry Group / Sort / Rows / Page / Compact toggle / Show empty year columns toggle / Refresh，全部 flex 一行（`flex-wrap` 兜底窄屏自动 wrap）。
+  - **底部全宽 heatmap 表格**：不再被右栏挤压，整张表占满 panel 内宽度。
+- 删除项：
+  - 右栏 `Recent Filings` 整段 + `recent` useMemo（之前依赖 `data.recent_records`，本次重构后不再展示）。
+  - 旧的 `rl-heatmap-filter-grid` 5 列 grid（CSS 规则保留以防别处引用，JSX 不再使用）。
+- 新增 state（`frontend/src/pages/DashboardPage.jsx`）：
+  - `compactView`（bool, 默认 false）：紧凑视图，cell 高度 44px → ~28px、宽度 78px → ~56px、隐藏 "RPI" label，行 padding 减半。开启时 `heatPageSize` 自动从 ≤14 升到 40，一屏可见公司数 ≈ 翻倍。
+  - `showAllYears`（bool, 默认 false）：年份列默认按当前 paged viewport 收敛——若 paged 公司里没有任意一家有 2020 数据，2020 列自动隐藏；翻页到含 2020 数据的公司时 2020 列自动出现。开启 toggle 后锁定显示全部年份。
+  - `sortMode`（`'rpi'`/`'name'`，默认 `'rpi'`）：默认沿用后端 `priority_heatmap.companies` 的 max RPI DESC 排序（`agentcore_deploy/main.py:_dashboard_summary` L2023-2027），未评分公司落底；切到 `name` 时本地按字母重排。
+  - 三个偏好通过 `localStorage` key `rl.dashboard.pulsePrefs.v1` 持久化，刷新页面记住选择；SSR / private mode / quota 失败安全降级。
+- 新增 useMemo：
+  - `sortedCompanies`：替代旧的 `companiesOrdered`，根据 `sortMode` 切换。
+  - `effectiveYears`：基于 `pagedCompanies + heatCellMap` 派生，过滤掉视野内无数据的年份；`showAllYears` 开启时直接返回 `yearsOrdered`；空 viewport 兜底返回全量年份避免空状态。
+- 行号变化（DashboardPage.jsx）：因布局重写顶部 stripe 改用 `xl:grid-cols-[1fr_320px]` + 中部 `rl-heatmap-filter-row` + 底部表格；page-size options 从 `[8, 10, 14, 20]` 扩到 `[10, 20, 40, 80]`；`pagedCompanies` 之后新增 `effectiveYears` useMemo；thead/tbody 全部用 `effectiveYears` 替代 `yearsOrdered`；cell 渲染按 `compactView` 切换 `linkClass`/`emptyClass`/`tdClass` 三套 className；状态栏新加两条说明（"Sorted by RPI..." / "Year columns without data on this page are hidden."）。
+- CSS 追加（`frontend/src/index.css` 末尾）：`.rl-heatmap-priority-side`（右栏 `align-self: start`）、`.rl-heatmap-filter-row` + `.rl-heatmap-filter-cell` + `--narrow` + `--action`、`.rl-heatmap-toggle-cell`、`.rl-heatmap-cell-compact` + `--empty`。旧的 `.rl-heatmap-filter-grid` 规则**保留**，JSX 已不再使用，留作未来 grep 时的参考。
+- 删除 5 份已完成的 plan：`RPI_OPTIMIZATION_PLAN.md`（落到 entry 26-28）、`CATEGORY_OPTIMIZATION_PLAN.md`（entry 25 + 31）、`S3_PLAN.md`（entry 29 + 30）、`EXTRACTION_FIX_PLAN.md`（entry 31）、`UPLOAD_OPTIMIZATION_PLAN.md`（entry 19-24）。`PLAN.md` / `DASHBOARD_REDESIGN_PLAN.md` / `AGENTS.md` / `agent.md` / `README.md` / `PROJECT_CHANGELOG_CN.md` 保留。
+- 验证：`npm --prefix frontend run build` 通过（54 modules, 158.79 KB CSS / 390.40 KB JS）；grep 确认 `recent` / `companiesOrdered` / `yearsOrdered.map` 旧符号已无残留；不动后端、不动数据契约、不动 Category Intelligence Tab。
+- 行为变化（用户可感知）：Risk Pulse Tab 整张图占满中央，filter 不再挤五行，76 家公司在 compact 模式下 1 屏可见 ≥25 家（4K 屏更多），2020 列在多数页面自动消失，含 2020 数据的页面会自动恢复显示；偏好刷新页面后保留。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 36) rescore_agent_priority.py：Nova Pro 截断 JSON 容错（修复 + 重试 + 原始日志）
 - 现象：跑 Apple 2020 时 Nova Pro 偶发返回截断 JSON（`Unterminated string` / `Expecting value`），脚本直接 fail 整批 record。
 - 改法：在 `_invoke_extraction` 之上加一层 `_invoke_with_json_retry`，两个 LLM 调用点（`_score_one_batch` 批量评分、`_generate_agent_report` 报告生成）都改走它。

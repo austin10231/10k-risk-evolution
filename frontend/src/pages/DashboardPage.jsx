@@ -10,6 +10,30 @@ const dashboardSummaryCache = {
   inFlight: null,
 }
 
+// localStorage key for the three Risk Pulse view preferences:
+// compactView (smaller row), showAllYears (lock all years visible),
+// sortMode ('rpi' | 'name'). Read once at mount, write on every change.
+const PULSE_PREFS_KEY = 'rl.dashboard.pulsePrefs.v1'
+
+function _readPulsePrefs() {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(PULSE_PREFS_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function _writePulsePrefs(prefs) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(PULSE_PREFS_KEY, JSON.stringify(prefs))
+  } catch {
+    // SSR / private mode / quota — safe to ignore.
+  }
+}
+
 const TABS = [
   { key: 'pulse', label: 'Risk Pulse' },
   { key: 'category', label: 'Category Intelligence' },
@@ -71,6 +95,26 @@ export default function DashboardPage() {
   const [heatPage, setHeatPage] = useState(1)
   const [hoverPopup, setHoverPopup] = useState(null)
   const [stockCache, setStockCache] = useState({})
+
+  // Risk Pulse view preferences (DASHBOARD_REDESIGN_PLAN §3.3-3.5).
+  const [compactView, setCompactView] = useState(() => Boolean(_readPulsePrefs().compactView))
+  const [showAllYears, setShowAllYears] = useState(() => Boolean(_readPulsePrefs().showAllYears))
+  const [sortMode, setSortMode] = useState(() => {
+    const v = _readPulsePrefs().sortMode
+    return v === 'name' ? 'name' : 'rpi'
+  })
+
+  useEffect(() => {
+    _writePulsePrefs({ compactView, showAllYears, sortMode })
+  }, [compactView, showAllYears, sortMode])
+
+  // When the user enables compact view we widen the default page size so the
+  // tighter rows actually deliver more visible companies per screen.
+  useEffect(() => {
+    if (compactView && heatPageSize <= 14) setHeatPageSize(40)
+    // intentionally no else-branch — leaving compact mode keeps the user's chosen size
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compactView])
 
   useSlidingTabIndicator(tabsRef, [activeTab])
 
@@ -188,12 +232,6 @@ export default function DashboardPage() {
   const categoryYearly = scopeData?.category_yearly || []
   const yearlyRecords = scopeData?.yearly_records || []
 
-  const recent = useMemo(() => {
-    const rows = Array.isArray(data?.recent_records) ? data.recent_records : []
-    if (industry === 'All Industries') return rows
-    return rows.filter((r) => String(r.industry || '').trim() === industry)
-  }, [data, industry])
-
   useEffect(() => {
     if (!data || autoEnsuredRef.current || loading) return
     const total = safeNumber(metrics.records)
@@ -219,13 +257,21 @@ export default function DashboardPage() {
     return m
   }, [priorityHeatmap.cells])
 
-  const companiesOrdered = useMemo(() => {
-    const list = Array.isArray(priorityHeatmap.companies) ? priorityHeatmap.companies : []
-    if (list.length > 0) return list
-    return Array.from(
-      new Set((priorityHeatmap.cells || []).map((row) => String(row.company || '').trim()).filter(Boolean)),
-    ).sort((a, b) => a.localeCompare(b))
-  }, [priorityHeatmap.companies, priorityHeatmap.cells])
+  // Backend already orders priority_heatmap.companies by max RPI DESC
+  // (main.py:_dashboard_summary L2023-2027). When sortMode === 'rpi' we
+  // pass that ordering through unchanged; 'name' switches to alphabetical.
+  const sortedCompanies = useMemo(() => {
+    const fromApi = Array.isArray(priorityHeatmap.companies) ? priorityHeatmap.companies : []
+    const base = fromApi.length
+      ? fromApi
+      : Array.from(
+          new Set((priorityHeatmap.cells || []).map((row) => String(row.company || '').trim()).filter(Boolean)),
+        )
+    if (sortMode === 'name') {
+      return [...base].sort((a, b) => a.localeCompare(b))
+    }
+    return base
+  }, [priorityHeatmap.companies, priorityHeatmap.cells, sortMode])
 
   const yearsOrdered = useMemo(() => {
     const list = Array.isArray(priorityHeatmap.years) ? priorityHeatmap.years : []
@@ -235,9 +281,9 @@ export default function DashboardPage() {
 
   const filteredCompanies = useMemo(() => {
     const q = String(heatSearch || '').trim().toLowerCase()
-    if (!q) return companiesOrdered
-    return companiesOrdered.filter((c) => c.toLowerCase().includes(q))
-  }, [companiesOrdered, heatSearch])
+    if (!q) return sortedCompanies
+    return sortedCompanies.filter((c) => c.toLowerCase().includes(q))
+  }, [sortedCompanies, heatSearch])
 
   const totalHeatPages = useMemo(() => {
     const size = Math.max(1, safeNumber(heatPageSize, 10))
@@ -246,7 +292,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setHeatPage(1)
-  }, [heatSearch, heatPageSize, industry])
+  }, [heatSearch, heatPageSize, industry, sortMode])
 
   useEffect(() => {
     if (heatPage > totalHeatPages) setHeatPage(totalHeatPages)
@@ -265,6 +311,18 @@ export default function DashboardPage() {
     const end = Math.min(start + size, filteredCompanies.length)
     return `${start + 1}-${end}`
   }, [filteredCompanies.length, heatPage, heatPageSize])
+
+  // Effective year columns — when showAllYears is off, hide year columns
+  // where no company on the current page has data. Avoids the "2020 mostly
+  // —" wall when a single legacy filing forces the column on for everyone.
+  const effectiveYears = useMemo(() => {
+    if (showAllYears) return yearsOrdered
+    if (!pagedCompanies.length || !heatCellMap.size) return yearsOrdered
+    const filtered = yearsOrdered.filter((y) => pagedCompanies.some((c) => heatCellMap.has(`${c}__${y}`)))
+    // Defensive: if the viewport has no data at all, fall back to full year list
+    // so the empty-state message has something to anchor to.
+    return filtered.length ? filtered : yearsOrdered
+  }, [yearsOrdered, pagedCompanies, heatCellMap, showAllYears])
 
   useEffect(() => {
     const options = categoryCounts.map((x) => String(x.category || '').trim()).filter(Boolean)
@@ -358,73 +416,125 @@ export default function DashboardPage() {
             ))}
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-[1.75fr_1fr]">
+          <section>
             <div className={`${panelClass} p-4`}>
-              <div className="section-headline">
-                <div className="section-rail" />
+              {/* Top stripe — double-column header */}
+              <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
                 <div>
-                  <p className="section-title-strong">Priority Heatmap</p>
-                  <p className="section-sub">Cards display RPI only. Hover a card for company/year risk detail and stock info.</p>
+                  <div className="section-headline">
+                    <div className="section-rail" />
+                    <div>
+                      <p className="section-title-strong">Priority Heatmap</p>
+                      <p className="section-sub">Cards display RPI only. Hover a card for company/year risk detail and stock info.</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
+                    <p className="font-semibold text-slate-700">How to read quickly:</p>
+                    <p className="mt-1">RPI (0-100) is weighted by H/M/L counts. Higher RPI means higher pressure from high-priority risks. "—" indicates a filing whose risks couldn't be scored.</p>
+                    <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
+                      <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#22c55e' }} />Lower pressure</span>
+                      <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#f59e0b' }} />Mid pressure</span>
+                      <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#ef4444' }} />High pressure</span>
+                    </div>
+                  </div>
                 </div>
+
+                <aside className="rl-heatmap-priority-side">
+                  <p className="section-title">Priority Mix</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center text-sm">
+                    <div className="rounded-xl border border-red-200/90 bg-red-50/70 p-2.5">
+                      <p className="font-extrabold text-red-600">High</p>
+                      <p className="mt-0.5 text-base font-extrabold text-red-700">{loading ? '…' : safeNumber(priorityTotals.high)}</p>
+                    </div>
+                    <div className="rounded-xl border border-amber-200/90 bg-amber-50/70 p-2.5">
+                      <p className="font-extrabold text-amber-600">Medium</p>
+                      <p className="mt-0.5 text-base font-extrabold text-amber-700">{loading ? '…' : safeNumber(priorityTotals.medium)}</p>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200/90 bg-emerald-50/70 p-2.5">
+                      <p className="font-extrabold text-emerald-600">Low</p>
+                      <p className="mt-0.5 text-base font-extrabold text-emerald-700">{loading ? '…' : safeNumber(priorityTotals.low)}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Scope Snapshot</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-700">
+                      Average RPI:{' '}
+                      {priorityHeatmap.avg_rpi === null || priorityHeatmap.avg_rpi === undefined
+                        ? '—'
+                        : safeNumber(priorityHeatmap.avg_rpi).toFixed(1)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">Rows with priority data: {safeNumber(metrics.records_with_priority)} / {safeNumber(metrics.records)}</p>
+                  </div>
+                </aside>
               </div>
 
-              <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
-                <p className="font-semibold text-slate-700">How to read quickly:</p>
-                <p className="mt-1">RPI (0-100) is weighted by H/M/L counts. Higher RPI means higher pressure from high-priority risks. "—" indicates a filing whose risks couldn't be scored.</p>
-                <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
-                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#22c55e' }} />Lower pressure</span>
-                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#f59e0b' }} />Mid pressure</span>
-                  <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#ef4444' }} />High pressure</span>
-                </div>
-              </div>
+              {/* Middle stripe — single-row filter bar */}
+              <div className="rl-heatmap-filter-row mt-4">
+                <label className="rl-heatmap-filter-cell">
+                  <span className="section-title">Company Search</span>
+                  <input className="input mt-1" placeholder="Filter companies..." value={heatSearch} onChange={(e) => setHeatSearch(e.target.value)} />
+                </label>
 
-              <div className="rl-heatmap-filter-grid mt-3">
-                <div>
-                  <label className="section-title">Company Search</label>
-                  <input className="input mt-2" placeholder="Filter companies..." value={heatSearch} onChange={(e) => setHeatSearch(e.target.value)} />
-                </div>
-
-                <div>
-                  <label className="section-title">Industry Group</label>
-                  <select className="input mt-2" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                <label className="rl-heatmap-filter-cell">
+                  <span className="section-title">Industry Group</span>
+                  <select className="input mt-1" value={industry} onChange={(e) => setIndustry(e.target.value)}>
                     {industryOptions.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
+                      <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
-                </div>
+                </label>
 
-                <div>
-                  <label className="section-title">Rows / Page</label>
-                  <select className="input mt-2 min-w-[110px]" value={heatPageSize} onChange={(e) => setHeatPageSize(Number(e.target.value) || 10)}>
-                    {[8, 10, 14, 20].map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
+                <label className="rl-heatmap-filter-cell">
+                  <span className="section-title">Sort</span>
+                  <select className="input mt-1" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
+                    <option value="rpi">RPI (high → low)</option>
+                    <option value="name">Company A → Z</option>
+                  </select>
+                </label>
+
+                <label className="rl-heatmap-filter-cell rl-heatmap-filter-cell--narrow">
+                  <span className="section-title">Rows / Page</span>
+                  <select className="input mt-1" value={heatPageSize} onChange={(e) => setHeatPageSize(Number(e.target.value) || 10)}>
+                    {[10, 20, 40, 80].map((n) => (
+                      <option key={n} value={n}>{n}</option>
                     ))}
                   </select>
-                </div>
+                </label>
 
-                <div>
-                  <label className="section-title">Page</label>
-                  <select className="input mt-2 min-w-[95px]" value={heatPage} onChange={(e) => setHeatPage(Number(e.target.value) || 1)}>
+                <label className="rl-heatmap-filter-cell rl-heatmap-filter-cell--narrow">
+                  <span className="section-title">Page</span>
+                  <select className="input mt-1" value={heatPage} onChange={(e) => setHeatPage(Number(e.target.value) || 1)}>
                     {Array.from({ length: totalHeatPages }, (_, i) => i + 1).map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
+                      <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
-                </div>
+                </label>
 
-                <button className="btn-secondary rl-heatmap-refresh-btn" onClick={() => load({ force: true })} disabled={loading}>
+                <label className="rl-heatmap-toggle-cell">
+                  <input type="checkbox" checked={compactView} onChange={(e) => setCompactView(e.target.checked)} />
+                  <span>Compact</span>
+                </label>
+
+                <label className="rl-heatmap-toggle-cell" title="Lock all year columns visible even when the current page has no data for them.">
+                  <input type="checkbox" checked={showAllYears} onChange={(e) => setShowAllYears(e.target.checked)} />
+                  <span>Show empty year columns</span>
+                </label>
+
+                <button className="btn-secondary rl-heatmap-filter-cell--action" onClick={() => load({ force: true })} disabled={loading}>
                   {loading ? 'Refreshing…' : 'Refresh'}
                 </button>
               </div>
 
-              <p className="mt-2 text-xs font-semibold text-slate-600">Showing {heatRangeLabel} / {filteredCompanies.length}</p>
+              <p className="mt-2 text-xs font-semibold text-slate-600">
+                Showing {heatRangeLabel} / {filteredCompanies.length}
+                {sortMode === 'rpi' ? <span className="ml-2 text-slate-500">· Sorted by RPI (high → low); unscored companies fall to the bottom.</span> : null}
+                {!showAllYears ? <span className="ml-2 text-slate-500">· Year columns without data on this page are hidden.</span> : null}
+              </p>
 
-              {pagedCompanies.length === 0 || yearsOrdered.length === 0 ? (
+              {/* Bottom stripe — full-width heatmap table */}
+              {pagedCompanies.length === 0 || effectiveYears.length === 0 ? (
                 <div className="mt-3 rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
                   No priority heatmap data available for the selected scope.
                 </div>
@@ -433,9 +543,9 @@ export default function DashboardPage() {
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr>
-                        <th className="w-48 py-2 pr-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Company</th>
-                        {yearsOrdered.map((y) => (
-                          <th key={y} className="py-2 px-1 text-center text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
+                        <th className={`w-48 ${compactView ? 'py-1 pr-2' : 'py-2 pr-3'} text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500`}>Company</th>
+                        {effectiveYears.map((y) => (
+                          <th key={y} className={`${compactView ? 'py-1 px-1' : 'py-2 px-1'} text-center text-xs font-bold uppercase tracking-[0.08em] text-slate-500`}>
                             {y}
                           </th>
                         ))}
@@ -444,8 +554,8 @@ export default function DashboardPage() {
                     <tbody>
                       {pagedCompanies.map((c) => (
                         <tr key={c} className="border-t border-slate-100/80">
-                          <td className="py-2 pr-3 font-semibold text-slate-800">{c}</td>
-                          {yearsOrdered.map((y) => {
+                          <td className={`${compactView ? 'py-1 pr-2' : 'py-2 pr-3'} font-semibold text-slate-800`}>{c}</td>
+                          {effectiveYears.map((y) => {
                             const cell = heatCellMap.get(`${c}__${y}`)
                             const total = safeNumber(cell?.total)
                             // Keep null/undefined as-is so we can distinguish
@@ -455,8 +565,15 @@ export default function DashboardPage() {
                             const isUnscored = cell && (rpi === null || rpi === undefined)
                             const display = isUnscored ? '—' : Number(rpi).toFixed(0)
 
+                            const linkClass = compactView
+                              ? 'rl-heatmap-cell-compact'
+                              : 'mx-auto flex h-11 w-[78px] flex-col items-center justify-center rounded-lg border border-white/70 text-[10px] font-bold text-slate-800 transition-transform hover:scale-[1.03]'
+                            const emptyClass = compactView
+                              ? 'rl-heatmap-cell-compact rl-heatmap-cell-compact--empty'
+                              : 'mx-auto flex h-11 w-[78px] items-center justify-center rounded-lg border border-slate-200/70 bg-slate-100/70 text-[10px] font-semibold text-slate-400'
+
                             return (
-                              <td key={`${c}-${y}`} className="py-2 px-1">
+                              <td key={`${c}-${y}`} className={compactView ? 'py-1 px-1' : 'py-2 px-1'}>
                                 {cell ? (
                                   <a
                                     href={`/library?record_id=${encodeURIComponent(cell.record_id || '')}`}
@@ -464,14 +581,20 @@ export default function DashboardPage() {
                                     onMouseMove={(e) => setHoverPopup((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev))}
                                     onMouseLeave={() => setHoverPopup(null)}
                                     title={isUnscored ? 'Risk scoring unavailable for this filing' : undefined}
-                                    className="mx-auto flex h-11 w-[78px] flex-col items-center justify-center rounded-lg border border-white/70 text-[10px] font-bold text-slate-800 transition-transform hover:scale-[1.03]"
+                                    className={linkClass}
                                     style={{ backgroundColor: bg }}
                                   >
-                                    <span className="text-[9px] font-black tracking-[0.04em]">RPI</span>
-                                    <span className="mt-[2px] text-[13px] leading-none font-black">{display}</span>
+                                    {compactView ? (
+                                      <span className="text-[12px] font-black leading-none">{display}</span>
+                                    ) : (
+                                      <>
+                                        <span className="text-[9px] font-black tracking-[0.04em]">RPI</span>
+                                        <span className="mt-[2px] text-[13px] leading-none font-black">{display}</span>
+                                      </>
+                                    )}
                                   </a>
                                 ) : (
-                                  <div className="mx-auto flex h-11 w-[78px] items-center justify-center rounded-lg border border-slate-200/70 bg-slate-100/70 text-[10px] font-semibold text-slate-400">—</div>
+                                  <div className={emptyClass}>—</div>
                                 )}
                               </td>
                             )
@@ -482,50 +605,6 @@ export default function DashboardPage() {
                   </table>
                 </div>
               )}
-            </div>
-
-            <div className={`${panelClass} p-4`}>
-              <p className="section-title">Priority Mix</p>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-center text-sm">
-                <div className="rounded-xl border border-red-200/90 bg-red-50/70 p-2.5">
-                  <p className="font-extrabold text-red-600">High</p>
-                  <p className="mt-0.5 text-base font-extrabold text-red-700">{loading ? '…' : safeNumber(priorityTotals.high)}</p>
-                </div>
-                <div className="rounded-xl border border-amber-200/90 bg-amber-50/70 p-2.5">
-                  <p className="font-extrabold text-amber-600">Medium</p>
-                  <p className="mt-0.5 text-base font-extrabold text-amber-700">{loading ? '…' : safeNumber(priorityTotals.medium)}</p>
-                </div>
-                <div className="rounded-xl border border-emerald-200/90 bg-emerald-50/70 p-2.5">
-                  <p className="font-extrabold text-emerald-600">Low</p>
-                  <p className="mt-0.5 text-base font-extrabold text-emerald-700">{loading ? '…' : safeNumber(priorityTotals.low)}</p>
-                </div>
-              </div>
-
-              <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
-                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Scope Snapshot</p>
-                <p className="mt-1 text-sm font-semibold text-slate-700">
-                  Average RPI:{' '}
-                  {priorityHeatmap.avg_rpi === null || priorityHeatmap.avg_rpi === undefined
-                    ? '—'
-                    : safeNumber(priorityHeatmap.avg_rpi).toFixed(1)}
-                </p>
-                <p className="mt-1 text-sm text-slate-600">Rows with priority data: {safeNumber(metrics.records_with_priority)} / {safeNumber(metrics.records)}</p>
-              </div>
-
-              <div className="mt-3 rounded-xl border border-slate-200/70 bg-slate-100/55 p-2.5">
-                <p className="section-title">Recent Filings</p>
-                <div className="mt-1.5 space-y-1.5">
-                  {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-                  {!loading && recent.length === 0 ? <p className="text-sm text-slate-500">No records in this scope.</p> : null}
-                  {!loading &&
-                    recent.slice(0, 5).map((r) => (
-                      <div key={r.record_id} className="rounded-xl border border-slate-200/85 bg-slate-50/85 px-3 py-2">
-                        <p className="text-sm font-semibold text-slate-800">{r.company} · {r.year}</p>
-                        <p className="mt-1 text-xs text-slate-500">{r.industry || '—'} · {safeNumber(r.risk_items)} risk items</p>
-                      </div>
-                    ))}
-                </div>
-              </div>
             </div>
           </section>
         </>

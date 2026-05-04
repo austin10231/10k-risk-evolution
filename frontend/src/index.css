@@ -7372,3 +7372,94 @@ select.input {
     grid-template-columns: 1fr;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Dashboard / Risk Pulse — three-layer redesign
+ * (DASHBOARD_REDESIGN_PLAN.md, changelog entry 37)
+ *
+ * Layer 1: top double-column header (left = headline + how-to-read,
+ *          right = Priority Mix + Scope Snapshot)
+ * Layer 2: single-row filter (search / industry / sort / rows / page /
+ *          compact toggle / show-all-years toggle / refresh)
+ * Layer 3: full-width heatmap table
+ *
+ * The legacy `.rl-heatmap-filter-grid` rule above (~L2607) is intentionally
+ * kept untouched in case any other view still mounts it; the new filter
+ * row uses `.rl-heatmap-filter-row` instead.
+ * ────────────────────────────────────────────────────────────────────── */
+
+.rl-heatmap-priority-side {
+  align-self: start;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.rl-heatmap-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.6rem 0.75rem;
+}
+
+.rl-heatmap-filter-cell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.rl-heatmap-filter-cell--narrow {
+  flex: 0 1 110px;
+}
+
+.rl-heatmap-filter-cell--action {
+  flex: 0 0 auto;
+  align-self: stretch;
+  margin-top: 1.4rem;
+}
+
+.rl-heatmap-toggle-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  align-self: stretch;
+  padding: 0 0.4rem;
+  margin-top: 1.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rl-heatmap-toggle-cell input {
+  accent-color: #2563eb;
+}
+
+/* Compact heatmap cell — ~28px tall vs the default ~44px */
+.rl-heatmap-cell-compact {
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.7rem;
+  width: 3.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  font-weight: 900;
+  font-size: 0.72rem;
+  color: #1e293b;
+  transition: transform 120ms ease;
+}
+
+.rl-heatmap-cell-compact:hover {
+  transform: scale(1.04);
+}
+
+.rl-heatmap-cell-compact--empty {
+  background: rgba(241, 245, 249, 0.7);
+  border-color: rgba(203, 213, 225, 0.7);
+  color: #94a3b8;
+}
