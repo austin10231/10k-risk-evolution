@@ -399,7 +399,7 @@
 - 不动：`.rl-sidebar`（继续 `h-screen sticky top-0`，视觉位置不变）、`.rl-mobile-topbar`（自己 `position: fixed`，移动端独立流程）、`.rl-global-dock` 聊天 composer（`position: fixed; bottom: 10px; z-index: 44`，浮在 viewport 底部和 nav 不冲突）、所有 page 内组件的 layout。
 - 验证：`npm --prefix frontend run build` 通过（54 modules / 159.37 KB CSS / 391.84 KB JS / 1.87s）；浏览器里 AgentPage 长聊天向下滚顶部 nav 不动、Dashboard heatmap 长表格向下滚 nav 也不动；左 sidebar 始终在视口左侧、聊天 composer 始终在视口底部；hover popup（z-80）依然能盖在 nav 之上不被遮挡。
 - 行为变化：window 级滚动彻底没了，用户感知到的是"整个 app 像一个原生应用，nav 永远在顶部、sidebar 永远在左边、聊天 / 页面内容滚动只发生在中央那块区域"。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`799aeec`
 
 ### 46) agent_tools.py：中文公司名 alias 映射，修中文查询匹配错乱 bug
 - 现象：用户用中文「苹果」走 `load_company_risks` 时匹配不上正确的 record。`_find_record` 是 case-insensitive equality 匹配 `company` 字段（小写后），中文 needle "苹果" 永远匹配不到任何索引中的英文 "Apple"，导致 handler 走到失败 path。
