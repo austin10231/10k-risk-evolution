@@ -29,7 +29,7 @@ export S3_BUCKET=10k-risk-alert-app
 # Optional — Bedrock dual-model split. Defaults shown; override only when
 # your account has a different inference-profile id enabled.
 export BEDROCK_EXTRACTION_MODEL_ID=us.amazon.nova-pro-v1:0   # extraction / classification / RPI
-export BEDROCK_AGENT_MODEL_ID=us.deepseek.v3.2-v1:0               # chat agent / Q&A
+export BEDROCK_AGENT_MODEL_ID=deepseek.v3-v1:0               # chat agent / Q&A
 ```
 
 The scripts call `agentcore_deploy.main`'s helpers, which read these vars

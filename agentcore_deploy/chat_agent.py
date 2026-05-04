@@ -421,7 +421,7 @@ def _general_chat_answer(
     target_lang: str,
     llm_invoke: Callable[[str, int], str],
 ) -> str:
-    model_id = _clean_text((context or {}).get("model_id")) or "us.deepseek.v3.2-v1:0"
+    model_id = _clean_text((context or {}).get("model_id")) or "deepseek.v3-v1:0"
     lang_rule = "Simplified Chinese" if target_lang == "zh" else "English"
     prompt = f"""You are a helpful assistant similar to ChatGPT.
 You are RiskLens AI assistant.
@@ -454,7 +454,7 @@ Do not output JSON."""
 
 
 def _model_identity_answer(user_query: str, context: dict) -> str:
-    model_id = _clean_text((context or {}).get("model_id")) or "us.deepseek.v3.2-v1:0"
+    model_id = _clean_text((context or {}).get("model_id")) or "deepseek.v3-v1:0"
     extraction_id = _clean_text((context or {}).get("extraction_model_id")) or "us.amazon.nova-pro-v1:0"
     if _is_chinese_text(user_query):
         return (

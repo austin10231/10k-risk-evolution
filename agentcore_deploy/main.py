@@ -3824,9 +3824,9 @@ def _get_model_id() -> str:
         try:
             from agent import get_model_id as _imported_get_model_id
 
-            _MODEL_ID = str(_imported_get_model_id() or "").strip() or "us.deepseek.v3.2-v1:0"
+            _MODEL_ID = str(_imported_get_model_id() or "").strip() or "deepseek.v3-v1:0"
         except Exception:
-            _MODEL_ID = "us.deepseek.v3.2-v1:0"
+            _MODEL_ID = "deepseek.v3-v1:0"
     return _MODEL_ID
 
 
