@@ -464,6 +464,34 @@ export default function UploadPage() {
       </section>
 
       {tab === 'ingest' ? (
+        <section className="rl-pipeline-card">
+          <div className="rl-pipeline-card-head">
+            <span className="rl-pipeline-card-icon" aria-hidden="true">ⓘ</span>
+            <p className="rl-pipeline-card-title">How risk scoring works</p>
+          </div>
+          <div className="rl-pipeline-steps">
+            <div className="rl-pipeline-step">
+              <span className="rl-pipeline-step-num">1</span>
+              <p className="rl-pipeline-step-title">Extract</p>
+              <p className="rl-pipeline-step-body">Risk factors pulled from Item 1A of the 10-K filing.</p>
+            </div>
+            <span className="rl-pipeline-step-arrow" aria-hidden="true">→</span>
+            <div className="rl-pipeline-step">
+              <span className="rl-pipeline-step-num">2</span>
+              <p className="rl-pipeline-step-title">Score 3 dimensions</p>
+              <p className="rl-pipeline-step-body">Each risk graded 1-10 on Financial Impact, Likelihood, and Urgency.</p>
+            </div>
+            <span className="rl-pipeline-step-arrow" aria-hidden="true">→</span>
+            <div className="rl-pipeline-step">
+              <span className="rl-pipeline-step-num">3</span>
+              <p className="rl-pipeline-step-title">See on Dashboard</p>
+              <p className="rl-pipeline-step-body">Aggregated into RPI (Risk Priority Index, 0-100) per filing.</p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === 'ingest' ? (
         ingestMode === 'manual' ? (
           <section className="rl-up-grid rl-up-grid-manual">
             <div className="rl-up-form">

@@ -7374,43 +7374,56 @@ select.input {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Dashboard / Risk Pulse — three-layer redesign
- * (DASHBOARD_REDESIGN_PLAN.md, changelog entry 37)
+ * Dashboard / Risk Pulse — two-layer redesign (changelog entry 39)
  *
- * Layer 1: top double-column header (left = headline + how-to-read,
- *          right = Priority Mix + Scope Snapshot)
- * Layer 2: single-row filter (search / industry / sort / rows / page /
- *          compact toggle / show-all-years toggle / refresh)
- * Layer 3: full-width heatmap table
+ * Layer 1: double-column header
+ *   left  = title + how-to-read + vertical filter stack (5 cells)
+ *   right = Priority Mix + Scope Snapshot (Scope Snapshot grows to match)
+ * Layer 2: full-width heatmap table
  *
- * The legacy `.rl-heatmap-filter-grid` rule above (~L2607) is intentionally
- * kept untouched in case any other view still mounts it; the new filter
- * row uses `.rl-heatmap-filter-row` instead.
+ * The earlier "Layer 2 single-row filter" stripe (entry 37) was folded
+ * into the left column to free up vertical space for the heatmap. The
+ * legacy `.rl-heatmap-filter-grid` rule near L2607 stays as-is in case any
+ * other view still references it.
  * ────────────────────────────────────────────────────────────────────── */
 
+/* Left column wraps headline + how-to-read + filter stack so its height
+ * drives the parent grid row; the right-column Scope Snapshot then grows
+ * to match (.rl-heatmap-scope-snapshot below). */
+.rl-heatmap-left-col {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* Right column (Priority Mix + Scope Snapshot) — let it stretch to match
+ * the left column height instead of clinging to the top, so the bottom of
+ * Scope Snapshot lines up with the bottom of the filter stack. */
 .rl-heatmap-priority-side {
-  align-self: start;
   width: 100%;
   display: flex;
   flex-direction: column;
 }
 
-.rl-heatmap-filter-row {
+.rl-heatmap-scope-snapshot {
+  /* Push the Scope Snapshot card to absorb whatever vertical slack the
+   * left column has (the filter list usually makes the left taller). */
+  flex: 1 1 auto;
+}
+
+/* Vertical filter stack inside the left column — replaces the old
+ * horizontal `rl-heatmap-filter-row`. Each cell uses `rl-heatmap-filter-cell`
+ * (label-on-top + full-width input/select). */
+.rl-heatmap-filter-stack {
   display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.6rem 0.75rem;
+  flex-direction: column;
+  gap: 0.55rem;
 }
 
 .rl-heatmap-filter-cell {
   display: flex;
   flex-direction: column;
-  flex: 1 1 160px;
   min-width: 0;
-}
-
-.rl-heatmap-filter-cell--narrow {
-  flex: 0 1 110px;
 }
 
 /* Compact heatmap cell — ~28px tall (heatmap is now compact-only) */
@@ -7437,4 +7450,110 @@ select.input {
   background: rgba(241, 245, 249, 0.7);
   border-color: rgba(203, 213, 225, 0.7);
   color: #94a3b8;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Upload page — "How risk scoring works" 3-step pipeline card
+ * (changelog entry 39)
+ *
+ * Subtle indigo-accented info card placed above the manual / auto fetch
+ * forms so users learn the extraction → scoring → dashboard pipeline
+ * before they upload. Steps stack vertically below the xl breakpoint.
+ * ────────────────────────────────────────────────────────────────────── */
+
+.rl-pipeline-card {
+  border: 1px solid rgba(165, 180, 252, 0.7);   /* indigo-200/70 */
+  background: rgba(238, 242, 255, 0.55);        /* indigo-50/55 */
+  border-radius: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.rl-pipeline-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.6rem;
+}
+
+.rl-pipeline-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 9999px;
+  background: rgba(99, 102, 241, 0.18);          /* indigo-500/18 */
+  color: #4338ca;                                /* indigo-700 */
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.rl-pipeline-card-title {
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #3730a3;                                /* indigo-800 */
+}
+
+.rl-pipeline-steps {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.rl-pipeline-step {
+  border: 1px solid rgba(199, 210, 254, 0.7);   /* indigo-200/70 */
+  background: rgba(255, 255, 255, 0.78);
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.rl-pipeline-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 9999px;
+  background: #4f46e5;                          /* indigo-600 */
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 800;
+  margin-bottom: 0.15rem;
+}
+
+.rl-pipeline-step-title {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #1e1b4b;                                /* indigo-950 */
+}
+
+.rl-pipeline-step-body {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #475569;                                /* slate-600 */
+}
+
+.rl-pipeline-step-arrow {
+  display: none;                                 /* visible only at xl breakpoint */
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #818cf8;                                /* indigo-400 */
+  align-self: center;
+}
+
+@media (min-width: 1024px) {
+  .rl-pipeline-steps {
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    gap: 0.75rem;
+  }
+  .rl-pipeline-step-arrow {
+    display: inline-block;
+  }
 }

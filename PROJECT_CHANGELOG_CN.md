@@ -389,6 +389,37 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 39) Upload "How risk scoring works" 三步说明 + Dashboard filter 折回左栏（双层布局）
+- 用户提问："上传后会发生什么？"——加两处显式说明，避免靠 chat agent 兜底。
+- **Upload 页**新增 `<HowScoringWorksCard>`（`frontend/src/pages/UploadPage.jsx`）：
+  - 位置：`tab === 'ingest'` 区块、`ingestMode` 子 tab 切换之后、表单本体之前；manual + auto fetch 两个 sub-tab 都能看到。
+  - 形式：靛蓝色边框 stepper info card，3 步横排（≥1024px）/ 竖排（窄屏），用 `→` 箭头连接：
+    1. **Extract** — Risk factors pulled from Item 1A of the 10-K filing.
+    2. **Score 3 dimensions** — Each risk graded 1-10 on Financial Impact, Likelihood, and Urgency.
+    3. **See on Dashboard** — Aggregated into RPI (Risk Priority Index, 0-100) per filing.
+  - 不可关闭、不依赖任何 state；首次用户能学，老用户视觉上自动忽略。
+  - 不显式提具体权重 (0.4/0.35/0.25)、不画公式——保持 dashboard 上的 RPI 数字与这里的描述一致即可。
+- **Dashboard 页 how-to-read box** 文案 1 行扩展：
+  - 旧："RPI (0-100) is weighted by H/M/L counts. Higher RPI means..."
+  - 新："RPI (0-100) blends three per-risk dimensions — Financial Impact, Likelihood, and Urgency — into High/Medium/Low buckets, then weights the counts. Higher RPI means..."
+- **Dashboard 布局再调整（双层布局，比 entry 37 的三层更紧凑）**：
+  - 删 entry 37 引入的"中部单行 filter stripe"。filter 5 个控件（Search / Industry / Sort / Rows / Page）改为**竖向堆叠**移入左栏，置于 how-to-read 灰色框下方。
+  - 左栏新增 `<div className="rl-heatmap-left-col">`（flex-col）包住 headline + how-to-read + filter stack。
+  - 右栏 `.rl-heatmap-priority-side` 删 `align-self: start`，让 grid 默认 stretch；新增 `.rl-heatmap-scope-snapshot` 类的 `flex: 1 1 auto`，让 Scope Snapshot 卡片在右栏内自动撑高、底部跟左栏 filter 列表底部对齐。
+  - "Showing X-Y / N · Sorted by RPI..." 状态栏从顶部双栏内挪到双栏外、heatmap 表格上方，作为表格区的小副标题。
+  - 全宽 heatmap 表格往上移、视觉上一屏可见行数从 ~20 提升到 ~28+（取决于屏高）。
+- CSS（`frontend/src/index.css` 末尾）：
+  - 新增 `.rl-heatmap-left-col`（flex-col 容器）+ `.rl-heatmap-filter-stack`（gap 0.55rem 竖排）+ `.rl-heatmap-scope-snapshot`（flex: 1 1 auto 撑高）。
+  - 删除不再使用的 `.rl-heatmap-filter-row` + `.rl-heatmap-filter-cell--narrow`；`.rl-heatmap-filter-cell` 简化（去掉 grid 时代的 `flex: 1 1 160px` 弹性宽度，竖向堆叠下不需要）。
+  - 新增 Upload 页 `.rl-pipeline-card` 系列：`.rl-pipeline-card-head` / `.rl-pipeline-card-icon` / `.rl-pipeline-card-title` / `.rl-pipeline-steps` / `.rl-pipeline-step` / `.rl-pipeline-step-num` / `.rl-pipeline-step-title` / `.rl-pipeline-step-body` / `.rl-pipeline-step-arrow`，靛蓝色调，≥1024px 横排带箭头、窄屏竖排无箭头。
+  - 顶部块注释更新为"两层布局"，旧三层注释 deprecate。
+- 验证：`npm --prefix frontend run build` 通过（54 modules / 158.83 KB CSS / 391.06 KB JS / 755ms）；grep 确认 `rl-heatmap-filter-row` / `rl-heatmap-filter-cell--narrow` 在源代码无引用（仅注释里残留以备 grep 参考）。
+- 行为变化：
+  - Upload 页一进 ingest tab 顶部就能看到 3 步流程介绍，再也不需要去 chat 问"评分怎么算"。
+  - Dashboard Risk Pulse Tab 整体更紧凑：filter + heatmap 上下两层，filter 与 Scope Snapshot 在同一双栏 stripe 内对齐底部。一屏可见公司行数显著增加。
+  - 首次或换屏宽度时左栏比右栏高的情况，Scope Snapshot 自动吸收高度差，不会再出现"右栏底下大片留白"。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 38) Risk Pulse filter row 收紧 + heatmap 链接改到 records tab
 - 收紧 filter row：删 `Show empty year columns` / `Compact` 复选框 + `Refresh` 按钮（自动刷新已由 `DASHBOARD_CACHE_TTL_MS=5min` 缓存 TTL + ensure-priority 后台 load 兜底）。
 - heatmap 永远走 compact 渲染：移除 `compactView` / `showAllYears` 两个 state + 对应的 localStorage 持久化字段；`effectiveYears` 派生不再依赖 toggle，永远按当前 paged viewport 收敛；cell render 拆掉 compact-vs-default 的二选一分支，永远使用 `.rl-heatmap-cell-compact`。

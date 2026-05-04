@@ -411,7 +411,7 @@ export default function DashboardPage() {
             <div className={`${panelClass} p-4`}>
               {/* Top stripe — double-column header */}
               <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
-                <div>
+                <div className="rl-heatmap-left-col">
                   <div className="section-headline">
                     <div className="section-rail" />
                     <div>
@@ -422,12 +422,54 @@ export default function DashboardPage() {
 
                   <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/65 p-3 text-xs text-slate-600">
                     <p className="font-semibold text-slate-700">How to read quickly:</p>
-                    <p className="mt-1">RPI (0-100) is weighted by H/M/L counts. Higher RPI means higher pressure from high-priority risks. "—" indicates a filing whose risks couldn't be scored.</p>
+                    <p className="mt-1">RPI (0-100) blends three per-risk dimensions — Financial Impact, Likelihood, and Urgency — into High/Medium/Low buckets, then weights the counts. Higher RPI means higher pressure from high-priority risks. "—" indicates a filing whose risks couldn't be scored.</p>
                     <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
                       <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#22c55e' }} />Lower pressure</span>
                       <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#f59e0b' }} />Mid pressure</span>
                       <span className="inline-flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: '#ef4444' }} />High pressure</span>
                     </div>
+                  </div>
+
+                  <div className="rl-heatmap-filter-stack mt-3">
+                    <label className="rl-heatmap-filter-cell">
+                      <span className="section-title">Company Search</span>
+                      <input className="input mt-1" placeholder="Filter companies..." value={heatSearch} onChange={(e) => setHeatSearch(e.target.value)} />
+                    </label>
+
+                    <label className="rl-heatmap-filter-cell">
+                      <span className="section-title">Industry Group</span>
+                      <select className="input mt-1" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+                        {industryOptions.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="rl-heatmap-filter-cell">
+                      <span className="section-title">Sort</span>
+                      <select className="input mt-1" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
+                        <option value="rpi">RPI (high → low)</option>
+                        <option value="name">Company A → Z</option>
+                      </select>
+                    </label>
+
+                    <label className="rl-heatmap-filter-cell">
+                      <span className="section-title">Rows / Page</span>
+                      <select className="input mt-1" value={heatPageSize} onChange={(e) => setHeatPageSize(Number(e.target.value) || 10)}>
+                        {[10, 20, 40, 80].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="rl-heatmap-filter-cell">
+                      <span className="section-title">Page</span>
+                      <select className="input mt-1" value={heatPage} onChange={(e) => setHeatPage(Number(e.target.value) || 1)}>
+                        {Array.from({ length: totalHeatPages }, (_, i) => i + 1).map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
                 </div>
 
@@ -448,7 +490,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
+                  <div className="rl-heatmap-scope-snapshot mt-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3">
                     <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Scope Snapshot</p>
                     <p className="mt-1 text-sm font-semibold text-slate-700">
                       Average RPI:{' '}
@@ -461,50 +503,7 @@ export default function DashboardPage() {
                 </aside>
               </div>
 
-              {/* Middle stripe — single-row filter bar */}
-              <div className="rl-heatmap-filter-row mt-4">
-                <label className="rl-heatmap-filter-cell">
-                  <span className="section-title">Company Search</span>
-                  <input className="input mt-1" placeholder="Filter companies..." value={heatSearch} onChange={(e) => setHeatSearch(e.target.value)} />
-                </label>
-
-                <label className="rl-heatmap-filter-cell">
-                  <span className="section-title">Industry Group</span>
-                  <select className="input mt-1" value={industry} onChange={(e) => setIndustry(e.target.value)}>
-                    {industryOptions.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="rl-heatmap-filter-cell">
-                  <span className="section-title">Sort</span>
-                  <select className="input mt-1" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
-                    <option value="rpi">RPI (high → low)</option>
-                    <option value="name">Company A → Z</option>
-                  </select>
-                </label>
-
-                <label className="rl-heatmap-filter-cell rl-heatmap-filter-cell--narrow">
-                  <span className="section-title">Rows / Page</span>
-                  <select className="input mt-1" value={heatPageSize} onChange={(e) => setHeatPageSize(Number(e.target.value) || 10)}>
-                    {[10, 20, 40, 80].map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="rl-heatmap-filter-cell rl-heatmap-filter-cell--narrow">
-                  <span className="section-title">Page</span>
-                  <select className="input mt-1" value={heatPage} onChange={(e) => setHeatPage(Number(e.target.value) || 1)}>
-                    {Array.from({ length: totalHeatPages }, (_, i) => i + 1).map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <p className="mt-2 text-xs font-semibold text-slate-600">
+              <p className="mt-3 text-xs font-semibold text-slate-600">
                 Showing {heatRangeLabel} / {filteredCompanies.length}
                 {sortMode === 'rpi' ? <span className="ml-2 text-slate-500">· Sorted by RPI (high → low); unscored companies fall to the bottom.</span> : null}
                 <span className="ml-2 text-slate-500">· Year columns without data on this page are hidden.</span>
