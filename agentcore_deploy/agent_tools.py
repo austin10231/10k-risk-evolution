@@ -43,6 +43,145 @@ DEFAULT_LIST_LIMIT = 80
 DEFAULT_SEARCH_LIMIT = 12
 
 
+# Chinese → canonical English company name aliases. Bedrock's LLM occasionally
+# passes Chinese names verbatim from a Chinese-language user query into tool
+# inputs (instead of translating internally). The values must match the
+# `name` field in scripts/industry_mapping.py exactly (case-insensitive),
+# since `_find_record` does an equality match on company name.
+#
+# Coverage is the 80-company global-brand subset that has Chinese names a
+# native speaker would actually type — niche tickers (AES / Exelon / O /
+# Equinix etc.) where English is the only common form are skipped to keep
+# this list maintainable.
+CHINESE_COMPANY_ALIASES: Dict[str, str] = {
+    # Technology
+    "苹果": "Apple",
+    "苹果公司": "Apple",
+    "微软": "Microsoft",
+    "微软公司": "Microsoft",
+    "谷歌": "Alphabet",
+    "字母": "Alphabet",
+    "字母表": "Alphabet",
+    "英伟达": "NVIDIA",
+    "辉达": "NVIDIA",
+    "奥多比": "Adobe",
+    "阿多比": "Adobe",
+    "甲骨文": "Oracle",
+    "思科": "Cisco",
+    "英特尔": "Intel",
+    "赛富时": "Salesforce",
+    # Consumer cyclical
+    "亚马逊": "Amazon",
+    "特斯拉": "Tesla",
+    "家得宝": "Home Depot",
+    "麦当劳": "McDonalds",
+    "耐克": "Nike",
+    "星巴克": "Starbucks",
+    "缤客": "Booking Holdings",
+    "缤客控股": "Booking Holdings",
+    "劳氏": "Lowes",
+    "优步": "Uber",
+    # Consumer defensive
+    "宝洁": "Procter & Gamble",
+    "可口可乐": "Coca-Cola",
+    "百事": "PepsiCo",
+    "百事可乐": "PepsiCo",
+    "沃尔玛": "Walmart",
+    "好市多": "Costco",
+    "开市客": "Costco",
+    "菲利普莫里斯": "Philip Morris",
+    "高露洁": "Colgate-Palmolive",
+    "高露洁棕榄": "Colgate-Palmolive",
+    "亿滋": "Mondelez",
+    "克罗格": "Kroger",
+    "塔吉特": "Target",
+    # Communication services
+    "元": "Meta",
+    "脸书": "Meta",
+    "脸谱": "Meta",
+    "网飞": "Netflix",
+    "奈飞": "Netflix",
+    "迪士尼": "Disney",
+    "迪斯尼": "Disney",
+    "康卡斯特": "Comcast",
+    "美国电话电报": "AT&T",
+    # Industrials
+    "波音": "Boeing",
+    "卡特彼勒": "Caterpillar",
+    "霍尼韦尔": "Honeywell",
+    "联合太平洋": "Union Pacific",
+    "通用电气": "General Electric",
+    "洛克希德马丁": "Lockheed Martin",
+    "洛克希德": "Lockheed Martin",
+    "雷神": "RTX",
+    "雷神技术": "RTX",
+    "迪尔": "Deere",
+    "约翰迪尔": "Deere",
+    "摩托罗拉": "Motorola Solutions",
+    # Financial services
+    "摩根大通": "JPMorgan",
+    "高盛": "Goldman Sachs",
+    "摩根士丹利": "Morgan Stanley",
+    "美国银行": "Bank of America",
+    "维萨": "Visa",
+    "万事达": "Mastercard",
+    "万事达卡": "Mastercard",
+    "贝莱德": "BlackRock",
+    "伯克希尔": "Berkshire Hathaway",
+    "伯克希尔哈撒韦": "Berkshire Hathaway",
+    # Energy
+    "埃克森美孚": "ExxonMobil",
+    "埃克森": "ExxonMobil",
+    "雪佛龙": "Chevron",
+    "康菲石油": "ConocoPhillips",
+    "斯伦贝谢": "Schlumberger",
+    "马拉松石油": "Marathon Petroleum",
+    "瓦莱罗": "Valero Energy",
+    # Utilities
+    "杜克能源": "Duke Energy",
+    "南方电力": "Southern Company",
+    "下一时代能源": "NextEra Energy",
+    "新世纪能源": "NextEra Energy",
+    "道明尼能源": "Dominion Energy",
+    # Basic materials
+    "林德": "Linde",
+    "空气化工": "Air Products",
+    "自由港": "Freeport-McMoRan",
+    "自由港麦克莫兰": "Freeport-McMoRan",
+    "纽蒙特": "Newmont",
+    "陶氏": "Dow",
+    "杜邦": "DuPont",
+    # Real estate
+    "普洛斯": "Prologis",
+    "美国电塔": "American Tower",
+    "皇冠城堡": "Crown Castle",
+    "西蒙地产": "Simon Property",
+    # Healthcare
+    "联合健康": "UnitedHealth",
+    "强生": "Johnson & Johnson",
+    "辉瑞": "Pfizer",
+    "礼来": "Eli Lilly",
+    "礼来公司": "Eli Lilly",
+    "艾伯维": "AbbVie",
+    "默克": "Merck",
+    "默沙东": "Merck",
+    "赛默飞": "Thermo Fisher",
+    "赛默飞世尔": "Thermo Fisher",
+    "雅培": "Abbott",
+}
+
+
+def _resolve_company_alias(raw: Any) -> str:
+    """Translate a known Chinese company-name alias to its canonical English
+    form (matches ``industry_mapping.COMPANIES[*].name``). Pass-through
+    when the input is already English or not in the table.
+    """
+    s = _coerce_str(raw)
+    if not s:
+        return s
+    return CHINESE_COMPANY_ALIASES.get(s, s)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Tool specs (Bedrock Converse `toolConfig.tools` items)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -261,19 +400,29 @@ def _resolve_record(backend, company_or_ticker: str, year: int) -> Optional[dict
     """Match a record by either company name or ticker (case-insensitive)
     plus exact filing year. Returns the index entry (with ``record_id``) or
     ``None`` when no match. We intentionally do not LLM-fuzz-match — the
-    LLM should call ``list_available_companies`` first if it is unsure."""
-    needle = _coerce_str(company_or_ticker)
+    LLM should call ``list_available_companies`` first if it is unsure.
+
+    Order: (1) direct English company-name match → (2) Chinese alias →
+    English match → (3) ticker match. Step 2 catches the "苹果" / "微软"
+    style of LLM tool input that comes through verbatim from a Chinese
+    user query without internal translation.
+    """
+    raw = _coerce_str(company_or_ticker)
     yy = _coerce_int(year, 0)
-    if not needle or yy <= 0:
+    if not raw or yy <= 0:
         return None
 
-    # Direct exact match by company name (case-insensitive).
-    direct = backend._find_record(needle, yy)
+    direct = backend._find_record(raw, yy)
     if direct:
         return direct
 
-    # Ticker-style fallback: scan the index, compare ticker.
-    ticker_needle = needle.upper().strip()
+    aliased = _resolve_company_alias(raw)
+    if aliased and aliased != raw:
+        direct = backend._find_record(aliased, yy)
+        if direct:
+            return direct
+
+    ticker_needle = raw.upper().strip()
     if not ticker_needle:
         return None
     try:
@@ -293,8 +442,10 @@ def _resolve_record(backend, company_or_ticker: str, year: int) -> Optional[dict
 
 
 def _years_for_company(backend, company_or_ticker: str) -> List[int]:
-    needle = _coerce_str(company_or_ticker).lower()
-    ticker_needle = needle.upper()
+    raw = _coerce_str(company_or_ticker).strip()
+    canonical = _resolve_company_alias(raw)        # 苹果 → Apple before scanning
+    company_needle = canonical.lower()
+    ticker_needle = raw.upper()
     out: List[int] = []
     try:
         ticker_lookup = backend._build_ticker_lookup()
@@ -302,7 +453,7 @@ def _years_for_company(backend, company_or_ticker: str) -> List[int]:
         ticker_lookup = (None, None)
     for rec in backend._load_index():
         try:
-            if str(rec.get("company", "") or "").strip().lower() == needle:
+            if str(rec.get("company", "") or "").strip().lower() == company_needle:
                 out.append(_coerce_int(rec.get("year"), 0))
                 continue
             t = backend._resolve_record_ticker(rec, ticker_lookup=ticker_lookup)
@@ -603,7 +754,10 @@ def _make_search_risks_by_keyword(backend) -> Callable[..., dict]:
     def _handler(**kwargs) -> dict:
         keyword = _coerce_str(kwargs.get("keyword"))
         max_results = _coerce_int(kwargs.get("max_results"), DEFAULT_SEARCH_LIMIT)
-        company_filter = _coerce_str(kwargs.get("company_filter")).lower()
+        # Resolve Chinese alias on company_filter before lowercasing so
+        # `company_filter="苹果"` correctly narrows to Apple.
+        company_filter_raw = _coerce_str(kwargs.get("company_filter"))
+        company_filter = _resolve_company_alias(company_filter_raw).lower()
         if len(keyword) < 2:
             return {"error": "keyword_too_short"}
         needle = keyword.lower()

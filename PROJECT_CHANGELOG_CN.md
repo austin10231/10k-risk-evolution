@@ -389,6 +389,18 @@
 - 覆盖文件时间跨度：report date 从 `2024-06-30` 到 `2026-01-25`，包含科技、互联网、金融、制药、国防等不同 10-K 排版。  
 - 备注：分类准确率未写入百分比；本地环境没有 AWS/Bedrock 凭证，也没有人工标注集，因此不能诚实验证 SASB/LLM 分类正确率。当前回归验证的是 SEC 下载、CIK 映射、Item 1A 定位与 deterministic 风险条目抽取稳定性。  
 
+### 46) agent_tools.py：中文公司名 alias 映射，修中文查询匹配错乱 bug
+- 现象：用户用中文「苹果」走 `load_company_risks` 时匹配不上正确的 record。`_find_record` 是 case-insensitive equality 匹配 `company` 字段（小写后），中文 needle "苹果" 永远匹配不到任何索引中的英文 "Apple"，导致 handler 走到失败 path。
+- 修法：在 agent_tools.py 加 `CHINESE_COMPANY_ALIASES` 表（103 条，覆盖 industry_mapping 全部 80 个 ticker 的常用中文名），加 `_resolve_company_alias(raw)` helper：拿 input 字符串先 strip、再去字典查；命中就返回 canonical 英文名（与 `industry_mapping.COMPANIES[*].name` 字段精确对齐），否则原值返回。
+- 接入点（3 处）：
+  - `_resolve_record`（被 `load_company_risks` + `compare_risks` 复用）：先 `_find_record(raw)`，失败则 `_find_record(_resolve_company_alias(raw))`，再失败才走 ticker fallback。原有英文 / ticker 行为不变。
+  - `_years_for_company`（命中失败时给 LLM 看的"该公司有哪些年份"提示）：先把 needle 翻成 canonical 英文名再扫 index——这样错年份的 error 也能列出正确的 available_years。
+  - `_make_search_risks_by_keyword` 的 `company_filter`：先 alias 再 lower，让 `search_risks_by_keyword(keyword="cyber", company_filter="苹果")` 也能正确收敛。
+- 涵盖范围：Technology（苹果 / 微软 / 谷歌 / 英伟达 / 思科 / 英特尔 / 甲骨文 / Adobe / Salesforce）、Consumer Cyclical（亚马逊 / 特斯拉 / 麦当劳 / 耐克 / 星巴克 / 优步 / 缤客 / 家得宝 / 劳氏）、Consumer Defensive（宝洁 / 可口可乐 / 百事 / 沃尔玛 / 好市多 / 菲利普莫里斯 / 高露洁 / 亿滋 / 克罗格 / 塔吉特）、Communication Services（Meta / 网飞 / 迪士尼 / 康卡斯特 / AT&T）、Industrials（波音 / 卡特彼勒 / 霍尼韦尔 / 联合太平洋 / 通用电气 / 洛克希德马丁 / RTX / 迪尔 / 摩托罗拉）、Financial Services（摩根大通 / 高盛 / 摩根士丹利 / 美国银行 / 维萨 / 万事达 / 贝莱德 / 伯克希尔）、Energy（埃克森美孚 / 雪佛龙 / 康菲石油 / 斯伦贝谢 / 马拉松石油 / 瓦莱罗）、Utilities（杜克能源 / 南方电力 / 下一时代能源 / 道明尼能源）、Materials（林德 / 空气化工 / 自由港 / 纽蒙特 / 陶氏 / 杜邦）、Real Estate（普洛斯 / 美国电塔 / 皇冠城堡 / 西蒙地产）、Healthcare（联合健康 / 强生 / 辉瑞 / 礼来 / 艾伯维 / 默克 / 赛默飞 / 雅培）。每家公司常常有 2-3 个常见中文别名（"苹果" / "苹果公司"、"摩根大通" 单条、"默克" / "默沙东"），都列入。
+- 验证：本地 mock backend 单测覆盖：`苹果` / `微软` / `Apple`（passthrough）/ `AAPL`（ticker）/ 未知公司 / 错年份的 error 仍带 available_years，全部通过。
+- 行为不变：英文输入完全不受影响；ticker 输入完全不受影响。仅当 input 命中中文 alias 表时才走翻译路径。
+- 提交：（本次提交 ID 提交后回填）
+
 ### 45) Agent ReAct 升级 batch 2：chat_agent ReAct loop + main.py 接线
 - AGENT_UPGRADE_PLAN.md Step 3 + Step 4 落地。chat agent 从 router_v2 切换到 react_v1：LLM 走 Bedrock Converse `toolUse` loop 自主调最多 6 次工具，单次工具结果截 16K 字符，总 context 400K 字符（~100K token）兜底。
 - `agentcore_deploy/chat_agent.py` 全面重写 `run_chat_agent`：
