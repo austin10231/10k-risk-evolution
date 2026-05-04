@@ -418,7 +418,7 @@
   - Upload 页一进 ingest tab 顶部就能看到 3 步流程介绍，再也不需要去 chat 问"评分怎么算"。
   - Dashboard Risk Pulse Tab 整体更紧凑：filter + heatmap 上下两层，filter 与 Scope Snapshot 在同一双栏 stripe 内对齐底部。一屏可见公司行数显著增加。
   - 首次或换屏宽度时左栏比右栏高的情况，Scope Snapshot 自动吸收高度差，不会再出现"右栏底下大片留白"。
-- 提交：（本次提交 ID 提交后回填）
+- 提交：`56a617a`
 
 ### 38) Risk Pulse filter row 收紧 + heatmap 链接改到 records tab
 - 收紧 filter row：删 `Show empty year columns` / `Compact` 复选框 + `Refresh` 按钮（自动刷新已由 `DASHBOARD_CACHE_TTL_MS=5min` 缓存 TTL + ensure-priority 后台 load 兜底）。
