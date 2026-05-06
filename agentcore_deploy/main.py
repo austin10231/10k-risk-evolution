@@ -2133,6 +2133,33 @@ def _records_list_cache_key(
     )
 
 
+def _should_retry_insecure_tls(exc: Exception) -> bool:
+    msg = str(exc or "").lower()
+    return (
+        "certificate_verify_failed" in msg
+        or "self signed certificate" in msg
+        or "unable to get local issuer certificate" in msg
+    )
+
+
+def _urlopen_with_tls_fallback(req: Request, *, timeout: int, context=None):
+    try:
+        if context is None:
+            return urlopen(req, timeout=timeout)
+        return urlopen(req, timeout=timeout, context=context)
+    except URLError as exc:
+        # Demo/runtime environments occasionally miss CA roots. When that
+        # specific TLS verification failure happens, retry once with an
+        # unverified context so market-data tools can still respond.
+        if _should_retry_insecure_tls(exc):
+            insecure_ctx = ssl._create_unverified_context()
+            return urlopen(req, timeout=timeout, context=insecure_ctx)
+        raise
+    except ssl.SSLCertVerificationError:
+        insecure_ctx = ssl._create_unverified_context()
+        return urlopen(req, timeout=timeout, context=insecure_ctx)
+
+
 def _yahoo_json(url: str) -> dict:
     req = Request(
         url,
@@ -2146,7 +2173,7 @@ def _yahoo_json(url: str) -> dict:
         },
         method="GET",
     )
-    with urlopen(req, timeout=20) as resp:
+    with _urlopen_with_tls_fallback(req, timeout=20) as resp:
         raw = resp.read()
     return json.loads(raw.decode("utf-8", errors="ignore"))
 
@@ -2438,7 +2465,7 @@ def _twelvedata_json(url: str) -> dict:
         },
         method="GET",
     )
-    with urlopen(req, timeout=20) as resp:
+    with _urlopen_with_tls_fallback(req, timeout=20) as resp:
         raw = resp.read()
     payload = json.loads(raw.decode("utf-8", errors="ignore"))
     if isinstance(payload, dict) and str(payload.get("status", "")).lower() == "error":
@@ -2544,7 +2571,11 @@ def _fmp_json(url: str):
     raw = b""
     status_code = 0
     try:
-        with urlopen(req, timeout=20, context=ssl.create_default_context(cafile=certifi.where())) as resp:
+        with _urlopen_with_tls_fallback(
+            req,
+            timeout=20,
+            context=ssl.create_default_context(cafile=certifi.where()),
+        ) as resp:
             status_code = int(getattr(resp, "status", 200) or 200)
             raw = resp.read()
     except HTTPError as exc:
@@ -2691,7 +2722,11 @@ def _stooq_history(symbol: str) -> List[dict]:
             method="GET",
         )
         try:
-            with urlopen(req, timeout=20, context=ssl.create_default_context(cafile=certifi.where())) as resp:
+            with _urlopen_with_tls_fallback(
+                req,
+                timeout=20,
+                context=ssl.create_default_context(cafile=certifi.where()),
+            ) as resp:
                 text = resp.read().decode("utf-8", errors="ignore")
         except Exception:
             continue
@@ -2744,7 +2779,11 @@ def _stooq_snapshot(symbol: str) -> dict:
             method="GET",
         )
         try:
-            with urlopen(req, timeout=20, context=ssl.create_default_context(cafile=certifi.where())) as resp:
+            with _urlopen_with_tls_fallback(
+                req,
+                timeout=20,
+                context=ssl.create_default_context(cafile=certifi.where()),
+            ) as resp:
                 text = resp.read().decode("utf-8", errors="ignore").strip()
         except Exception:
             continue
@@ -2761,11 +2800,19 @@ def _stooq_snapshot(symbol: str) -> dict:
         vol_v = _to_float(parts[7])
         if close_v is None:
             continue
+        delta = None
+        pct = None
+        if open_v is not None:
+            delta = close_v - open_v
+            if open_v not in (0, 0.0):
+                pct = (delta / open_v) * 100.0
         return {
             "open": open_v,
             "day_high": high_v,
             "day_low": low_v,
             "price": close_v,
+            "change": delta,
+            "change_percent": pct,
             "volume": vol_v,
         }
 
@@ -2812,7 +2859,11 @@ LIMIT 1
     )
     data: dict = {}
     try:
-        with urlopen(req, timeout=18, context=ssl.create_default_context(cafile=certifi.where())) as resp:
+        with _urlopen_with_tls_fallback(
+            req,
+            timeout=18,
+            context=ssl.create_default_context(cafile=certifi.where()),
+        ) as resp:
             payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
         rows = payload.get("results", {}).get("bindings", []) if isinstance(payload, dict) else []
         row = rows[0] if rows and isinstance(rows[0], dict) else {}
