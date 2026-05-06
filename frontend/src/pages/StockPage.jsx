@@ -34,6 +34,8 @@ const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v3_'
 const STOCK_BUNDLE_LEGACY_PREFIXES = ['rl_stock_bundle_v2_', 'rl_stock_bundle_v1_']
 const STOCK_BUNDLE_TTL_MS = 1000 * 60 * 60 * 12
 const UNIVERSE_PREFETCH_LIMIT = 100
+const TRACKED_COMPANIES_INITIAL_VISIBLE = 9
+const TRACKED_COMPANIES_PAGE_SIZE = 12
 
 const LOGO_DOMAIN_BY_TICKER = {
   AAPL: 'apple.com',
@@ -1277,6 +1279,9 @@ export default function StockPage() {
   const [boardTab, setBoardTab] = useState('gainers')
   const [showAddTicker, setShowAddTicker] = useState(false)
   const [addTickerInput, setAddTickerInput] = useState('')
+  const [trackedListOpen, setTrackedListOpen] = useState(false)
+  const [trackedFilter, setTrackedFilter] = useState('')
+  const [trackedVisibleCount, setTrackedVisibleCount] = useState(TRACKED_COMPANIES_INITIAL_VISIBLE)
   const [filingRecordsMap, setFilingRecordsMap] = useState({})
   const [detailTablesMap, setDetailTablesMap] = useState({})
   const [detailTableLoading, setDetailTableLoading] = useState(false)
@@ -1963,7 +1968,7 @@ export default function StockPage() {
     return rows.map((row, idx) => {
       const cap = Math.max(0, Number(row.market_cap || 0))
       const ratio = maxCap > 0 ? cap / maxCap : Math.max(0.02, 1 - idx / Math.max(1, rows.length))
-      const size = ratio >= 0.22 ? 'xxl' : ratio >= 0.11 ? 'xl' : ratio >= 0.05 ? 'lg' : ratio >= 0.02 ? 'md' : 'sm'
+      const size = ratio >= 0.22 ? 'xxl' : ratio >= 0.11 ? 'xl' : ratio >= 0.05 ? 'lg' : 'md'
       const intensity = Math.max(1, Math.min(5, Math.ceil(Math.abs(Number(row.change_percent || 0)) / 1)))
       return {
         ...row,
@@ -1972,6 +1977,26 @@ export default function StockPage() {
       }
     })
   }, [loadedRows])
+
+  const trackedCompanyUniverse = useMemo(
+    () => (supportedUploadedCompanies.length ? supportedUploadedCompanies : featuredCompanies),
+    [supportedUploadedCompanies, featuredCompanies],
+  )
+
+  const trackedFilteredCompanies = useMemo(() => {
+    const q = trackedFilter.trim().toLowerCase()
+    if (!q) return trackedCompanyUniverse
+    return trackedCompanyUniverse.filter((c) => `${c?.ticker || ''} ${c?.company || ''}`.toLowerCase().includes(q))
+  }, [trackedCompanyUniverse, trackedFilter])
+
+  const trackedVisibleCompanies = useMemo(
+    () => trackedFilteredCompanies.slice(0, trackedVisibleCount),
+    [trackedFilteredCompanies, trackedVisibleCount],
+  )
+
+  useEffect(() => {
+    setTrackedVisibleCount(TRACKED_COMPANIES_INITIAL_VISIBLE)
+  }, [trackedFilter, trackedCompanyUniverse.length])
 
   const leadersCluster = useMemo(() => {
     const gain = [...loadedRows].sort((a, b) => Number(b.change_percent || 0) - Number(a.change_percent || 0)).slice(0, 5)
@@ -2352,9 +2377,14 @@ export default function StockPage() {
                     : `${supportedUploadedCompanies.length} companies from uploaded filings`}
                 </span>
               </div>
-              <button className="btn-secondary" onClick={() => setShowAddTicker((v) => !v)}>
-                {showAddTicker ? 'Cancel' : '+ Add Ticker'}
-              </button>
+              <div className="rl-stock-command-actions">
+                <button className="btn-secondary" onClick={() => setTrackedListOpen((v) => !v)}>
+                  {trackedListOpen ? 'Collapse List' : 'Browse All'}
+                </button>
+                <button className="btn-secondary" onClick={() => setShowAddTicker((v) => !v)}>
+                  {showAddTicker ? 'Cancel' : '+ Add Ticker'}
+                </button>
+              </div>
             </div>
 
             <div className="rl-stock-chip-row">
@@ -2374,6 +2404,55 @@ export default function StockPage() {
                 )
               })}
             </div>
+
+            {trackedListOpen ? (
+              <div className="rl-stock-tracked-panel">
+                <div className="rl-stock-tracked-panel-head">
+                  <p>Browse tracked universe</p>
+                  <span>Showing {trackedVisibleCompanies.length} / {trackedFilteredCompanies.length}</span>
+                </div>
+                <div className="rl-stock-input-row rl-stock-tracked-filter-row">
+                  <input
+                    className="input"
+                    value={trackedFilter}
+                    onChange={(e) => setTrackedFilter(e.target.value)}
+                    placeholder="Filter by ticker or company"
+                  />
+                </div>
+                {trackedVisibleCompanies.length ? (
+                  <div className="rl-stock-chip-row">
+                    {trackedVisibleCompanies.map((c) => {
+                      const payload = bundleMap[c.ticker]?.data
+                      const pct = resolveChangePercent(payload)
+                      return (
+                        <button
+                          key={`tracked-universe-${c.ticker}-${c.company}`}
+                          className={`rl-stock-chip ${selectedTicker === c.ticker ? 'active' : ''}`}
+                          onClick={() => openDetail(c.ticker)}
+                          title={`${c.company} · ${c.industry}`}
+                        >
+                          <span>{c.company}</span>
+                          <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : c.ticker}</em>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="rl-stock-muted">No company matches this filter.</p>
+                )}
+
+                {trackedVisibleCompanies.length < trackedFilteredCompanies.length ? (
+                  <div className="rl-stock-tracked-panel-actions">
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setTrackedVisibleCount((n) => n + TRACKED_COMPANIES_PAGE_SIZE)}
+                    >
+                      Show More ({Math.min(TRACKED_COMPANIES_PAGE_SIZE, trackedFilteredCompanies.length - trackedVisibleCompanies.length)})
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {showAddTicker ? (
               <div className="rl-stock-input-row rl-stock-add-row">
