@@ -2541,19 +2541,38 @@ def _fmp_json(url: str):
         },
         method="GET",
     )
-    with urlopen(req, timeout=20) as resp:
-        raw = resp.read()
-    payload = json.loads(raw.decode("utf-8", errors="ignore"))
+    raw = b""
+    status_code = 0
+    try:
+        with urlopen(req, timeout=20, context=ssl.create_default_context(cafile=certifi.where())) as resp:
+            status_code = int(getattr(resp, "status", 200) or 200)
+            raw = resp.read()
+    except HTTPError as exc:
+        status_code = int(getattr(exc, "code", 0) or 0)
+        raw = exc.read() if hasattr(exc, "read") else b""
+    except Exception:
+        raise
+
+    text = raw.decode("utf-8", errors="ignore")
+    try:
+        payload = json.loads(text)
+    except Exception:
+        payload = {"error": text or f"HTTP {status_code}"}
+
     if isinstance(payload, dict):
         msg = str(payload.get("Error Message") or payload.get("error") or payload.get("message") or "").strip()
         if msg and msg.lower() not in {"ok", "success"}:
-            raise RuntimeError(msg)
+            raise RuntimeError(f"HTTP {status_code}: {msg}" if status_code else msg)
+    if status_code >= 400:
+        # Keep the explicit code in the error text so caller can distinguish
+        # quota/rate-limit style failures and immediately fall back.
+        raise RuntimeError(f"HTTP {status_code}: fmp request failed")
     return payload
 
 
 def _fmp_quote(symbol: str, api_key: str) -> dict:
     sym = str(symbol or "").strip().upper()
-    url = f"https://financialmodelingprep.com/api/v3/quote/{quote(sym)}?apikey={quote(api_key)}"
+    url = f"https://financialmodelingprep.com/stable/quote?symbol={quote(sym)}&apikey={quote(api_key)}"
     payload = _fmp_json(url)
     rows = payload if isinstance(payload, list) else []
     if not rows:
@@ -2562,21 +2581,26 @@ def _fmp_quote(symbol: str, api_key: str) -> dict:
 
     return {
         "symbol": row.get("symbol") or sym,
-        "name": row.get("name") or sym,
+        "name": row.get("name") or row.get("companyName") or sym,
         "price": _to_float(row.get("price")),
         "change": _to_float(row.get("change")),
-        "change_percent": _to_float(row.get("changesPercentage")),
+        "change_percent": _to_float(row.get("changesPercentage"), _to_float(row.get("changePercentage"))),
         "market_cap": _to_float(row.get("marketCap")),
-        "pe_ratio": _to_float(row.get("pe")),
+        "pe_ratio": _to_float(row.get("pe"), _to_float(row.get("priceToEarningsRatioTTM"))),
         "high_52": _to_float(row.get("yearHigh")),
         "low_52": _to_float(row.get("yearLow")),
-        "exchange": row.get("exchange") or row.get("exchangeShortName") or "",
+        "exchange": row.get("exchange") or row.get("exchangeShortName") or row.get("exchangeFullName") or "",
+        "previous_close": _to_float(row.get("previousClose")),
+        "open": _to_float(row.get("open")),
+        "day_high": _to_float(row.get("dayHigh")),
+        "day_low": _to_float(row.get("dayLow")),
+        "volume": _to_float(row.get("volume")),
     }
 
 
 def _fmp_profile(symbol: str, api_key: str) -> dict:
     sym = str(symbol or "").strip().upper()
-    url = f"https://financialmodelingprep.com/api/v3/profile/{quote(sym)}?apikey={quote(api_key)}"
+    url = f"https://financialmodelingprep.com/stable/profile?symbol={quote(sym)}&apikey={quote(api_key)}"
     payload = _fmp_json(url)
     rows = payload if isinstance(payload, list) else []
     if not rows:
@@ -2586,7 +2610,7 @@ def _fmp_profile(symbol: str, api_key: str) -> dict:
     return {
         "symbol": row.get("symbol") or sym,
         "name": row.get("companyName") or row.get("name") or sym,
-        "market_cap": _to_float(row.get("mktCap")),
+        "market_cap": _to_float(row.get("marketCap"), _to_float(row.get("mktCap"))),
         "industry": row.get("industry") or "",
         "sector": row.get("sector") or "",
         "country": row.get("country") or "",
@@ -2594,19 +2618,35 @@ def _fmp_profile(symbol: str, api_key: str) -> dict:
         "ceo": row.get("ceo") or "",
         "description": row.get("description") or "",
         "ipo_date": row.get("ipoDate") or "",
-        "exchange": row.get("exchangeShortName") or row.get("exchange") or "",
+        "exchange": row.get("exchangeShortName") or row.get("exchange") or row.get("exchangeFullName") or "",
         "shares_outstanding": _to_float(row.get("sharesOutstanding")),
+    }
+
+
+def _fmp_ratios_ttm(symbol: str, api_key: str) -> dict:
+    sym = str(symbol or "").strip().upper()
+    url = f"https://financialmodelingprep.com/stable/ratios-ttm?symbol={quote(sym)}&apikey={quote(api_key)}"
+    payload = _fmp_json(url)
+    rows = payload if isinstance(payload, list) else []
+    if not rows:
+        raise RuntimeError("empty ratios-ttm response")
+    row = rows[0] if isinstance(rows[0], dict) else {}
+    return {
+        "symbol": row.get("symbol") or sym,
+        "pe_ratio": _to_float(row.get("priceToEarningsRatioTTM")),
     }
 
 
 def _fmp_history(symbol: str, api_key: str) -> List[dict]:
     sym = str(symbol or "").strip().upper()
+    today = datetime.now(timezone.utc).date()
+    start = today - timedelta(days=430)
     url = (
-        "https://financialmodelingprep.com/api/v3/historical-price-full/"
-        f"{quote(sym)}?timeseries=260&apikey={quote(api_key)}"
+        "https://financialmodelingprep.com/stable/historical-price-eod/full"
+        f"?symbol={quote(sym)}&from={start.isoformat()}&to={today.isoformat()}&apikey={quote(api_key)}"
     )
     payload = _fmp_json(url)
-    rows = payload.get("historical", []) if isinstance(payload, dict) else []
+    rows = payload if isinstance(payload, list) else []
     out: List[dict] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -3081,6 +3121,20 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
             exc = RuntimeError("; ".join(fmp_quote_attempts) if fmp_quote_attempts else "no quote response")
             _provider_mark_failure("fmp", exc)
             errors.append(f"fmp quote: {exc}")
+
+    if fmp_key and _provider_available("fmp") and pe_ratio is None:
+        fmp_ratios, _, fmp_ratios_attempts = _try_symbol_variants(
+            sym,
+            lambda candidate: _fmp_ratios_ttm(candidate, fmp_key),
+            require_truthy=True,
+        )
+        if fmp_ratios:
+            _apply_quote_fields("fmp", fmp_ratios)
+            _provider_mark_success("fmp")
+        else:
+            exc = RuntimeError("; ".join(fmp_ratios_attempts) if fmp_ratios_attempts else "no ratios-ttm response")
+            _provider_mark_failure("fmp", exc)
+            errors.append(f"fmp ratios-ttm: {exc}")
 
     if fmp_key and _provider_available("fmp") and _need_profile_fields():
         fmp_profile, _, fmp_profile_attempts = _try_symbol_variants(
