@@ -3235,14 +3235,71 @@ select.input {
   font-weight: 650;
 }
 
-.rl-stock-tracked-filter-row {
-  grid-template-columns: minmax(0, 280px);
+.rl-stock-tracked-controls {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
 }
 
-.rl-stock-tracked-panel-actions {
-  display: flex;
-  gap: 8px;
+.rl-stock-tracked-filter-input {
+  min-width: 0;
+}
+
+.rl-stock-tracked-limit {
+  display: inline-flex;
   align-items: center;
+  gap: 6px;
+}
+
+.rl-stock-tracked-limit span {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.rl-stock-tracked-limit select.input {
+  min-width: 80px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+}
+
+.rl-stock-tracked-result-list {
+  margin-top: 0;
+}
+
+.rl-stock-company-mini-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.rl-stock-company-mini-button:hover p {
+  color: #1d4ed8;
+}
+
+.rl-stock-tracked-result-action {
+  gap: 6px;
+}
+
+.rl-stock-follow-btn {
+  min-height: 26px;
+  padding: 4px 9px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 999px;
+}
+
+.rl-stock-follow-btn.active {
+  border-color: rgba(37, 99, 235, 0.52);
+  background: rgba(219, 234, 254, 0.8);
+  color: #1d4ed8;
 }
 
 .rl-stock-metrics-grid-v2 {
@@ -7178,12 +7235,12 @@ select.input {
     grid-row: span 2 !important;
   }
 
-  .rl-stock-tracked-filter-row {
+  .rl-stock-tracked-controls {
     grid-template-columns: 1fr;
   }
 
-  .rl-stock-tracked-panel-actions .btn-secondary {
-    width: 100%;
+  .rl-stock-tracked-limit {
+    width: fit-content;
   }
 
   .rl-news-v2-page {
