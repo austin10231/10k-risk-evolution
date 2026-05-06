@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import re
+import ssl
 import sys
 import time
 import threading
@@ -19,6 +20,7 @@ from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 import boto3
+import certifi
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
@@ -93,6 +95,8 @@ _STOCK_PROVIDER_DEFAULT_COOLDOWN_SECONDS = 70
 _STOCK_QUOTE_CACHE: Dict[str, Dict[str, Any]] = {}
 _STOCK_QUOTE_CACHE_TTL_SECONDS = 600
 _STOCK_QUOTE_CACHE_PREFIX = "stock_quote_cache_v1"
+_WIKIDATA_STOCK_PROFILE_CACHE: Dict[str, Dict[str, Any]] = {}
+_WIKIDATA_STOCK_PROFILE_TTL_SECONDS = 60 * 60 * 24
 _S3_CLIENT = None
 _S3_CLIENT_LOCK = threading.Lock()
 _INDEX_CACHE: Dict[str, Any] = {"ts": 0.0, "data": []}
@@ -2647,7 +2651,7 @@ def _stooq_history(symbol: str) -> List[dict]:
             method="GET",
         )
         try:
-            with urlopen(req, timeout=20) as resp:
+            with urlopen(req, timeout=20, context=ssl.create_default_context(cafile=certifi.where())) as resp:
                 text = resp.read().decode("utf-8", errors="ignore")
         except Exception:
             continue
@@ -2674,6 +2678,124 @@ def _stooq_history(symbol: str) -> List[dict]:
             return out
 
     return []
+
+
+def _stooq_snapshot(symbol: str) -> dict:
+    """Read latest daily snapshot (open/high/low/close/volume) from Stooq."""
+    sym = str(symbol or "").strip().lower()
+    if not sym:
+        return {}
+
+    candidates = [sym]
+    if "." not in sym:
+        candidates.append(f"{sym}.us")
+
+    for candidate in candidates:
+        url = f"https://stooq.com/q/l/?s={quote(candidate)}&i=d"
+        req = Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                )
+            },
+            method="GET",
+        )
+        try:
+            with urlopen(req, timeout=20, context=ssl.create_default_context(cafile=certifi.where())) as resp:
+                text = resp.read().decode("utf-8", errors="ignore").strip()
+        except Exception:
+            continue
+
+        line = text.splitlines()[0].strip() if text else ""
+        parts = [p.strip() for p in line.split(",")] if line else []
+        if len(parts) < 8:
+            continue
+
+        open_v = _to_float(parts[3])
+        high_v = _to_float(parts[4])
+        low_v = _to_float(parts[5])
+        close_v = _to_float(parts[6])
+        vol_v = _to_float(parts[7])
+        if close_v is None:
+            continue
+        return {
+            "open": open_v,
+            "day_high": high_v,
+            "day_low": low_v,
+            "price": close_v,
+            "volume": vol_v,
+        }
+
+    return {}
+
+
+def _wikidata_profile(symbol: str) -> dict:
+    """Free profile fallback via Wikidata SPARQL (no API key)."""
+    sym = str(symbol or "").strip().upper()
+    if not sym:
+        return {}
+
+    now = time.time()
+    cached = _WIKIDATA_STOCK_PROFILE_CACHE.get(sym)
+    if isinstance(cached, dict) and (now - float(cached.get("ts", 0.0) or 0.0) < _WIKIDATA_STOCK_PROFILE_TTL_SECONDS):
+        payload = cached.get("data")
+        return payload if isinstance(payload, dict) else {}
+
+    query = f"""
+SELECT ?companyLabel ?ceoLabel ?inception ?employees ?countryLabel ?industryLabel WHERE {{
+  {{ ?company wdt:P249 "{sym}". }}
+  UNION
+  {{ ?company p:P414 ?listing . ?listing pq:P249 "{sym}". }}
+  UNION
+  {{ ?company p:P249 ?st . ?st ps:P249 "{sym}". }}
+  OPTIONAL {{ ?company wdt:P169 ?ceo. }}
+  OPTIONAL {{ ?company wdt:P571 ?inception. }}
+  OPTIONAL {{ ?company wdt:P1128 ?employees. }}
+  OPTIONAL {{ ?company wdt:P17 ?country. }}
+  OPTIONAL {{ ?company wdt:P452 ?industry. }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+}}
+LIMIT 1
+""".strip()
+
+    url = f"https://query.wikidata.org/sparql?query={quote(query)}"
+    req = Request(
+        url,
+        headers={
+            "Accept": "application/sparql-results+json",
+            "User-Agent": "RiskLensAI/1.0 (stock-profile-fallback)",
+        },
+        method="GET",
+    )
+    data: dict = {}
+    try:
+        with urlopen(req, timeout=18, context=ssl.create_default_context(cafile=certifi.where())) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        rows = payload.get("results", {}).get("bindings", []) if isinstance(payload, dict) else []
+        row = rows[0] if rows and isinstance(rows[0], dict) else {}
+
+        def _v(key: str) -> str:
+            item = row.get(key)
+            return str(item.get("value", "") if isinstance(item, dict) else "").strip()
+
+        inception = _v("inception")
+        ipo_date = inception[:10] if inception else ""
+        data = {
+            "name": _v("companyLabel"),
+            "ceo": _v("ceoLabel"),
+            "country": _v("countryLabel"),
+            "industry": _v("industryLabel"),
+            "ipo_date": ipo_date,
+            "full_time_employees": _to_float(_v("employees")),
+        }
+    except Exception:
+        data = {}
+
+    _WIKIDATA_STOCK_PROFILE_CACHE[sym] = {"ts": now, "data": data}
+    return data
 
 
 def _stock_quote(symbol: str, lite: bool = False) -> dict:
@@ -3201,6 +3323,28 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
                 exc = RuntimeError("; ".join(intraday_attempts) if intraday_attempts else "no intraday chart response")
                 _provider_mark_failure("yahoo", exc)
                 errors.append(f"yahoo intraday: {exc}")
+
+    # Free-source fallback: Stooq daily snapshot can reliably fill
+    # open/high/low/volume when mainstream quote APIs are rate-limited.
+    if any(v is None for v in (open_price, day_high, day_low, volume)) and _provider_available("stooq"):
+        try:
+            stooq_snap = _stooq_snapshot(sym)
+            if stooq_snap:
+                _apply_quote_fields("stooq", stooq_snap)
+                _provider_mark_success("stooq")
+        except Exception as e:
+            _provider_mark_failure("stooq", e)
+            errors.append(f"stooq snapshot: {type(e).__name__}: {e}")
+
+    # Free-source fallback: populate company profile fields via Wikidata
+    # when Yahoo/FMP profile calls are unavailable.
+    if _need_profile_fields():
+        try:
+            wd_profile = _wikidata_profile(sym)
+            if wd_profile:
+                _apply_quote_fields("wikidata", wd_profile)
+        except Exception as e:
+            errors.append(f"wikidata profile: {type(e).__name__}: {e}")
 
     if not history:
         stooq_history = _stooq_history(sym)
