@@ -2825,6 +2825,17 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
         if not isinstance(data, dict):
             return
 
+        def _merge_numeric(current, incoming, *, prefer_positive: bool = False):
+            nxt = _to_float(incoming)
+            if nxt is None:
+                return current
+            cur = _to_float(current)
+            if cur is None:
+                return nxt
+            if prefer_positive and cur <= 0 < nxt:
+                return nxt
+            return current
+
         if not quote_source and any(
             data.get(k) is not None for k in ("price", "change", "change_percent", "market_cap", "pe_ratio")
         ):
@@ -2833,62 +2844,45 @@ def _stock_quote(symbol: str, lite: bool = False) -> dict:
         incoming_name = str(data.get("name", "") or "").strip()
         if incoming_name and (not name or name == sym):
             name = incoming_name
-        if price is None:
-            price = _to_float(data.get("price"))
+        price = _merge_numeric(price, data.get("price"), prefer_positive=True)
         if change is None:
             change = _to_float(data.get("change"))
         if change_percent is None:
             change_percent = _to_float(data.get("change_percent"))
-        if market_cap is None:
-            market_cap = _to_float(data.get("market_cap"))
-        if pe_ratio is None:
-            pe_ratio = _to_float(data.get("pe_ratio"))
-        if high_52 is None:
-            high_52 = _to_float(data.get("high_52"))
-        if low_52 is None:
-            low_52 = _to_float(data.get("low_52"))
+        market_cap = _merge_numeric(market_cap, data.get("market_cap"), prefer_positive=True)
+        pe_ratio = _merge_numeric(pe_ratio, data.get("pe_ratio"), prefer_positive=True)
+        high_52 = _merge_numeric(high_52, data.get("high_52"), prefer_positive=True)
+        low_52 = _merge_numeric(low_52, data.get("low_52"), prefer_positive=True)
         if not exchange:
             exchange = str(data.get("exchange", "") or "").strip()
-        if previous_close is None:
-            previous_close = _to_float(data.get("previous_close"))
-        if open_price is None:
-            open_price = _to_float(data.get("open"))
-        if day_high is None:
-            day_high = _to_float(data.get("day_high"))
-        if day_low is None:
-            day_low = _to_float(data.get("day_low"))
-        if volume is None:
-            volume = _to_float(data.get("volume"))
-        if eps is None:
-            eps = _to_float(data.get("eps"))
-        if dividend_yield is None:
-            dividend_yield = _to_float(data.get("dividend_yield"))
+        previous_close = _merge_numeric(previous_close, data.get("previous_close"), prefer_positive=True)
+        open_price = _merge_numeric(open_price, data.get("open"), prefer_positive=True)
+        day_high = _merge_numeric(day_high, data.get("day_high"), prefer_positive=True)
+        day_low = _merge_numeric(day_low, data.get("day_low"), prefer_positive=True)
+        volume = _merge_numeric(volume, data.get("volume"), prefer_positive=True)
+        eps = _merge_numeric(eps, data.get("eps"), prefer_positive=True)
+        dividend_yield = _merge_numeric(dividend_yield, data.get("dividend_yield"), prefer_positive=True)
         if not sector:
             sector = str(data.get("sector", "") or "").strip()
         if not industry:
             industry = str(data.get("industry", "") or "").strip()
         if not country:
             country = str(data.get("country", "") or "").strip()
-        if full_time_employees is None:
-            full_time_employees = _to_float(data.get("full_time_employees"))
-        if shares_outstanding is None:
-            shares_outstanding = _to_float(data.get("shares_outstanding"))
+        full_time_employees = _merge_numeric(full_time_employees, data.get("full_time_employees"), prefer_positive=True)
+        shares_outstanding = _merge_numeric(shares_outstanding, data.get("shares_outstanding"), prefer_positive=True)
         if not ceo:
             ceo = str(data.get("ceo", "") or "").strip()
         if not long_description:
             long_description = str(data.get("description", "") or "").strip()
         if not ipo_date:
             ipo_date = str(data.get("ipo_date", "") or "").strip()
-        if post_market_price is None:
-            post_market_price = _to_float(data.get("post_market_price"))
+        post_market_price = _merge_numeric(post_market_price, data.get("post_market_price"), prefer_positive=True)
         if post_market_change is None:
             post_market_change = _to_float(data.get("post_market_change"))
         if post_market_change_percent is None:
             post_market_change_percent = _to_float(data.get("post_market_change_percent"))
-        if regular_market_time is None:
-            regular_market_time = _to_float(data.get("regular_market_time"))
-        if post_market_time is None:
-            post_market_time = _to_float(data.get("post_market_time"))
+        regular_market_time = _merge_numeric(regular_market_time, data.get("regular_market_time"), prefer_positive=True)
+        post_market_time = _merge_numeric(post_market_time, data.get("post_market_time"), prefer_positive=True)
 
     def _need_quote_fields() -> bool:
         return any(v is None for v in [price, change, change_percent, market_cap, pe_ratio, high_52, low_52]) or not exchange

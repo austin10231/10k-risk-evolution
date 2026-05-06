@@ -328,30 +328,40 @@ function timeAgoFrom(ts) {
 }
 
 function fmtPrice(v) {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'string' && v.trim() === '') return '—'
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   return `$${n.toFixed(2)}`
 }
 
 function fmtPct(v) {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'string' && v.trim() === '') return '—'
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
 }
 
 function fmtPctPlain(v) {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'string' && v.trim() === '') return '—'
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   return `${n.toFixed(2)}%`
 }
 
 function fmtSigned(v) {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'string' && v.trim() === '') return '—'
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}`
 }
 
 function fmtCompact(v) {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'string' && v.trim() === '') return '—'
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   const abs = Math.abs(n)
@@ -363,12 +373,16 @@ function fmtCompact(v) {
 }
 
 function fmtWhole(v) {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'string' && v.trim() === '') return '—'
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   return Math.round(n).toLocaleString()
 }
 
 function fmtYield(v) {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'string' && v.trim() === '') return '—'
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   const pct = Math.abs(n) <= 1 ? n * 100 : n
@@ -435,7 +449,13 @@ function fmtDateTime(value) {
 }
 
 function resolvePrice(payload) {
-  const p = Number(payload?.price)
+  const raw = payload?.price
+  if (raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '')) {
+    const rows = Array.isArray(payload?.history) ? payload.history : []
+    const last = Number(rows[rows.length - 1]?.close)
+    return Number.isFinite(last) ? last : null
+  }
+  const p = Number(raw)
   if (Number.isFinite(p) && p > 0) return p
   const rows = Array.isArray(payload?.history) ? payload.history : []
   const last = Number(rows[rows.length - 1]?.close)
@@ -483,6 +503,8 @@ function resolveMarketCap(payload) {
     payload?.marketCapitalization,
   ]
   for (const raw of candidates) {
+    if (raw === null || raw === undefined) continue
+    if (typeof raw === 'string' && raw.trim() === '') continue
     const n = Number(raw)
     if (Number.isFinite(n) && n > 0) return n
   }
@@ -2113,7 +2135,14 @@ export default function StockPage() {
   const dayHigh = Number.isFinite(Number(detailData?.day_high)) ? Number(detailData?.day_high) : null
   const dayLow = Number.isFinite(Number(detailData?.day_low)) ? Number(detailData?.day_low) : null
   const volumeNow = Number.isFinite(Number(detailData?.volume)) ? Number(detailData?.volume) : Number(lastHistory?.volume)
-  const fullTimeEmployees = Number(detailData?.full_time_employees)
+  const fullTimeEmployeesRaw = detailData?.full_time_employees
+  const fullTimeEmployees = (
+    fullTimeEmployeesRaw === null
+    || fullTimeEmployeesRaw === undefined
+    || (typeof fullTimeEmployeesRaw === 'string' && fullTimeEmployeesRaw.trim() === '')
+  )
+    ? NaN
+    : Number(fullTimeEmployeesRaw)
   const detailRecords = useMemo(() => {
     const list = Array.isArray(filingRecordsMap[selectedCompanyQuery]) ? filingRecordsMap[selectedCompanyQuery] : []
     return list
