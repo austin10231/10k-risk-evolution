@@ -33,6 +33,7 @@ truncation rarely chops mid-record.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -170,6 +171,38 @@ CHINESE_COMPANY_ALIASES: Dict[str, str] = {
     "雅培": "Abbott",
 }
 
+# Market-chat fallback mapping used when backend resolve-ticker is unavailable
+# or lacks a company index (e.g. cold/demo deployments). Keys are normalized
+# company aliases in uppercase.
+COMPANY_TICKER_HINTS: Dict[str, str] = {
+    "APPLE": "AAPL",
+    "MICROSOFT": "MSFT",
+    "NVIDIA": "NVDA",
+    "ALPHABET": "GOOGL",
+    "GOOGLE": "GOOGL",
+    "AMAZON": "AMZN",
+    "META": "META",
+    "TESLA": "TSLA",
+    "NETFLIX": "NFLX",
+    "ORACLE": "ORCL",
+    "INTEL": "INTC",
+    "AMD": "AMD",
+    "QUALCOMM": "QCOM",
+    "JPMORGAN": "JPM",
+    "BERKSHIRE HATHAWAY": "BRK.B",
+    "JOHNSON & JOHNSON": "JNJ",
+    "ELI LILLY": "LLY",
+    "PFIZER": "PFE",
+    "ABBVIE": "ABBV",
+    "ABBOTT": "ABT",
+    "THERMO FISHER": "TMO",
+    "MERCK": "MRK",
+    "EXXONMOBIL": "XOM",
+    "CHEVRON": "CVX",
+    "WALMART": "WMT",
+    "COSTCO": "COST",
+}
+
 
 def _resolve_company_alias(raw: Any) -> str:
     """Translate a known Chinese company-name alias to its canonical English
@@ -180,6 +213,14 @@ def _resolve_company_alias(raw: Any) -> str:
     if not s:
         return s
     return CHINESE_COMPANY_ALIASES.get(s, s)
+
+
+def _ticker_hint_from_company(raw: Any) -> str:
+    s = _resolve_company_alias(raw)
+    key = _coerce_str(s).upper()
+    if not key:
+        return ""
+    return _coerce_str(COMPANY_TICKER_HINTS.get(key)).upper()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -622,25 +663,69 @@ def _make_compare_risks(backend) -> Callable[..., dict]:
 
 
 def _make_stock_quote(backend) -> Callable[..., dict]:
-    def _handler(**kwargs) -> dict:
-        ticker = _coerce_str(kwargs.get("ticker")).upper()
-        if not ticker:
-            return {"error": "missing_params: ticker is required"}
+    def _is_ticker_like(value: str) -> bool:
+        return bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", value or ""))
+
+    def _resolve_ticker_from_company(raw_value: str) -> str:
+        hinted = _ticker_hint_from_company(raw_value)
+        if hinted:
+            return hinted
+        company_hint = _resolve_company_alias(raw_value)
+        if not company_hint:
+            return ""
+        resolver = getattr(backend, "_resolve_ticker_for_company", None)
+        if not callable(resolver):
+            return ""
         try:
-            payload = backend._stock_quote(ticker, lite=True)
+            resolved = resolver(company=company_hint, ticker_hint="")
+        except Exception:
+            return ""
+        if not isinstance(resolved, dict) or not resolved.get("ok"):
+            return ""
+        ticker = _coerce_str(resolved.get("ticker")).upper()
+        return ticker if _is_ticker_like(ticker) else ""
+
+    def _handler(**kwargs) -> dict:
+        ticker_raw = _coerce_str(kwargs.get("ticker"))
+        if not ticker_raw:
+            return {"error": "missing_params: ticker is required"}
+
+        requested = ticker_raw.upper()
+        ticker = requested if _is_ticker_like(requested) else ""
+        resolved_from_company = ""
+        if not ticker:
+            resolved_from_company = _resolve_ticker_from_company(ticker_raw)
+            ticker = resolved_from_company
+
+        try:
+            payload = backend._stock_quote(ticker, lite=False) if ticker else {"error": "unresolved_ticker"}
         except Exception as exc:
             return {"error": f"stock_quote_failed: {type(exc).__name__}: {exc}"}
+
+        if isinstance(payload, dict) and payload.get("error") and not resolved_from_company:
+            fallback_ticker = _resolve_ticker_from_company(ticker_raw)
+            if fallback_ticker and fallback_ticker != ticker:
+                resolved_from_company = fallback_ticker
+                ticker = fallback_ticker
+                try:
+                    payload = backend._stock_quote(ticker, lite=False)
+                except Exception as exc:
+                    return {"error": f"stock_quote_failed: {type(exc).__name__}: {exc}"}
+
         if isinstance(payload, dict) and payload.get("error"):
             return {"ticker": ticker, "error": _coerce_str(payload.get("error"))}
         if not isinstance(payload, dict):
             return {"ticker": ticker, "error": "stock_quote_returned_non_dict"}
         return {
             "ticker": ticker,
+            "requested": ticker_raw,
+            "resolved_from_company": resolved_from_company or "",
             "price": payload.get("price"),
             "change": payload.get("change"),
             "change_percent": payload.get("change_percent"),
             "volume": payload.get("volume"),
-            "source": _coerce_str(payload.get("source")),
+            "source": _coerce_str(payload.get("quote_source") or payload.get("history_source") or payload.get("source")),
+            "exchange": payload.get("exchange"),
         }
 
     return _handler

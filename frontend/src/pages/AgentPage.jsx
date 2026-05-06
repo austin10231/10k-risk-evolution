@@ -64,6 +64,24 @@ export default function AgentPage() {
                   ))}
                 </div>
               ) : null}
+              {m.role === 'assistant' && Array.isArray(m.report?.tool_trace) && m.report.tool_trace.length ? (
+                <details className="rl-agent-report-details">
+                  <summary>Tool Trace ({m.report.tool_trace.length})</summary>
+                  <div className="rl-agent-summary-grid">
+                    {m.report.tool_trace.map((row, i) => {
+                      const tool = String(row?.tool || row?.status || `step_${i + 1}`)
+                      const status = String(row?.status || 'ok')
+                      const err = String(row?.error || '').trim()
+                      return (
+                        <div key={`trace-${idx}-${i}`}>
+                          <span>{`#${i + 1} ${tool}`}</span>
+                          <strong>{err ? `${status}: ${err}` : status}</strong>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </details>
+              ) : null}
             </div>
           </article>
         ))}
