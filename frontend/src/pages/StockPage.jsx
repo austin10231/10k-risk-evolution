@@ -34,8 +34,6 @@ const STOCK_BUNDLE_PREFIX = 'rl_stock_bundle_v3_'
 const STOCK_BUNDLE_LEGACY_PREFIXES = ['rl_stock_bundle_v2_', 'rl_stock_bundle_v1_']
 const STOCK_BUNDLE_TTL_MS = 1000 * 60 * 60 * 12
 const UNIVERSE_PREFETCH_LIMIT = 100
-const TRACKED_COMPANIES_INITIAL_VISIBLE = 9
-const TRACKED_COMPANIES_VISIBLE_OPTIONS = [9, 20, 50]
 
 const LOGO_DOMAIN_BY_TICKER = {
   AAPL: 'apple.com',
@@ -1281,7 +1279,6 @@ export default function StockPage() {
   const [addTickerInput, setAddTickerInput] = useState('')
   const [trackedListOpen, setTrackedListOpen] = useState(false)
   const [trackedFilter, setTrackedFilter] = useState('')
-  const [trackedVisibleCount, setTrackedVisibleCount] = useState(TRACKED_COMPANIES_INITIAL_VISIBLE)
   const [filingRecordsMap, setFilingRecordsMap] = useState({})
   const [detailTablesMap, setDetailTablesMap] = useState({})
   const [detailTableLoading, setDetailTableLoading] = useState(false)
@@ -2034,15 +2031,6 @@ export default function StockPage() {
     return trackedCompanyUniverse.filter((c) => `${c?.ticker || ''} ${c?.company || ''}`.toLowerCase().includes(q))
   }, [trackedCompanyUniverse, trackedFilter])
 
-  const trackedVisibleCompanies = useMemo(
-    () => trackedFilteredCompanies.slice(0, trackedVisibleCount),
-    [trackedFilteredCompanies, trackedVisibleCount],
-  )
-
-  useEffect(() => {
-    setTrackedVisibleCount(TRACKED_COMPANIES_INITIAL_VISIBLE)
-  }, [trackedFilter, trackedCompanyUniverse.length])
-
   const leadersCluster = useMemo(() => {
     const gain = [...loadedRows].sort((a, b) => Number(b.change_percent || 0) - Number(a.change_percent || 0)).slice(0, 5)
     const lose = [...loadedRows].sort((a, b) => Number(a.change_percent || 0) - Number(b.change_percent || 0)).slice(0, 5)
@@ -2454,7 +2442,7 @@ export default function StockPage() {
               <div className="rl-stock-tracked-panel">
                 <div className="rl-stock-tracked-panel-head">
                   <p>Browse tracked universe</p>
-                  <span>Showing {trackedVisibleCompanies.length} / {trackedFilteredCompanies.length}</span>
+                  <span>Showing {trackedFilteredCompanies.length} / {trackedCompanyUniverse.length}</span>
                 </div>
                 <div className="rl-stock-tracked-controls">
                   <input
@@ -2463,22 +2451,10 @@ export default function StockPage() {
                     onChange={(e) => setTrackedFilter(e.target.value)}
                     placeholder="Filter by ticker or company"
                   />
-                  <div className="rl-stock-tracked-limit">
-                    <span>Show</span>
-                    <select
-                      className="input"
-                      value={trackedVisibleCount}
-                      onChange={(e) => setTrackedVisibleCount(Number(e.target.value) || TRACKED_COMPANIES_INITIAL_VISIBLE)}
-                    >
-                      {TRACKED_COMPANIES_VISIBLE_OPTIONS.map((count) => (
-                        <option key={`tracked-limit-${count}`} value={count}>{count}</option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
-                {trackedVisibleCompanies.length ? (
+                {trackedFilteredCompanies.length ? (
                   <div className="rl-stock-company-list rl-stock-tracked-result-list">
-                    {trackedVisibleCompanies.map((c) => {
+                    {trackedFilteredCompanies.map((c) => {
                       const payload = bundleMap[c.ticker]?.data
                       const pct = resolveChangePercent(payload)
                       const isStarred = starredTickerSet.has(normalizeTicker(c.ticker))
@@ -2495,14 +2471,21 @@ export default function StockPage() {
                               <span>{c.ticker} · {c.source === 'uploaded' ? 'Uploaded' : 'Market'}</span>
                             </div>
                           </button>
-                          <div className="rl-stock-company-price rl-stock-tracked-result-action">
-                            <strong className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : '—'}</strong>
-                            <button
-                              className={`btn-secondary rl-stock-follow-btn ${isStarred ? 'active' : ''}`}
-                              onClick={() => toggleStarredTicker(c.ticker)}
+                          <div className="rl-stock-company-price rl-stock-company-price-starred rl-stock-tracked-result-action">
+                            <strong>{fmtPrice(payload?.price)}</strong>
+                            <em className={toneClass(pct)}>{Number.isFinite(pct) ? fmtPct(pct) : '—'}</em>
+                            <span
+                              className={`rl-stock-fav-star ${isStarred ? 'active' : ''}`}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={isStarred ? `Remove ${c.ticker} from watchlist` : `Add ${c.ticker} to watchlist`}
+                              onClick={(e) => toggleStarFromEvent(e, c.ticker)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') toggleStarFromEvent(e, c.ticker)
+                              }}
                             >
-                              {isStarred ? 'Following' : 'Follow'}
-                            </button>
+                              {isStarred ? '★' : '☆'}
+                            </span>
                           </div>
                         </div>
                       )
