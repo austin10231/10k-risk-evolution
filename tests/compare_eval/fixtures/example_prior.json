@@ -1,0 +1,12 @@
+{
+  "risks": [
+    {
+      "category": "Risk Factors",
+      "sub_risks": [
+        {"title": "Cybersecurity incidents may disrupt our operations and harm our reputation.", "dashboard_category": "Technology & Cybersecurity", "labels": ["cyber"]},
+        {"title": "Loss of key personnel could harm the business.", "dashboard_category": "People & Governance", "labels": ["talent"]},
+        {"title": "Our common stock price has been volatile in the past.", "dashboard_category": "Capital Markets", "labels": ["stock"]}
+      ]
+    }
+  ]
+}

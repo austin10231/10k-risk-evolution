@@ -2527,12 +2527,12 @@ export default function StockPage() {
             </div>
             <div className="metric-card rl-stock-metric-card">
               <p className="metric-label">Market Cap</p>
-              <p className="metric-value !text-[1.05rem]">{fmtCompact(selectedMarketCap)}</p>
+              <p className="metric-value">{fmtCompact(selectedMarketCap)}</p>
               <span className="rl-stock-metric-sub">PE {data?.pe_ratio ? Number(data.pe_ratio).toFixed(2) : '—'}</span>
             </div>
             <div className="metric-card rl-stock-metric-card">
               <p className="metric-label">Uploaded Scope</p>
-              <p className="metric-value !text-[1.05rem]">{uploadedCompanies.length}</p>
+              <p className="metric-value">{uploadedCompanies.length}</p>
               <span className="rl-stock-metric-sub">companies with filing context</span>
             </div>
           </section>

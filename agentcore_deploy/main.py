@@ -4215,7 +4215,14 @@ def _invoke_logic(raw_payload):
     )
 
 
-def _compare_payload(latest_record_id: str, prior_record_id: str) -> dict:
+def _compare_payload(
+    latest_record_id: str,
+    prior_record_id: str,
+    *,
+    mode: str = "yoy",
+    threshold_low: Optional[float] = None,
+    threshold_high: Optional[float] = None,
+) -> dict:
     latest = _load_result(latest_record_id)
     prior = _load_result(prior_record_id)
     if not isinstance(latest, dict) or not isinstance(prior, dict):
@@ -4224,27 +4231,73 @@ def _compare_payload(latest_record_id: str, prior_record_id: str) -> dict:
     latest = _result_with_dashboard_categories(latest)
     prior = _result_with_dashboard_categories(prior)
 
-    if compare_risks:
-        diff = compare_risks(prior, latest)
-    else:
-        prior_titles = {_normalize_title(x.get("title")) for x in _extract_sub_risks(prior)}
-        latest_items = _extract_sub_risks(latest)
-        latest_titles = {_normalize_title(x.get("title")) for x in latest_items}
-        diff = {
-            "new_risks": [x for x in latest_items if _normalize_title(x.get("title")) not in prior_titles],
-            "removed_risks": [x for x in _extract_sub_risks(prior) if _normalize_title(x.get("title")) not in latest_titles],
+    # Same-record edge case: short-circuit so the assignment solver
+    # doesn't waste cycles matching every item against its twin.
+    if latest_record_id == prior_record_id:
+        items = _extract_sub_risks(latest)
+        return {
+            "latest_record_id": latest_record_id,
+            "prior_record_id": prior_record_id,
+            "mode": mode,
+            "scoring": {"threshold_low": 1.0, "threshold_high": 1.0, "method": "identity"},
+            "pairs": {
+                "retained": [
+                    {"prior": x, "latest": x, "score": 1.0, "bucket": x.get("dashboard_category", ""),
+                     "title_changed": False, "diff": {"added": [], "removed": []}, "components": {}}
+                    for x in items
+                ],
+                "modified": [], "added": [], "removed": [], "candidates": [],
+            },
+            "category_matrix": [],
+            "summary": {
+                "retained": len(items), "modified": 0, "added": 0, "removed": 0,
+                "prior_total": len(items), "latest_total": len(items),
+                "churn_rate": 0.0, "avg_match_score": 1.0,
+                "new_count": 0, "removed_count": 0,
+            },
+            "new_risks": [],
+            "removed_risks": [],
         }
 
-    return {
-        "latest_record_id": latest_record_id,
-        "prior_record_id": prior_record_id,
-        "new_risks": diff.get("new_risks", []),
-        "removed_risks": diff.get("removed_risks", []),
-        "summary": {
-            "new_count": len(diff.get("new_risks", [])),
-            "removed_count": len(diff.get("removed_risks", [])),
-        },
-    }
+    # Try to use the embedding service. If anything is misconfigured
+    # `compare_embedding.build_lookup()` returns a callable that yields
+    # None for every title, which makes `compare_risks` fall back to
+    # the lexical-only formula transparently.
+    embed_lookup = None
+    try:
+        from core.compare_embedding import build_lookup as _build_embed_lookup, is_enabled as _embed_enabled, warm as _embed_warm
+        if _embed_enabled():
+            titles = []
+            for src in (prior, latest):
+                for block in src.get("risks", []) or []:
+                    if not isinstance(block, dict):
+                        continue
+                    for sr in block.get("sub_risks", []) or []:
+                        t = sr.get("title") if isinstance(sr, dict) else sr
+                        t = str(t or "").strip()
+                        if t:
+                            titles.append(t)
+            _embed_warm(titles)
+            embed_lookup = _build_embed_lookup()
+    except Exception as exc:
+        print(f"[compare] embedding lookup unavailable: {type(exc).__name__}: {exc}")
+        embed_lookup = None
+
+    if compare_risks is None:
+        return {"error": "Compare module unavailable in this runtime."}
+
+    diff = compare_risks(
+        prior,
+        latest,
+        mode=mode,
+        threshold_low=threshold_low,
+        threshold_high=threshold_high,
+        embed_lookup=embed_lookup,
+    )
+
+    diff["latest_record_id"] = latest_record_id
+    diff["prior_record_id"] = prior_record_id
+    return diff
 
 
 def _coerce_chat_history(raw_history: Any) -> List[dict]:
@@ -5092,7 +5145,16 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 if not latest_record_id or not prior_record_id:
                     self._send_json(400, {"ok": False, "error": "latest_record_id and prior_record_id are required."})
                     return
-                payload = _compare_payload(latest_record_id, prior_record_id)
+                mode = str(body.get("mode", "") or "").strip().lower() or "yoy"
+                t_low = body.get("threshold_low")
+                t_high = body.get("threshold_high")
+                payload = _compare_payload(
+                    latest_record_id,
+                    prior_record_id,
+                    mode=mode,
+                    threshold_low=t_low,
+                    threshold_high=t_high,
+                )
                 if payload.get("error"):
                     self._send_json(400, {"ok": False, **payload})
                     return

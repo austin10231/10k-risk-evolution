@@ -1,0 +1,12 @@
+{
+  "risks": [
+    {
+      "category": "Risk Factors",
+      "sub_risks": [
+        {"title": "We may experience information security breaches that could materially affect our business.", "dashboard_category": "Technology & Cybersecurity", "labels": ["cyber"]},
+        {"title": "Failure to attract and retain key employees would adversely affect operations.", "dashboard_category": "People & Governance", "labels": ["talent"]},
+        {"title": "Climate change exposes us to physical and transition risks.", "dashboard_category": "ESG & Sustainability", "labels": ["climate"]}
+      ]
+    }
+  ]
+}
