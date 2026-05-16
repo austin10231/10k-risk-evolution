@@ -4735,6 +4735,26 @@ select.input {
   text-decoration: underline;
 }
 
+.rl-compare-export-btn {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.rl-compare-inline-tip {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.rl-compare-inline-diagnostics {
+  display: grid;
+  gap: 4px;
+}
+
 .rl-compare-result-tabs {
   margin-top: 2px;
 }
@@ -4932,6 +4952,13 @@ select.input {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.rl-compare-pair-note {
+  margin: -2px 0 0;
+  color: #64748b;
+  font-size: 0.74rem;
+  line-height: 1.45;
 }
 
 .rl-compare-pair-cat {

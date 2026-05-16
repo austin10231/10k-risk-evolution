@@ -77,6 +77,113 @@ function pairMatchesFilters(pair, categoryFilter, keywordFilter) {
   return true
 }
 
+function buildConfidenceNote(pair) {
+  const score = Number(pair?.score) || 0
+  const comps = pair?.components || {}
+  const entries = Object.entries(comps)
+    .filter(([, v]) => typeof v === 'number' && Number.isFinite(v))
+    .sort((a, b) => b[1] - a[1])
+  const top = entries[0]
+  const map = {
+    embed: 'semantic embedding',
+    concept: 'risk concepts',
+    jaccard: 'keyword overlap',
+    trigram: 'phrase structure',
+    label: 'label match',
+  }
+  const topText = top ? `${map[top[0]] || top[0]} strong` : 'multiple signals agree'
+  if (pair?.auto_promoted) return `Medium confidence (${Math.round(score * 100)}%): auto-merged from added/removed, ${topText}.`
+  if (score >= 0.88) return `High confidence (${Math.round(score * 100)}%): ${topText}.`
+  if (score >= 0.74) return `Mid-high confidence (${Math.round(score * 100)}%): ${topText}.`
+  return `Medium confidence (${Math.round(score * 100)}%): recommended for manual review.`
+}
+
+function promoteNearRewrites(candidates, addedItems, removedItems, tLow) {
+  const rows = Array.isArray(candidates) ? candidates : []
+  const low = Number.isFinite(Number(tLow)) ? Number(tLow) : 0.58
+  const floor = Math.max(0.45, low - 0.14)
+  const addedByTitle = new Map((Array.isArray(addedItems) ? addedItems : []).map((x) => [String(x?.title || ''), x]))
+  const removedByTitle = new Map((Array.isArray(removedItems) ? removedItems : []).map((x) => [String(x?.title || ''), x]))
+  const usedAdded = new Set()
+  const usedRemoved = new Set()
+  const promoted = []
+
+  const eligible = rows
+    .filter((pair) => {
+      const score = Number(pair?.score) || 0
+      if (score >= low || score < floor) return false
+      const latestTitle = String(pair?.latest?.title || '')
+      const priorTitle = String(pair?.prior?.title || '')
+      if (!latestTitle || !priorTitle) return false
+      if (!addedByTitle.has(latestTitle) || !removedByTitle.has(priorTitle)) return false
+      const concept = Number(pair?.components?.concept) || 0
+      const jaccard = Number(pair?.components?.jaccard) || 0
+      return concept >= 0.18 || jaccard >= 0.2
+    })
+    .sort((a, b) => (Number(b?.score) || 0) - (Number(a?.score) || 0))
+
+  eligible.forEach((pair) => {
+    const latestTitle = String(pair?.latest?.title || '')
+    const priorTitle = String(pair?.prior?.title || '')
+    if (usedAdded.has(latestTitle) || usedRemoved.has(priorTitle)) return
+    usedAdded.add(latestTitle)
+    usedRemoved.add(priorTitle)
+    promoted.push({ ...pair, auto_promoted: true, title_changed: true })
+  })
+
+  const nextAdded = (Array.isArray(addedItems) ? addedItems : []).filter((x) => !usedAdded.has(String(x?.title || '')))
+  const nextRemoved = (Array.isArray(removedItems) ? removedItems : []).filter((x) => !usedRemoved.has(String(x?.title || '')))
+
+  return { promoted, nextAdded, nextRemoved }
+}
+
+function downloadCompareCsv({ data, priorYearLabel, latestYearLabel }) {
+  if (!data) return
+  const esc = (v) => {
+    const s = String(v ?? '')
+    if (s.includes('"') || s.includes(',') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`
+    return s
+  }
+  const rows = [['section', 'category', 'score', 'confidence_note', `prior_${priorYearLabel}`, `latest_${latestYearLabel}`]]
+  ;(Array.isArray(data?.pairs?.modified) ? data.pairs.modified : []).forEach((pair) => {
+    rows.push([
+      pair?.auto_promoted ? 'rewritten_auto' : 'rewritten',
+      normalizeCategory(pair?.latest || pair?.prior || {}),
+      Number(pair?.score || 0).toFixed(4),
+      buildConfidenceNote(pair),
+      pair?.prior?.title || '',
+      pair?.latest?.title || '',
+    ])
+  })
+  ;(Array.isArray(data?.pairs?.added) ? data.pairs.added : []).forEach((item) => {
+    rows.push(['added', normalizeCategory(item), '', '', '', item?.title || ''])
+  })
+  ;(Array.isArray(data?.pairs?.removed) ? data.pairs.removed : []).forEach((item) => {
+    rows.push(['removed', normalizeCategory(item), '', '', item?.title || '', ''])
+  })
+  ;(Array.isArray(data?.pairs?.retained) ? data.pairs.retained : []).forEach((pair) => {
+    rows.push([
+      'unchanged',
+      normalizeCategory(pair?.latest || pair?.prior || {}),
+      Number(pair?.score || 0).toFixed(4),
+      buildConfidenceNote(pair),
+      pair?.prior?.title || '',
+      pair?.latest?.title || '',
+    ])
+  })
+
+  const csv = rows.map((line) => line.map(esc).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `compare_${priorYearLabel}_vs_${latestYearLabel}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 // Local re-bucketing based on the user-controlled threshold slider.
 // Backend returns `pairs.candidates` containing every Hungarian pair
 // with score >= 0.45; we redistribute them into retained/modified/added/
@@ -113,7 +220,7 @@ function rebucket(data, threshold, dismissed) {
   const baseAdded = Array.isArray(data?.pairs?.added) ? data.pairs.added : []
   const baseRemoved = Array.isArray(data?.pairs?.removed) ? data.pairs.removed : []
 
-  const added = []
+  let added = []
   const seenAddedTitles = new Set()
   baseAdded.forEach((item) => {
     const title = String(item?.title || '')
@@ -139,7 +246,7 @@ function rebucket(data, threshold, dismissed) {
     }
   })
 
-  const removed = []
+  let removed = []
   const seenRemovedTitles = new Set()
   baseRemoved.forEach((item) => {
     const title = String(item?.title || '')
@@ -162,6 +269,13 @@ function rebucket(data, threshold, dismissed) {
       }
     }
   })
+
+  const promoted = promoteNearRewrites(candidates, added, removed, tLow)
+  if (promoted.promoted.length) {
+    modified.push(...promoted.promoted)
+    added = promoted.nextAdded
+    removed = promoted.nextRemoved
+  }
 
   // Rebuild category coverage matrix from the bucketed results so the
   // table stays in sync with the slider.
@@ -246,6 +360,7 @@ function PairCard({ pair, tone, onDismiss, priorLabel = 'Prior', latestLabel = '
   const score = Number(pair?.score) || 0
   const pct = Math.round(score * 100)
   const cat = normalizeCategory(pair?.latest || pair?.prior || {})
+  const note = buildConfidenceNote(pair)
   return (
     <div className={`rl-compare-pair-card tone-${tone}`}>
       <div className="rl-compare-pair-meta">
@@ -264,6 +379,7 @@ function PairCard({ pair, tone, onDismiss, priorLabel = 'Prior', latestLabel = '
           </button>
         ) : null}
       </div>
+      <p className="rl-compare-pair-note">{note}</p>
       <div className="rl-compare-pair-bodies">
         <div className="rl-compare-pair-body prior">
           <span className="rl-compare-pair-side-label">{priorLabel}</span>
@@ -593,6 +709,25 @@ export default function ComparePage() {
   const rewrittenTitle = `Rewritten risks (${priorYearLabel} vs ${latestYearLabel})`
   const newRisksTitle = `New risks (only in ${latestYearLabel} filing)`
   const removedRisksTitle = `Removed risks (only in ${priorYearLabel} filing)`
+  const diagnostics = useMemo(() => {
+    if (!data) return []
+    const list = []
+    const priorTotal = Number(data?.summary?.prior_total || 0)
+    const latestTotal = Number(data?.summary?.latest_total || 0)
+    const matched = Number(data?.summary?.retained || 0) + Number(data?.summary?.modified || 0)
+    const modifiedCount = Number(data?.summary?.modified || 0)
+    const promotedCount = (Array.isArray(data?.pairs?.modified) ? data.pairs.modified : []).filter((p) => p?.auto_promoted).length
+    if (priorTotal < 3 || latestTotal < 3) {
+      list.push('Very few extracted risks in one filing. Verify source completeness or compare adjacent years.')
+    }
+    if (matched === 0 && (priorTotal > 0 || latestTotal > 0)) {
+      list.push('No reliable pairs found. Review Added/Removed first and spot-check manually.')
+    }
+    if (modifiedCount && promotedCount) {
+      list.push(`Auto-merged ${promotedCount} high-similarity added/removed pairs into rewritten items.`)
+    }
+    return list
+  }, [data])
 
   return (
     <div className="rl-page-shell rl-compare-page">
@@ -781,10 +916,24 @@ export default function ComparePage() {
                   </button>
                 ) : null}
               </span>
+              <button
+                type="button"
+                className="btn-secondary rl-compare-export-btn"
+                onClick={() => downloadCompareCsv({ data, priorYearLabel, latestYearLabel })}
+              >
+                Export CSV
+              </button>
             </p>
-            <p className="rl-compare-side-note">
+            <p className="rl-compare-inline-tip">
               Most changes are usually rewrites. Check rewritten pairs first, then review true additions/removals.
             </p>
+            {diagnostics.length ? (
+              <div className="rl-compare-inline-diagnostics">
+                {diagnostics.map((msg, idx) => (
+                  <p key={`diag-${idx}`} className="rl-compare-inline-tip">{msg}</p>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           {/* Result tabs — same visual language as the mode tabs above. */}
@@ -965,7 +1114,7 @@ export default function ComparePage() {
           {resultTab === 'category' ? (
             <div className="rl-compare-column">
               <p className="section-title rl-compare-title-lite">Risk counts by category</p>
-              <p className="rl-compare-side-note">
+              <p className="rl-compare-inline-tip">
                 P = total in {priorYearLabel} filing · L = total in {latestYearLabel} filing.
               </p>
               <CategoryMatrix rows={data?.category_matrix} />
