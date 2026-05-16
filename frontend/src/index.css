@@ -2664,6 +2664,10 @@ select.input {
   align-items: start;
 }
 
+.rl-compare-workbench.is-yoy {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .rl-compare-side {
   display: grid;
   gap: 11px;
@@ -4626,7 +4630,7 @@ select.input {
   justify-content: space-between;
   gap: 10px;
   font-size: 0.83rem;
-  font-weight: 800;
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
 }
@@ -4635,10 +4639,10 @@ select.input {
   background: rgba(235, 244, 255, 0.78);
 }
 
-.rl-compare-group-head strong {
+.rl-compare-group-chevron {
   color: #64748b;
-  font-size: 0.92rem;
-  font-weight: 800;
+  font-size: 0.84rem;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -4701,7 +4705,7 @@ select.input {
   padding: 5px 12px;
   border-radius: 999px;
   font-size: 0.84rem;
-  font-weight: 800;
+  font-weight: 600;
   border: 1px solid rgba(203, 213, 225, 0.7);
   background: rgba(248, 250, 252, 0.85);
   color: #0f172a;
@@ -4720,6 +4724,10 @@ select.input {
   font-weight: 700;
   font-size: 0.8rem;
   padding: 0 0 0 4px;
+}
+
+.rl-compare-page .section-title.rl-compare-title-lite {
+  font-weight: 600;
 }
 
 .rl-compare-chip-link:hover {

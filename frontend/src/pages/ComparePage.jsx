@@ -242,7 +242,7 @@ function DiffChips({ diff }) {
   )
 }
 
-function PairCard({ pair, tone, onDismiss }) {
+function PairCard({ pair, tone, onDismiss, priorLabel = 'Prior', latestLabel = 'Latest' }) {
   const score = Number(pair?.score) || 0
   const pct = Math.round(score * 100)
   const cat = normalizeCategory(pair?.latest || pair?.prior || {})
@@ -266,11 +266,11 @@ function PairCard({ pair, tone, onDismiss }) {
       </div>
       <div className="rl-compare-pair-bodies">
         <div className="rl-compare-pair-body prior">
-          <span className="rl-compare-pair-side-label">Prior</span>
+          <span className="rl-compare-pair-side-label">{priorLabel}</span>
           <p>{pair?.prior?.title || '—'}</p>
         </div>
         <div className="rl-compare-pair-body latest">
-          <span className="rl-compare-pair-side-label">Latest</span>
+          <span className="rl-compare-pair-side-label">{latestLabel}</span>
           <p>{pair?.latest?.title || '—'}</p>
         </div>
       </div>
@@ -388,6 +388,11 @@ export default function ComparePage() {
   const labelMap = useMemo(() => {
     const m = new Map()
     records.forEach((r) => m.set(r.record_id, `${r.company} · ${r.year} · ${r.filing_type}`))
+    return m
+  }, [records])
+  const recordMap = useMemo(() => {
+    const m = new Map()
+    records.forEach((r) => m.set(r.record_id, r))
     return m
   }, [records])
 
@@ -509,9 +514,6 @@ export default function ComparePage() {
   useSlidingTabIndicator(modeTabsRef, [mode])
   useSlidingTabIndicator(resultTabsRef, [resultTab, rawData?.latest_record_id])
 
-  const serverLow = Number(rawData?.scoring?.threshold_low ?? 0.58)
-  const serverHigh = Number(rawData?.scoring?.threshold_high ?? 0.82)
-
   const data = useMemo(
     () => rebucket(rawData, { low: thresholdLow, high: thresholdHigh }, dismissed),
     [rawData, thresholdLow, thresholdHigh, dismissed],
@@ -584,17 +586,20 @@ export default function ComparePage() {
     saveDismissed(rawData?.latest_record_id, rawData?.prior_record_id, empty)
   }
 
-  const onResetThresholds = () => {
-    setThresholdLow(serverLow)
-    setThresholdHigh(serverHigh)
-  }
+  const priorRecord = recordMap.get(data?.prior_record_id) || null
+  const latestRecord = recordMap.get(data?.latest_record_id) || null
+  const priorYearLabel = priorRecord?.year ? String(priorRecord.year) : 'Prior'
+  const latestYearLabel = latestRecord?.year ? String(latestRecord.year) : 'Latest'
+  const rewrittenTitle = `Rewritten risks (${priorYearLabel} vs ${latestYearLabel})`
+  const newRisksTitle = `New risks (only in ${latestYearLabel} filing)`
+  const removedRisksTitle = `Removed risks (only in ${priorYearLabel} filing)`
 
   return (
     <div className="rl-page-shell rl-compare-page">
       <section className="rl-up-header">
         <div className="page-header !mb-0">
           <div className="page-header-left rl-up-title-block">
-            <span className="page-icon">CL</span>
+            <span className="page-icon">⚖️</span>
             <div>
               <p className="page-title">Compare</p>
               <p className="page-subtitle">Detect risk changes year-over-year or between companies</p>
@@ -606,9 +611,9 @@ export default function ComparePage() {
 
       {error ? <div className="rl-up-inline-error">{error}</div> : null}
 
-      <section className="rl-compare-workbench">
+      <section className={`rl-compare-workbench ${mode === 'yoy' ? 'is-yoy' : 'is-cross'}`}>
         <div className="rl-up-form rl-compare-control">
-          <p className="section-title">Configure</p>
+          <p className="section-title rl-compare-title-lite">Configure</p>
           <div className="rl-tabs mt-2 rl-tab-motion" ref={modeTabsRef}>
             <button className={`rl-tab-btn ${mode === 'yoy' ? 'active' : ''}`} onClick={() => setMode('yoy')}>
               Year-over-Year
@@ -623,7 +628,7 @@ export default function ComparePage() {
           {!loadingRecords && mode === 'yoy' ? (
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div>
-                <label className="section-title">Company</label>
+                <label className="section-title rl-compare-title-lite">Company</label>
                 <select className="input mt-2" value={companyYoy} onChange={(e) => setCompanyYoy(e.target.value)}>
                   {companies.map((c) => (
                     <option key={c} value={c}>
@@ -633,14 +638,14 @@ export default function ComparePage() {
                 </select>
               </div>
               <div>
-                <label className="section-title">Filing Type</label>
+                <label className="section-title rl-compare-title-lite">Filing Type</label>
                 <select className="input mt-2" value={ftYoy} onChange={(e) => setFtYoy(e.target.value)}>
                   <option value="10-K">10-K</option>
                   <option value="10-Q">10-Q</option>
                 </select>
               </div>
               <div>
-                <label className="section-title">Latest Year</label>
+                <label className="section-title rl-compare-title-lite">Latest Year</label>
                 <select className="input mt-2" value={latestYear} onChange={(e) => setLatestYear(e.target.value)}>
                   {yoyYears.map((y) => (
                     <option key={y} value={String(y)}>
@@ -650,7 +655,7 @@ export default function ComparePage() {
                 </select>
               </div>
               <div>
-                <label className="section-title">Prior Year</label>
+                <label className="section-title rl-compare-title-lite">Prior Year</label>
                 <select className="input mt-2" value={priorYear} onChange={(e) => setPriorYear(e.target.value)}>
                   {priorYearOptions.map((y) => (
                     <option key={y} value={String(y)}>
@@ -665,10 +670,9 @@ export default function ComparePage() {
           {!loadingRecords && mode === 'cross' ? (
             <div className="mt-4 grid gap-4 xl:grid-cols-2">
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-                <p className="text-sm font-bold text-blue-700">Company A</p>
                 <div className="mt-2 grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="section-title">Company</label>
+                    <label className="section-title rl-compare-title-lite">Company</label>
                     <select className="input mt-2" value={companyA} onChange={(e) => setCompanyA(e.target.value)}>
                       {companies.map((c) => (
                         <option key={c} value={c}>
@@ -678,7 +682,7 @@ export default function ComparePage() {
                     </select>
                   </div>
                   <div>
-                    <label className="section-title">Year</label>
+                    <label className="section-title rl-compare-title-lite">Year</label>
                     <select className="input mt-2" value={yearA} onChange={(e) => setYearA(e.target.value)}>
                       {yearsForCompany(companyA).map((y) => (
                         <option key={y} value={String(y)}>
@@ -690,10 +694,9 @@ export default function ComparePage() {
                 </div>
               </div>
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                <p className="text-sm font-bold text-emerald-700">Company B</p>
                 <div className="mt-2 grid gap-3 md:grid-cols-2">
                   <div>
-                    <label className="section-title">Company</label>
+                    <label className="section-title rl-compare-title-lite">Company</label>
                     <select className="input mt-2" value={companyB} onChange={(e) => setCompanyB(e.target.value)}>
                       {companies.map((c) => (
                         <option key={c} value={c}>
@@ -703,7 +706,7 @@ export default function ComparePage() {
                     </select>
                   </div>
                   <div>
-                    <label className="section-title">Year</label>
+                    <label className="section-title rl-compare-title-lite">Year</label>
                     <select className="input mt-2" value={yearB} onChange={(e) => setYearB(e.target.value)}>
                       {yearsForCompany(companyB).map((y) => (
                         <option key={y} value={String(y)}>
@@ -724,36 +727,34 @@ export default function ComparePage() {
           </div>
         </div>
 
-        <aside className="rl-up-results rl-compare-side">
-          <p className="section-title">Comparison Lens</p>
-          <div className="rl-compare-side-kpis">
-            <div className="metric-card">
-              <p className="metric-label">Mode</p>
-              <p className="metric-value">{mode === 'yoy' ? 'YOY' : 'Cross'}</p>
+        {mode === 'cross' ? (
+          <aside className="rl-up-results rl-compare-side">
+            <p className="section-title rl-compare-title-lite">Comparison Lens</p>
+            <div className="rl-compare-side-kpis">
+              <div className="metric-card">
+                <p className="metric-label">Mode</p>
+                <p className="metric-value">Cross</p>
+              </div>
+              <div className="metric-card">
+                <p className="metric-label">Records Ready</p>
+                <p className="metric-value">{records.length}</p>
+              </div>
             </div>
-            <div className="metric-card">
-              <p className="metric-label">Records Ready</p>
-              <p className="metric-value">{records.length}</p>
+
+            <div className="rl-up-result-meta">
+              <span>{latestRecord?.year ? `${latestRecord.year} Record` : 'Latest Record'}</span>
+              <span className="rl-up-result-value" title={labelMap.get(latestId) || latestId || '—'}>
+                {labelMap.get(latestId) || latestId || '—'}
+              </span>
             </div>
-          </div>
-
-          <div className="rl-up-result-meta">
-            <span>Latest Record</span>
-            <span className="rl-up-result-value" title={labelMap.get(latestId) || latestId || '—'}>
-              {labelMap.get(latestId) || latestId || '—'}
-            </span>
-          </div>
-          <div className="rl-up-result-meta">
-            <span>Prior Record</span>
-            <span className="rl-up-result-value" title={labelMap.get(priorId) || priorId || '—'}>
-              {labelMap.get(priorId) || priorId || '—'}
-            </span>
-          </div>
-
-          <div className="rl-compare-side-note">
-            Tip: use Year-over-Year for trajectory shifts, and Cross-Company for relative exposure benchmarking.
-          </div>
-        </aside>
+            <div className="rl-up-result-meta">
+              <span>{priorRecord?.year ? `${priorRecord.year} Record` : 'Prior Record'}</span>
+              <span className="rl-up-result-value" title={labelMap.get(priorId) || priorId || '—'}>
+                {labelMap.get(priorId) || priorId || '—'}
+              </span>
+            </div>
+          </aside>
+        ) : null}
       </section>
 
       {data && (
@@ -767,8 +768,8 @@ export default function ComparePage() {
               <strong>{labelMap.get(data?.latest_record_id) || data?.latest_record_id || '—'}</strong>
             </p>
             <p className="rl-compare-headline-summary">
-              <span className="rl-compare-chip added" style={{ fontWeight: 500 }}>{data?.summary?.added ?? 0} added</span>
-              <span className="rl-compare-chip removed" style={{ fontWeight: 500 }}>{data?.summary?.removed ?? 0} removed</span>
+              <span className="rl-compare-chip added">{data?.summary?.added ?? 0} added</span>
+              <span className="rl-compare-chip removed">{data?.summary?.removed ?? 0} removed</span>
               <span className="rl-compare-chip rewritten">{data?.summary?.modified ?? 0} rewritten</span>
               <span className="rl-compare-chip muted">
                 {data?.summary?.retained ?? 0} unchanged
@@ -848,7 +849,7 @@ export default function ComparePage() {
             <div className="rl-compare-changes-stack">
               {/* Rewritten pairs (was: Modified) */}
               <div className="rl-compare-column">
-                <p className="section-title">Rewritten risks (same risk, different wording)</p>
+                <p className="section-title rl-compare-title-lite">{rewrittenTitle}</p>
                 {!filteredModified.length ? (
                   <p className="mt-2 text-sm text-slate-500">No rewritten risks at the current sensitivity.</p>
                 ) : (
@@ -859,6 +860,8 @@ export default function ComparePage() {
                         pair={pair}
                         tone="modified"
                         onDismiss={() => onDismissPair(pair)}
+                        priorLabel={priorYearLabel}
+                        latestLabel={latestYearLabel}
                       />
                     ))}
                   </div>
@@ -867,7 +870,7 @@ export default function ComparePage() {
 
               {/* Added */}
               <div className="rl-compare-column">
-                <p className="section-title" style={{ fontWeight: 500 }}>New risks (only in the newer filing)</p>
+                <p className="section-title rl-compare-title-lite">{newRisksTitle}</p>
                 {!groupedNew.length ? (
                   <p className="mt-2 text-sm text-slate-500">No new risks at the current sensitivity.</p>
                 ) : (
@@ -878,7 +881,7 @@ export default function ComparePage() {
                         <div key={`new-${group.category}`} className="rl-compare-group">
                           <button className="rl-compare-group-head" onClick={() => toggleNewGroup(group.category)}>
                             <span>{group.category} ({group.items.length})</span>
-                            <strong>{isOpen ? '−' : '+'}</strong>
+                            <span className="rl-compare-group-chevron" aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
                           </button>
                           {isOpen ? (
                             <ul className="rl-compare-group-items">
@@ -903,7 +906,7 @@ export default function ComparePage() {
 
               {/* Removed */}
               <div className="rl-compare-column">
-                <p className="section-title" style={{ fontWeight: 500 }}>Removed risks (only in the older filing)</p>
+                <p className="section-title rl-compare-title-lite">{removedRisksTitle}</p>
                 {!groupedRemoved.length ? (
                   <p className="mt-2 text-sm text-slate-500">No removed risks at the current sensitivity.</p>
                 ) : (
@@ -914,7 +917,7 @@ export default function ComparePage() {
                         <div key={`old-${group.category}`} className="rl-compare-group">
                           <button className="rl-compare-group-head" onClick={() => toggleRemovedGroup(group.category)}>
                             <span>{group.category} ({group.items.length})</span>
-                            <strong>{isOpen ? '−' : '+'}</strong>
+                            <span className="rl-compare-group-chevron" aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
                           </button>
                           {isOpen ? (
                             <ul className="rl-compare-group-items">
@@ -941,7 +944,7 @@ export default function ComparePage() {
 
           {resultTab === 'unchanged' ? (
             <div className="rl-compare-column">
-              <p className="section-title">Risks present in both filings</p>
+              <p className="section-title rl-compare-title-lite">Risks present in both filings ({priorYearLabel} / {latestYearLabel})</p>
               {!filteredRetained.length ? (
                 <p className="mt-2 text-sm text-slate-500">No unchanged risks at the current sensitivity.</p>
               ) : (
@@ -952,6 +955,8 @@ export default function ComparePage() {
                       pair={pair}
                       tone="retained"
                       onDismiss={() => onDismissPair(pair)}
+                      priorLabel={priorYearLabel}
+                      latestLabel={latestYearLabel}
                     />
                   ))}
                 </div>
@@ -961,18 +966,15 @@ export default function ComparePage() {
 
           {resultTab === 'category' ? (
             <div className="rl-compare-column">
-              <p className="section-title">Risk counts by category</p>
+              <p className="section-title rl-compare-title-lite">Risk counts by category</p>
               <p className="rl-compare-side-note">
-                P = total in the older filing · L = total in the newer filing.
+                P = total in {priorYearLabel} filing · L = total in {latestYearLabel} filing.
               </p>
               <CategoryMatrix rows={data?.category_matrix} />
             </div>
           ) : null}
 
           <div className="rl-compare-filter-bar compact">
-            <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetThresholds}>
-              Reset sensitivity
-            </button>
             {dismissed.size ? (
               <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetDismissed}>
                 Restore {dismissed.size} dismissed pair{dismissed.size === 1 ? '' : 's'}
