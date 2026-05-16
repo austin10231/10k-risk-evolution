@@ -356,7 +356,6 @@ export default function ComparePage() {
   const [newOpenMap, setNewOpenMap] = useState({})
   const [removedOpenMap, setRemovedOpenMap] = useState({})
   const [resultTab, setResultTab] = useState('changes') // 'changes' | 'unchanged' | 'category'
-  const [sensitivityPreset, setSensitivityPreset] = useState('balanced') // strict | balanced | loose
   const [thresholdLow, setThresholdLow] = useState(null)
   const [thresholdHigh, setThresholdHigh] = useState(null)
   const [dismissed, setDismissed] = useState(() => new Set())
@@ -498,7 +497,6 @@ export default function ComparePage() {
       if (payload?.scoring) {
         setThresholdLow(Number(payload.scoring.threshold_low))
         setThresholdHigh(Number(payload.scoring.threshold_high))
-        setSensitivityPreset('balanced')
       }
       setDismissed(loadDismissed(payload?.latest_record_id, payload?.prior_record_id))
     } catch (e) {
@@ -513,28 +511,6 @@ export default function ComparePage() {
 
   const serverLow = Number(rawData?.scoring?.threshold_low ?? 0.58)
   const serverHigh = Number(rawData?.scoring?.threshold_high ?? 0.82)
-  const setThresholdsByPreset = (preset) => {
-    const gap = Math.max(0.05, serverHigh - serverLow)
-    if (preset === 'strict') {
-      const low = Math.min(0.92, serverLow + 0.08)
-      const high = Math.min(0.97, low + gap)
-      setThresholdLow(low)
-      setThresholdHigh(high)
-      setSensitivityPreset('strict')
-      return
-    }
-    if (preset === 'loose') {
-      const low = Math.max(0.45, serverLow - 0.08)
-      const high = Math.max(low + 0.04, Math.min(0.95, low + gap))
-      setThresholdLow(low)
-      setThresholdHigh(high)
-      setSensitivityPreset('loose')
-      return
-    }
-    setThresholdLow(serverLow)
-    setThresholdHigh(serverHigh)
-    setSensitivityPreset('balanced')
-  }
 
   const data = useMemo(
     () => rebucket(rawData, { low: thresholdLow, high: thresholdHigh }, dismissed),
@@ -583,7 +559,6 @@ export default function ComparePage() {
     setCategoryFilter('ALL')
     setKeywordFilter('')
     setResultTab('changes')
-    setSensitivityPreset('balanced')
   }, [rawData?.latest_record_id, rawData?.prior_record_id])
 
   const toggleNewGroup = (cat) => {
@@ -610,7 +585,8 @@ export default function ComparePage() {
   }
 
   const onResetThresholds = () => {
-    setThresholdsByPreset('balanced')
+    setThresholdLow(serverLow)
+    setThresholdHigh(serverHigh)
   }
 
   return (
@@ -791,8 +767,8 @@ export default function ComparePage() {
               <strong>{labelMap.get(data?.latest_record_id) || data?.latest_record_id || '—'}</strong>
             </p>
             <p className="rl-compare-headline-summary">
-              <span className="rl-compare-chip added">{data?.summary?.added ?? 0} added</span>
-              <span className="rl-compare-chip removed">{data?.summary?.removed ?? 0} removed</span>
+              <span className="rl-compare-chip added" style={{ fontWeight: 500 }}>{data?.summary?.added ?? 0} added</span>
+              <span className="rl-compare-chip removed" style={{ fontWeight: 500 }}>{data?.summary?.removed ?? 0} removed</span>
               <span className="rl-compare-chip rewritten">{data?.summary?.modified ?? 0} rewritten</span>
               <span className="rl-compare-chip muted">
                 {data?.summary?.retained ?? 0} unchanged
@@ -810,35 +786,6 @@ export default function ComparePage() {
             <p className="rl-compare-side-note">
               Most changes are usually rewrites. Check rewritten pairs first, then review true additions/removals.
             </p>
-            <div className="rl-compare-filter-bar compact">
-              <div className="rl-compare-filter-select">
-                <button
-                  type="button"
-                  className={`btn-secondary ${sensitivityPreset === 'strict' ? 'active' : ''}`}
-                  onClick={() => setThresholdsByPreset('strict')}
-                >
-                  Strict
-                </button>
-              </div>
-              <div className="rl-compare-filter-select">
-                <button
-                  type="button"
-                  className={`btn-secondary ${sensitivityPreset === 'balanced' ? 'active' : ''}`}
-                  onClick={() => setThresholdsByPreset('balanced')}
-                >
-                  Balanced
-                </button>
-              </div>
-              <div className="rl-compare-filter-select">
-                <button
-                  type="button"
-                  className={`btn-secondary ${sensitivityPreset === 'loose' ? 'active' : ''}`}
-                  onClick={() => setThresholdsByPreset('loose')}
-                >
-                  Loose
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Result tabs — same visual language as the mode tabs above. */}
@@ -920,7 +867,7 @@ export default function ComparePage() {
 
               {/* Added */}
               <div className="rl-compare-column">
-                <p className="section-title">New risks (only in the newer filing)</p>
+                <p className="section-title" style={{ fontWeight: 500 }}>New risks (only in the newer filing)</p>
                 {!groupedNew.length ? (
                   <p className="mt-2 text-sm text-slate-500">No new risks at the current sensitivity.</p>
                 ) : (
@@ -956,7 +903,7 @@ export default function ComparePage() {
 
               {/* Removed */}
               <div className="rl-compare-column">
-                <p className="section-title">Removed risks (only in the older filing)</p>
+                <p className="section-title" style={{ fontWeight: 500 }}>Removed risks (only in the older filing)</p>
                 {!groupedRemoved.length ? (
                   <p className="mt-2 text-sm text-slate-500">No removed risks at the current sensitivity.</p>
                 ) : (
