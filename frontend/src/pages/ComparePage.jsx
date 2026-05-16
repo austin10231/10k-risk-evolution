@@ -10,10 +10,11 @@ function normalizeCategory(row) {
   return FIXED_RISK_CATEGORIES.includes(value) ? value : 'General & Other'
 }
 
-function groupRisks(risks, categoryFilter, keywordFilter) {
+function groupRisks(risks, categoryFilter, keywordFilter, hintMap) {
   const grouped = new Map()
   const keyword = String(keywordFilter || '').trim().toLowerCase()
   const category = String(categoryFilter || '').trim()
+  const hints = hintMap instanceof Map ? hintMap : new Map()
 
   ;(Array.isArray(risks) ? risks : []).forEach((row) => {
     const cat = normalizeCategory(row)
@@ -23,12 +24,45 @@ function groupRisks(risks, categoryFilter, keywordFilter) {
     if (keyword && !`${cat} ${title}`.toLowerCase().includes(keyword)) return
 
     if (!grouped.has(cat)) grouped.set(cat, [])
-    grouped.get(cat).push({ category: cat, title })
+    grouped.get(cat).push({ category: cat, title, hint: hints.get(title) || null })
   })
 
   return Array.from(grouped.entries())
     .map(([cat, items]) => ({ category: cat, items }))
     .sort((a, b) => b.items.length - a.items.length || a.category.localeCompare(b.category))
+}
+
+function buildNearRewriteHints(candidates, tLow, addedItems, removedItems) {
+  const rows = Array.isArray(candidates) ? candidates : []
+  const low = Number.isFinite(Number(tLow)) ? Number(tLow) : 0.58
+  const floor = Math.max(0.45, low - 0.12)
+  const addedSet = new Set((Array.isArray(addedItems) ? addedItems : []).map((x) => String(x?.title || '')))
+  const removedSet = new Set((Array.isArray(removedItems) ? removedItems : []).map((x) => String(x?.title || '')))
+  const addedHints = new Map()
+  const removedHints = new Map()
+
+  rows.forEach((pair) => {
+    const score = Number(pair?.score) || 0
+    if (score >= low || score < floor) return
+    const latestTitle = String(pair?.latest?.title || '')
+    const priorTitle = String(pair?.prior?.title || '')
+    if (!latestTitle || !priorTitle) return
+
+    if (addedSet.has(latestTitle)) {
+      const prev = addedHints.get(latestTitle)
+      if (!prev || score > prev.score) {
+        addedHints.set(latestTitle, { title: priorTitle, score })
+      }
+    }
+    if (removedSet.has(priorTitle)) {
+      const prev = removedHints.get(priorTitle)
+      if (!prev || score > prev.score) {
+        removedHints.set(priorTitle, { title: latestTitle, score })
+      }
+    }
+  })
+
+  return { addedHints, removedHints }
 }
 
 function pairMatchesFilters(pair, categoryFilter, keywordFilter) {
@@ -322,7 +356,7 @@ export default function ComparePage() {
   const [newOpenMap, setNewOpenMap] = useState({})
   const [removedOpenMap, setRemovedOpenMap] = useState({})
   const [resultTab, setResultTab] = useState('changes') // 'changes' | 'unchanged' | 'category'
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [sensitivityPreset, setSensitivityPreset] = useState('balanced') // strict | balanced | loose
   const [thresholdLow, setThresholdLow] = useState(null)
   const [thresholdHigh, setThresholdHigh] = useState(null)
   const [dismissed, setDismissed] = useState(() => new Set())
@@ -464,6 +498,7 @@ export default function ComparePage() {
       if (payload?.scoring) {
         setThresholdLow(Number(payload.scoring.threshold_low))
         setThresholdHigh(Number(payload.scoring.threshold_high))
+        setSensitivityPreset('balanced')
       }
       setDismissed(loadDismissed(payload?.latest_record_id, payload?.prior_record_id))
     } catch (e) {
@@ -476,47 +511,52 @@ export default function ComparePage() {
   useSlidingTabIndicator(modeTabsRef, [mode])
   useSlidingTabIndicator(resultTabsRef, [resultTab, rawData?.latest_record_id])
 
-  // Map a single 0-100 strictness knob onto the (low, high) thresholds
-  // returned by the backend. strictness=50 reproduces the server's
-  // mode-specific defaults; the slider shifts both bounds in tandem.
   const serverLow = Number(rawData?.scoring?.threshold_low ?? 0.58)
   const serverHigh = Number(rawData?.scoring?.threshold_high ?? 0.82)
-  const strictnessFromThresholds = (low) => {
-    const span = 0.30 // how far from the server default the slider can travel
-    const ratio = (Number(low) - serverLow) / span
-    return Math.max(0, Math.min(100, Math.round(50 + ratio * 100)))
-  }
-  const thresholdsFromStrictness = (strictness) => {
-    const span = 0.30
-    const shift = ((Number(strictness) - 50) / 100) * span
-    const low = Math.max(0.40, Math.min(0.85, serverLow + shift))
-    // Keep the (high - low) gap from the server defaults so users only
-    // have one knob to think about.
+  const setThresholdsByPreset = (preset) => {
     const gap = Math.max(0.05, serverHigh - serverLow)
-    const high = Math.max(low + 0.04, Math.min(0.99, low + gap))
-    return { low, high }
-  }
-  const strictness = strictnessFromThresholds(
-    Number.isFinite(thresholdLow) ? thresholdLow : serverLow,
-  )
-  const onChangeStrictness = (val) => {
-    const { low, high } = thresholdsFromStrictness(val)
-    setThresholdLow(low)
-    setThresholdHigh(high)
+    if (preset === 'strict') {
+      const low = Math.min(0.92, serverLow + 0.08)
+      const high = Math.min(0.97, low + gap)
+      setThresholdLow(low)
+      setThresholdHigh(high)
+      setSensitivityPreset('strict')
+      return
+    }
+    if (preset === 'loose') {
+      const low = Math.max(0.45, serverLow - 0.08)
+      const high = Math.max(low + 0.04, Math.min(0.95, low + gap))
+      setThresholdLow(low)
+      setThresholdHigh(high)
+      setSensitivityPreset('loose')
+      return
+    }
+    setThresholdLow(serverLow)
+    setThresholdHigh(serverHigh)
+    setSensitivityPreset('balanced')
   }
 
   const data = useMemo(
     () => rebucket(rawData, { low: thresholdLow, high: thresholdHigh }, dismissed),
     [rawData, thresholdLow, thresholdHigh, dismissed],
   )
+  const hintMaps = useMemo(
+    () => buildNearRewriteHints(
+      data?.pairs?.candidates || [],
+      Number.isFinite(thresholdLow) ? thresholdLow : data?.scoring?.threshold_low,
+      data?.pairs?.added || [],
+      data?.pairs?.removed || [],
+    ),
+    [data?.pairs?.candidates, data?.pairs?.added, data?.pairs?.removed, thresholdLow, data?.scoring?.threshold_low],
+  )
 
   const groupedNew = useMemo(
-    () => groupRisks(data?.pairs?.added || [], categoryFilter, keywordFilter),
-    [data?.pairs?.added, categoryFilter, keywordFilter],
+    () => groupRisks(data?.pairs?.added || [], categoryFilter, keywordFilter, hintMaps.addedHints),
+    [data?.pairs?.added, categoryFilter, keywordFilter, hintMaps.addedHints],
   )
   const groupedRemoved = useMemo(
-    () => groupRisks(data?.pairs?.removed || [], categoryFilter, keywordFilter),
-    [data?.pairs?.removed, categoryFilter, keywordFilter],
+    () => groupRisks(data?.pairs?.removed || [], categoryFilter, keywordFilter, hintMaps.removedHints),
+    [data?.pairs?.removed, categoryFilter, keywordFilter, hintMaps.removedHints],
   )
 
   const filteredRetained = useMemo(
@@ -543,7 +583,7 @@ export default function ComparePage() {
     setCategoryFilter('ALL')
     setKeywordFilter('')
     setResultTab('changes')
-    setAdvancedOpen(false)
+    setSensitivityPreset('balanced')
   }, [rawData?.latest_record_id, rawData?.prior_record_id])
 
   const toggleNewGroup = (cat) => {
@@ -570,8 +610,7 @@ export default function ComparePage() {
   }
 
   const onResetThresholds = () => {
-    setThresholdLow(Number(rawData?.scoring?.threshold_low))
-    setThresholdHigh(Number(rawData?.scoring?.threshold_high))
+    setThresholdsByPreset('balanced')
   }
 
   return (
@@ -579,7 +618,7 @@ export default function ComparePage() {
       <section className="rl-up-header">
         <div className="page-header !mb-0">
           <div className="page-header-left rl-up-title-block">
-            <span className="page-icon">⚖️</span>
+            <span className="page-icon">CL</span>
             <div>
               <p className="page-title">Compare</p>
               <p className="page-subtitle">Detect risk changes year-over-year or between companies</p>
@@ -596,10 +635,10 @@ export default function ComparePage() {
           <p className="section-title">Configure</p>
           <div className="rl-tabs mt-2 rl-tab-motion" ref={modeTabsRef}>
             <button className={`rl-tab-btn ${mode === 'yoy' ? 'active' : ''}`} onClick={() => setMode('yoy')}>
-              📅 Year-over-Year
+              Year-over-Year
             </button>
             <button className={`rl-tab-btn ${mode === 'cross' ? 'active' : ''}`} onClick={() => setMode('cross')}>
-              🏢 Cross-Company
+              Cross-Company
             </button>
           </div>
 
@@ -704,7 +743,7 @@ export default function ComparePage() {
 
           <div className="mt-4">
             <button className="btn-primary" onClick={runCompare} disabled={loading || !latestId || !priorId}>
-              {loading ? 'Comparing…' : '🚀 Run Compare'}
+              {loading ? 'Comparing…' : 'Run Compare'}
             </button>
           </div>
         </div>
@@ -752,9 +791,9 @@ export default function ComparePage() {
               <strong>{labelMap.get(data?.latest_record_id) || data?.latest_record_id || '—'}</strong>
             </p>
             <p className="rl-compare-headline-summary">
-              <span className="rl-compare-chip added">🟢 {data?.summary?.added ?? 0} added</span>
-              <span className="rl-compare-chip removed">🔴 {data?.summary?.removed ?? 0} removed</span>
-              <span className="rl-compare-chip rewritten">🔄 {data?.summary?.modified ?? 0} rewritten</span>
+              <span className="rl-compare-chip added">{data?.summary?.added ?? 0} added</span>
+              <span className="rl-compare-chip removed">{data?.summary?.removed ?? 0} removed</span>
+              <span className="rl-compare-chip rewritten">{data?.summary?.modified ?? 0} rewritten</span>
               <span className="rl-compare-chip muted">
                 {data?.summary?.retained ?? 0} unchanged
                 {(data?.summary?.retained ?? 0) > 0 && resultTab !== 'unchanged' ? (
@@ -768,6 +807,38 @@ export default function ComparePage() {
                 ) : null}
               </span>
             </p>
+            <p className="rl-compare-side-note">
+              Most changes are usually rewrites. Check rewritten pairs first, then review true additions/removals.
+            </p>
+            <div className="rl-compare-filter-bar compact">
+              <div className="rl-compare-filter-select">
+                <button
+                  type="button"
+                  className={`btn-secondary ${sensitivityPreset === 'strict' ? 'active' : ''}`}
+                  onClick={() => setThresholdsByPreset('strict')}
+                >
+                  Strict
+                </button>
+              </div>
+              <div className="rl-compare-filter-select">
+                <button
+                  type="button"
+                  className={`btn-secondary ${sensitivityPreset === 'balanced' ? 'active' : ''}`}
+                  onClick={() => setThresholdsByPreset('balanced')}
+                >
+                  Balanced
+                </button>
+              </div>
+              <div className="rl-compare-filter-select">
+                <button
+                  type="button"
+                  className={`btn-secondary ${sensitivityPreset === 'loose' ? 'active' : ''}`}
+                  onClick={() => setThresholdsByPreset('loose')}
+                >
+                  Loose
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Result tabs — same visual language as the mode tabs above. */}
@@ -776,19 +847,19 @@ export default function ComparePage() {
               className={`rl-tab-btn ${resultTab === 'changes' ? 'active' : ''}`}
               onClick={() => setResultTab('changes')}
             >
-              🔁 Changes ({(data?.summary?.added ?? 0) + (data?.summary?.removed ?? 0) + (data?.summary?.modified ?? 0)})
+              Changes ({(data?.summary?.added ?? 0) + (data?.summary?.removed ?? 0) + (data?.summary?.modified ?? 0)})
             </button>
             <button
               className={`rl-tab-btn ${resultTab === 'unchanged' ? 'active' : ''}`}
               onClick={() => setResultTab('unchanged')}
             >
-              🟦 Unchanged ({data?.summary?.retained ?? 0})
+              Unchanged ({data?.summary?.retained ?? 0})
             </button>
             <button
               className={`rl-tab-btn ${resultTab === 'category' ? 'active' : ''}`}
               onClick={() => setResultTab('category')}
             >
-              📊 By Category
+              By Category
             </button>
           </div>
 
@@ -828,9 +899,28 @@ export default function ComparePage() {
 
           {resultTab === 'changes' ? (
             <div className="rl-compare-changes-stack">
+              {/* Rewritten pairs (was: Modified) */}
+              <div className="rl-compare-column">
+                <p className="section-title">Rewritten risks (same risk, different wording)</p>
+                {!filteredModified.length ? (
+                  <p className="mt-2 text-sm text-slate-500">No rewritten risks at the current sensitivity.</p>
+                ) : (
+                  <div className="rl-compare-pair-list">
+                    {filteredModified.map((pair, idx) => (
+                      <PairCard
+                        key={`mod-${idx}-${pair?.prior?.title}-${pair?.latest?.title}`}
+                        pair={pair}
+                        tone="modified"
+                        onDismiss={() => onDismissPair(pair)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Added */}
               <div className="rl-compare-column">
-                <p className="section-title">🟢 New risks (only in the newer filing)</p>
+                <p className="section-title">New risks (only in the newer filing)</p>
                 {!groupedNew.length ? (
                   <p className="mt-2 text-sm text-slate-500">No new risks at the current sensitivity.</p>
                 ) : (
@@ -848,6 +938,11 @@ export default function ComparePage() {
                               {group.items.map((item, idx) => (
                                 <li key={`new-${group.category}-${idx}`}>
                                   <span>{item.title}</span>
+                                  {item?.hint?.title ? (
+                                    <p className="text-xs text-amber-700 mt-1">
+                                      Possibly rewritten from prior: {item.hint.title} ({Math.round((Number(item.hint.score) || 0) * 100)}%)
+                                    </p>
+                                  ) : null}
                                 </li>
                               ))}
                             </ul>
@@ -861,7 +956,7 @@ export default function ComparePage() {
 
               {/* Removed */}
               <div className="rl-compare-column">
-                <p className="section-title">🔴 Removed risks (only in the older filing)</p>
+                <p className="section-title">Removed risks (only in the older filing)</p>
                 {!groupedRemoved.length ? (
                   <p className="mt-2 text-sm text-slate-500">No removed risks at the current sensitivity.</p>
                 ) : (
@@ -879,6 +974,11 @@ export default function ComparePage() {
                               {group.items.map((item, idx) => (
                                 <li key={`old-${group.category}-${idx}`}>
                                   <span>{item.title}</span>
+                                  {item?.hint?.title ? (
+                                    <p className="text-xs text-amber-700 mt-1">
+                                      Possibly rewritten into latest: {item.hint.title} ({Math.round((Number(item.hint.score) || 0) * 100)}%)
+                                    </p>
+                                  ) : null}
                                 </li>
                               ))}
                             </ul>
@@ -889,31 +989,12 @@ export default function ComparePage() {
                   </div>
                 )}
               </div>
-
-              {/* Rewritten pairs (was: Modified) */}
-              <div className="rl-compare-column">
-                <p className="section-title">🔄 Rewritten risks (same risk, different wording)</p>
-                {!filteredModified.length ? (
-                  <p className="mt-2 text-sm text-slate-500">No rewritten risks at the current sensitivity.</p>
-                ) : (
-                  <div className="rl-compare-pair-list">
-                    {filteredModified.map((pair, idx) => (
-                      <PairCard
-                        key={`mod-${idx}-${pair?.prior?.title}-${pair?.latest?.title}`}
-                        pair={pair}
-                        tone="modified"
-                        onDismiss={() => onDismissPair(pair)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           ) : null}
 
           {resultTab === 'unchanged' ? (
             <div className="rl-compare-column">
-              <p className="section-title">🟦 Risks present in both filings</p>
+              <p className="section-title">Risks present in both filings</p>
               {!filteredRetained.length ? (
                 <p className="mt-2 text-sm text-slate-500">No unchanged risks at the current sensitivity.</p>
               ) : (
@@ -933,7 +1014,7 @@ export default function ComparePage() {
 
           {resultTab === 'category' ? (
             <div className="rl-compare-column">
-              <p className="section-title">📊 Risk counts by category</p>
+              <p className="section-title">Risk counts by category</p>
               <p className="rl-compare-side-note">
                 P = total in the older filing · L = total in the newer filing.
               </p>
@@ -941,46 +1022,19 @@ export default function ComparePage() {
             </div>
           ) : null}
 
-          {/* Advanced disclosure — keeps the strictness slider, dismissed
-              restore button and scoring metadata off the main surface
-              but accessible for power users. */}
-          <details
-            className="rl-compare-advanced"
-            open={advancedOpen}
-            onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
-          >
-            <summary>Advanced — adjust matching sensitivity</summary>
-            <div className="rl-compare-advanced-body">
-              <div className="rl-compare-threshold-segment">
-                <label className="section-title">Matching strictness</label>
-                <span className="rl-compare-threshold-tip">Looser</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={strictness}
-                  onChange={(e) => onChangeStrictness(Number(e.target.value))}
-                />
-                <span className="rl-compare-threshold-tip">Stricter</span>
-                <span className="rl-compare-threshold-value">{strictness}%</span>
-              </div>
-              <div className="rl-compare-advanced-actions">
-                <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetThresholds}>
-                  Reset to default
-                </button>
-                {dismissed.size ? (
-                  <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetDismissed}>
-                    Restore {dismissed.size} dismissed pair{dismissed.size === 1 ? '' : 's'}
-                  </button>
-                ) : null}
-                <span className="rl-compare-threshold-note">
-                  Avg match {Math.round(((data?.summary?.avg_match_score ?? 0)) * 100)}%
-                  {data?.scoring?.method ? ` · method ${data.scoring.method}` : ''}
-                </span>
-              </div>
-            </div>
-          </details>
+          <div className="rl-compare-filter-bar compact">
+            <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetThresholds}>
+              Reset sensitivity
+            </button>
+            {dismissed.size ? (
+              <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetDismissed}>
+                Restore {dismissed.size} dismissed pair{dismissed.size === 1 ? '' : 's'}
+              </button>
+            ) : null}
+            <span className="rl-compare-threshold-note">
+              Avg match {Math.round(((data?.summary?.avg_match_score ?? 0)) * 100)}%
+            </span>
+          </div>
         </section>
       )}
     </div>
