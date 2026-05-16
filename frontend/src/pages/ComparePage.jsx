@@ -321,12 +321,12 @@ export default function ComparePage() {
   const [keywordFilter, setKeywordFilter] = useState('')
   const [newOpenMap, setNewOpenMap] = useState({})
   const [removedOpenMap, setRemovedOpenMap] = useState({})
-  const [retainedOpen, setRetainedOpen] = useState(false)
-  const [modifiedOpen, setModifiedOpen] = useState(true)
-  const [matrixOpen, setMatrixOpen] = useState(false)
+  const [resultTab, setResultTab] = useState('changes') // 'changes' | 'unchanged' | 'category'
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [thresholdLow, setThresholdLow] = useState(null)
   const [thresholdHigh, setThresholdHigh] = useState(null)
   const [dismissed, setDismissed] = useState(() => new Set())
+  const resultTabsRef = React.useRef(null)
 
   useEffect(() => {
     let mounted = true
@@ -474,6 +474,36 @@ export default function ComparePage() {
   }
 
   useSlidingTabIndicator(modeTabsRef, [mode])
+  useSlidingTabIndicator(resultTabsRef, [resultTab, rawData?.latest_record_id])
+
+  // Map a single 0-100 strictness knob onto the (low, high) thresholds
+  // returned by the backend. strictness=50 reproduces the server's
+  // mode-specific defaults; the slider shifts both bounds in tandem.
+  const serverLow = Number(rawData?.scoring?.threshold_low ?? 0.58)
+  const serverHigh = Number(rawData?.scoring?.threshold_high ?? 0.82)
+  const strictnessFromThresholds = (low) => {
+    const span = 0.30 // how far from the server default the slider can travel
+    const ratio = (Number(low) - serverLow) / span
+    return Math.max(0, Math.min(100, Math.round(50 + ratio * 100)))
+  }
+  const thresholdsFromStrictness = (strictness) => {
+    const span = 0.30
+    const shift = ((Number(strictness) - 50) / 100) * span
+    const low = Math.max(0.40, Math.min(0.85, serverLow + shift))
+    // Keep the (high - low) gap from the server defaults so users only
+    // have one knob to think about.
+    const gap = Math.max(0.05, serverHigh - serverLow)
+    const high = Math.max(low + 0.04, Math.min(0.99, low + gap))
+    return { low, high }
+  }
+  const strictness = strictnessFromThresholds(
+    Number.isFinite(thresholdLow) ? thresholdLow : serverLow,
+  )
+  const onChangeStrictness = (val) => {
+    const { low, high } = thresholdsFromStrictness(val)
+    setThresholdLow(low)
+    setThresholdHigh(high)
+  }
 
   const data = useMemo(
     () => rebucket(rawData, { low: thresholdLow, high: thresholdHigh }, dismissed),
@@ -512,6 +542,8 @@ export default function ComparePage() {
     setRemovedOpenMap({})
     setCategoryFilter('ALL')
     setKeywordFilter('')
+    setResultTab('changes')
+    setAdvancedOpen(false)
   }, [rawData?.latest_record_id, rawData?.prior_record_id])
 
   const toggleNewGroup = (cat) => {
@@ -710,229 +742,246 @@ export default function ComparePage() {
       </section>
 
       {data && (
-        <>
-          <section className="rl-compare-result-shell">
-            <div className="rl-compare-result-top">
-              <div className="rl-compare-result-pills">
-                <div className="rl-compare-result-pill retained">
-                  <span>Same risk (high conf.)</span>
-                  <strong>{data?.summary?.retained ?? 0} retained</strong>
-                </div>
-                <div className="rl-compare-result-pill modified">
-                  <span>Same risk, rewritten</span>
-                  <strong>{data?.summary?.modified ?? 0} modified</strong>
-                </div>
-                <div className="rl-compare-result-pill new">
-                  <span>Only in newer filing</span>
-                  <strong>{data?.summary?.added ?? 0} added</strong>
-                </div>
-                <div className="rl-compare-result-pill removed">
-                  <span>Only in older filing</span>
-                  <strong>{data?.summary?.removed ?? 0} removed</strong>
-                </div>
-              </div>
-
-              <div className="rl-compare-filter-bar compact">
-                <div className="rl-compare-filter-select">
-                  <select className="input" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                    <option value="ALL">All Categories</option>
-                    {allCategories.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="rl-compare-filter-keyword">
-                  <input
-                    className="input"
-                    placeholder="Search keyword…"
-                    value={keywordFilter}
-                    onChange={(e) => setKeywordFilter(e.target.value)}
-                  />
-                </div>
-                <button
-                  className="btn-secondary rl-compare-filter-clear"
-                  onClick={() => {
-                    setCategoryFilter('ALL')
-                    setKeywordFilter('')
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-
-            <div className="rl-compare-threshold-bar">
-              <div className="rl-compare-threshold-segment">
-                <label className="section-title">Modified ≥</label>
-                <input
-                  type="range"
-                  min={0.45}
-                  max={Number.isFinite(thresholdHigh) ? thresholdHigh : 0.82}
-                  step={0.01}
-                  value={Number.isFinite(thresholdLow) ? thresholdLow : 0.58}
-                  onChange={(e) => setThresholdLow(Number(e.target.value))}
-                />
-                <span className="rl-compare-threshold-value">
-                  {Math.round(((Number.isFinite(thresholdLow) ? thresholdLow : 0.58)) * 100)}%
-                </span>
-              </div>
-              <div className="rl-compare-threshold-segment">
-                <label className="section-title">Retained ≥</label>
-                <input
-                  type="range"
-                  min={Number.isFinite(thresholdLow) ? thresholdLow : 0.58}
-                  max={0.99}
-                  step={0.01}
-                  value={Number.isFinite(thresholdHigh) ? thresholdHigh : 0.82}
-                  onChange={(e) => setThresholdHigh(Number(e.target.value))}
-                />
-                <span className="rl-compare-threshold-value">
-                  {Math.round(((Number.isFinite(thresholdHigh) ? thresholdHigh : 0.82)) * 100)}%
-                </span>
-              </div>
-              <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetThresholds}>
-                Reset thresholds
-              </button>
-              {dismissed.size ? (
-                <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetDismissed}>
-                  Restore {dismissed.size} dismissed pair{dismissed.size === 1 ? '' : 's'}
-                </button>
-              ) : null}
-              <span className="rl-compare-side-note rl-compare-threshold-note">
-                Avg match {Math.round(((data?.summary?.avg_match_score ?? 0)) * 100)}% ·
-                method {data?.scoring?.method || '—'}
-              </span>
-            </div>
-
-            {mode === 'cross' || matrixOpen ? (
-              <div className="rl-compare-group" style={{ background: 'rgba(247, 251, 255, 0.45)' }}>
-                <button className="rl-compare-group-head" onClick={() => setMatrixOpen((v) => !v)}>
-                  <span>Category coverage matrix</span>
-                  <strong>{matrixOpen || mode === 'cross' ? '−' : '+'}</strong>
-                </button>
-                {(matrixOpen || mode === 'cross') ? (
-                  <CategoryMatrix rows={data?.category_matrix} />
+        <section className="rl-compare-result-shell">
+          {/* Plain-language headline so a first-time viewer knows the
+              answer before touching anything else. */}
+          <div className="rl-compare-headline">
+            <p className="rl-compare-headline-pretitle">
+              Comparing <strong>{labelMap.get(data?.prior_record_id) || data?.prior_record_id || '—'}</strong>
+              <span className="rl-compare-headline-arrow">→</span>
+              <strong>{labelMap.get(data?.latest_record_id) || data?.latest_record_id || '—'}</strong>
+            </p>
+            <p className="rl-compare-headline-summary">
+              <span className="rl-compare-chip added">🟢 {data?.summary?.added ?? 0} added</span>
+              <span className="rl-compare-chip removed">🔴 {data?.summary?.removed ?? 0} removed</span>
+              <span className="rl-compare-chip rewritten">🔄 {data?.summary?.modified ?? 0} rewritten</span>
+              <span className="rl-compare-chip muted">
+                {data?.summary?.retained ?? 0} unchanged
+                {(data?.summary?.retained ?? 0) > 0 && resultTab !== 'unchanged' ? (
+                  <button
+                    type="button"
+                    className="rl-compare-chip-link"
+                    onClick={() => setResultTab('unchanged')}
+                  >
+                    view →
+                  </button>
                 ) : null}
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="rl-compare-matrix-toggle"
-                onClick={() => setMatrixOpen(true)}
-              >
-                Show category coverage matrix
-              </button>
-            )}
+              </span>
+            </p>
+          </div>
 
-            <div className="rl-compare-group">
-              <button className="rl-compare-group-head" onClick={() => setModifiedOpen((v) => !v)}>
-                <span>🔄 Modified pairs ({filteredModified.length})</span>
-                <strong>{modifiedOpen ? '−' : '+'}</strong>
+          {/* Result tabs — same visual language as the mode tabs above. */}
+          <div className="rl-tabs rl-tab-motion rl-compare-result-tabs" ref={resultTabsRef}>
+            <button
+              className={`rl-tab-btn ${resultTab === 'changes' ? 'active' : ''}`}
+              onClick={() => setResultTab('changes')}
+            >
+              🔁 Changes ({(data?.summary?.added ?? 0) + (data?.summary?.removed ?? 0) + (data?.summary?.modified ?? 0)})
+            </button>
+            <button
+              className={`rl-tab-btn ${resultTab === 'unchanged' ? 'active' : ''}`}
+              onClick={() => setResultTab('unchanged')}
+            >
+              🟦 Unchanged ({data?.summary?.retained ?? 0})
+            </button>
+            <button
+              className={`rl-tab-btn ${resultTab === 'category' ? 'active' : ''}`}
+              onClick={() => setResultTab('category')}
+            >
+              📊 By Category
+            </button>
+          </div>
+
+          {/* Filter bar — shared across Changes and Unchanged. Hidden in
+              the By Category tab because the matrix already partitions. */}
+          {resultTab !== 'category' ? (
+            <div className="rl-compare-filter-bar compact">
+              <div className="rl-compare-filter-select">
+                <select className="input" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                  <option value="ALL">All Categories</option>
+                  {allCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="rl-compare-filter-keyword">
+                <input
+                  className="input"
+                  placeholder="Search keyword…"
+                  value={keywordFilter}
+                  onChange={(e) => setKeywordFilter(e.target.value)}
+                />
+              </div>
+              <button
+                className="btn-secondary rl-compare-filter-clear"
+                onClick={() => {
+                  setCategoryFilter('ALL')
+                  setKeywordFilter('')
+                }}
+              >
+                Clear
               </button>
-              {modifiedOpen ? (
-                <div className="rl-compare-pair-list">
-                  {!filteredModified.length ? (
-                    <p className="rl-compare-pair-empty">No modified pairs at the current threshold.</p>
-                  ) : (
-                    filteredModified.map((pair, idx) => (
+            </div>
+          ) : null}
+
+          {resultTab === 'changes' ? (
+            <div className="rl-compare-changes-stack">
+              {/* Added */}
+              <div className="rl-compare-column">
+                <p className="section-title">🟢 New risks (only in the newer filing)</p>
+                {!groupedNew.length ? (
+                  <p className="mt-2 text-sm text-slate-500">No new risks at the current sensitivity.</p>
+                ) : (
+                  <div className="rl-compare-group-list">
+                    {groupedNew.map((group) => {
+                      const isOpen = Boolean(newOpenMap[group.category])
+                      return (
+                        <div key={`new-${group.category}`} className="rl-compare-group">
+                          <button className="rl-compare-group-head" onClick={() => toggleNewGroup(group.category)}>
+                            <span>{group.category} ({group.items.length})</span>
+                            <strong>{isOpen ? '−' : '+'}</strong>
+                          </button>
+                          {isOpen ? (
+                            <ul className="rl-compare-group-items">
+                              {group.items.map((item, idx) => (
+                                <li key={`new-${group.category}-${idx}`}>
+                                  <span>{item.title}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Removed */}
+              <div className="rl-compare-column">
+                <p className="section-title">🔴 Removed risks (only in the older filing)</p>
+                {!groupedRemoved.length ? (
+                  <p className="mt-2 text-sm text-slate-500">No removed risks at the current sensitivity.</p>
+                ) : (
+                  <div className="rl-compare-group-list">
+                    {groupedRemoved.map((group) => {
+                      const isOpen = Boolean(removedOpenMap[group.category])
+                      return (
+                        <div key={`old-${group.category}`} className="rl-compare-group">
+                          <button className="rl-compare-group-head" onClick={() => toggleRemovedGroup(group.category)}>
+                            <span>{group.category} ({group.items.length})</span>
+                            <strong>{isOpen ? '−' : '+'}</strong>
+                          </button>
+                          {isOpen ? (
+                            <ul className="rl-compare-group-items">
+                              {group.items.map((item, idx) => (
+                                <li key={`old-${group.category}-${idx}`}>
+                                  <span>{item.title}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Rewritten pairs (was: Modified) */}
+              <div className="rl-compare-column">
+                <p className="section-title">🔄 Rewritten risks (same risk, different wording)</p>
+                {!filteredModified.length ? (
+                  <p className="mt-2 text-sm text-slate-500">No rewritten risks at the current sensitivity.</p>
+                ) : (
+                  <div className="rl-compare-pair-list">
+                    {filteredModified.map((pair, idx) => (
                       <PairCard
                         key={`mod-${idx}-${pair?.prior?.title}-${pair?.latest?.title}`}
                         pair={pair}
                         tone="modified"
                         onDismiss={() => onDismissPair(pair)}
                       />
-                    ))
-                  )}
-                </div>
-              ) : null}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
+          ) : null}
 
-            <div className="rl-compare-group">
-              <button className="rl-compare-group-head" onClick={() => setRetainedOpen((v) => !v)}>
-                <span>🟦 Retained pairs ({filteredRetained.length})</span>
-                <strong>{retainedOpen ? '−' : '+'}</strong>
-              </button>
-              {retainedOpen ? (
+          {resultTab === 'unchanged' ? (
+            <div className="rl-compare-column">
+              <p className="section-title">🟦 Risks present in both filings</p>
+              {!filteredRetained.length ? (
+                <p className="mt-2 text-sm text-slate-500">No unchanged risks at the current sensitivity.</p>
+              ) : (
                 <div className="rl-compare-pair-list">
-                  {!filteredRetained.length ? (
-                    <p className="rl-compare-pair-empty">No retained pairs at the current threshold.</p>
-                  ) : (
-                    filteredRetained.map((pair, idx) => (
-                      <PairCard
-                        key={`ret-${idx}-${pair?.prior?.title}-${pair?.latest?.title}`}
-                        pair={pair}
-                        tone="retained"
-                        onDismiss={() => onDismissPair(pair)}
-                      />
-                    ))
-                  )}
+                  {filteredRetained.map((pair, idx) => (
+                    <PairCard
+                      key={`ret-${idx}-${pair?.prior?.title}-${pair?.latest?.title}`}
+                      pair={pair}
+                      tone="retained"
+                      onDismiss={() => onDismissPair(pair)}
+                    />
+                  ))}
                 </div>
-              ) : null}
+              )}
             </div>
+          ) : null}
 
-            <div className="rl-compare-result-grid">
-              <div className="rl-compare-column">
-                <p className="section-title">🟢 Risks Unique to Newer Filing</p>
-                {!groupedNew.length ? <p className="mt-2 text-sm text-slate-500">No unique risks in newer filing.</p> : null}
-                <div className="rl-compare-group-list">
-                  {groupedNew.map((group) => {
-                    const isOpen = Boolean(newOpenMap[group.category])
-                    return (
-                      <div key={`new-${group.category}`} className="rl-compare-group">
-                        <button className="rl-compare-group-head" onClick={() => toggleNewGroup(group.category)}>
-                          <span>
-                            {group.category} ({group.items.length})
-                          </span>
-                          <strong>{isOpen ? '−' : '+'}</strong>
-                        </button>
-                        {isOpen ? (
-                          <ul className="rl-compare-group-items">
-                            {group.items.map((item, idx) => (
-                              <li key={`new-${group.category}-${idx}`}>
-                                <span>{item.title}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </div>
-                    )
-                  })}
-                </div>
+          {resultTab === 'category' ? (
+            <div className="rl-compare-column">
+              <p className="section-title">📊 Risk counts by category</p>
+              <p className="rl-compare-side-note">
+                P = total in the older filing · L = total in the newer filing.
+              </p>
+              <CategoryMatrix rows={data?.category_matrix} />
+            </div>
+          ) : null}
+
+          {/* Advanced disclosure — keeps the strictness slider, dismissed
+              restore button and scoring metadata off the main surface
+              but accessible for power users. */}
+          <details
+            className="rl-compare-advanced"
+            open={advancedOpen}
+            onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}
+          >
+            <summary>Advanced — adjust matching sensitivity</summary>
+            <div className="rl-compare-advanced-body">
+              <div className="rl-compare-threshold-segment">
+                <label className="section-title">Matching strictness</label>
+                <span className="rl-compare-threshold-tip">Looser</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={strictness}
+                  onChange={(e) => onChangeStrictness(Number(e.target.value))}
+                />
+                <span className="rl-compare-threshold-tip">Stricter</span>
+                <span className="rl-compare-threshold-value">{strictness}%</span>
               </div>
-
-              <div className="rl-compare-column">
-                <p className="section-title">🔴 Risks Unique to Older Filing</p>
-                {!groupedRemoved.length ? <p className="mt-2 text-sm text-slate-500">No unique risks in older filing.</p> : null}
-                <div className="rl-compare-group-list">
-                  {groupedRemoved.map((group) => {
-                    const isOpen = Boolean(removedOpenMap[group.category])
-                    return (
-                      <div key={`old-${group.category}`} className="rl-compare-group">
-                        <button className="rl-compare-group-head" onClick={() => toggleRemovedGroup(group.category)}>
-                          <span>
-                            {group.category} ({group.items.length})
-                          </span>
-                          <strong>{isOpen ? '−' : '+'}</strong>
-                        </button>
-                        {isOpen ? (
-                          <ul className="rl-compare-group-items">
-                            {group.items.map((item, idx) => (
-                              <li key={`old-${group.category}-${idx}`}>
-                                <span>{item.title}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </div>
-                    )
-                  })}
-                </div>
+              <div className="rl-compare-advanced-actions">
+                <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetThresholds}>
+                  Reset to default
+                </button>
+                {dismissed.size ? (
+                  <button className="btn-secondary rl-compare-threshold-reset" onClick={onResetDismissed}>
+                    Restore {dismissed.size} dismissed pair{dismissed.size === 1 ? '' : 's'}
+                  </button>
+                ) : null}
+                <span className="rl-compare-threshold-note">
+                  Avg match {Math.round(((data?.summary?.avg_match_score ?? 0)) * 100)}%
+                  {data?.scoring?.method ? ` · method ${data.scoring.method}` : ''}
+                </span>
               </div>
             </div>
-          </section>
-        </>
+          </details>
+        </section>
       )}
     </div>
   )

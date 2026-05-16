@@ -705,6 +705,46 @@
 - 验证：`npm --prefix frontend run build` 通过；评分失败 record 现在前端显示灰底 "—"，全 Low（RPI=0）继续显示绿底 "0"。
 - 提交：`5334d23`
 
+### 28) Compare 功能重写：四态匹配 + Tab 化 UI + Bedrock 嵌入兜底
+
+- 起因：原 Compare 完全是 `difflib.SequenceMatcher` 字符级模糊配对、阈值 0.75 硬编码、贪心顺序匹配，且不分类目桶；用户反馈"对比完后一点也不准确"。
+
+- 后端（`core/`）新增 4 个模块 + 重写 `comparator.py`：
+  - `core/compare_synonyms.py`：约 30 组 SEC 风险用语同义词典（cyber/IT、supplier/vendor、currency/FX、litigation、talent、climate、…），外加样板前缀（"we may"、"failure to" 等）和停用词表。
+  - `core/compare_text.py`：标题规范化（剥前缀 → 数字/金额/年份脱敏 → 同义词替换 → 轻量 Porter 词干 → 去停用词）；额外提供 token Jaccard、char-trigram cosine、concept overlap（按短侧归一化）、label overlap、token diff 等相似度原语。
+  - `core/compare_assignment.py`：纯 Python Hungarian/Jonker–Volgenant，桶内做最优分配；替换原贪心匹配。
+  - `core/compare_embedding.py`：调 Bedrock `amazon.titan-embed-text-v2:0` 取 1024 维向量；S3 `compare_embeddings/` 前缀缓存 + 进程内 LRU；Bedrock 不可用时静默退化为纯词法路径。
+  - `core/comparator.py:compare_risks(prior, latest, *, mode, threshold_low, threshold_high, embed_lookup)`：按 `dashboard_category` 分桶 → 混合分数（concept+jaccard+trigram+label，可加 embed）→ Hungarian → 拆 4 桶 retained / modified / added / removed；同时输出 `category_matrix`、`candidates`（>=0.45 的全部候选，给前端滑块本地重排）、`scoring`、保留 `new_risks` / `removed_risks` 旧字段做下游 chat agent 兼容。
+  - 默认阈值：YoY low=0.58 / high=0.82；Cross low=0.52 / high=0.78（用户偏好"average"档）。
+
+- 后端（`agentcore_deploy/main.py`）：
+  - `_compare_payload` 新增 `mode/threshold_low/threshold_high` 关键字参数；同 record 比较短路；调用前批量 warm Bedrock embedding 缓存；嵌入服务异常或未配置时自动落到词法路径。
+  - `/api/compare` 路由透传 `mode/threshold_low/threshold_high`。
+
+- 前端（`frontend/src/pages/ComparePage.jsx` + `index.css`）按"普通用户能秒懂"的目标重做结果区：
+  - 顶部一句话标题：「Comparing X → Y，🟢 N added · 🔴 M removed · 🔄 K rewritten · L unchanged」。
+  - 结果区三标签：**Changes**（默认，叠放 New / Removed / Rewritten 三段）/ **Unchanged**（保留对，默认不展示）/ **By Category**（覆盖矩阵）。
+  - 双滑块合并为单个 **Matching strictness** 0–100% 滑块，进入 `<details> Advanced` 折叠区；中点 50% = 后端默认阈值，左右各拉 30 个点位。
+  - 改写/保留对带相似度百分比 + token diff chip，并保留单个 ×wrong pair 按钮（会话级 localStorage）。
+  - 视觉沿用既有 `rl-compare-*` / `rl-tabs` 体系，色板取自 `bg-emerald/red/amber/blue` 既有系列；UI"感觉"和旧版一致。
+
+- 评测（`scripts/eval_compare.py` + `tests/compare_eval/`）：
+  - JSONL 标注 → 跑 comparator → 输出 macro-F1、pair-accuracy、per-class confusion、scoring 元数据。
+  - 提供 `labels.example.jsonl` 与最小 fixture 示例；规定回归门槛：词法路径 macro-F1 ≥ 0.75，启用 Bedrock embedding ≥ 0.85。
+  - 示例集 (cyber↔infosec / talent / climate-added / stock-removed) 在词法-only 路径下当前 F1 = 1.0。
+
+- 文档：`COMPARE_OPTIMIZATION_PLAN_CN.md` 记录方案；与本次实现内容相符。
+
+- 行为变化（用户可感知）：
+  - 原"全是新增+全是消失"的虚高 churn 不再出现；同义改写会归到 Rewritten 桶。
+  - 进入 Compare 默认看到的是"3 added · 2 removed · 4 rewritten · 22 unchanged"语义化总结，不再被 4 桶 pill + 2 滑块 + 矩阵表淹没。
+  - Retained / Modified 不再混在主视图里，分别落到 Unchanged tab 与 Changes tab 的 Rewritten 段。
+  - 没有 AWS 凭证时仍能跑（词法路径）；有凭证则自动启用 Bedrock Titan v2 提升准确度，向量按 sha1 缓存到 S3。
+
+- 自检：`python -m py_compile core/comparator.py core/compare_text.py core/compare_synonyms.py core/compare_assignment.py core/compare_embedding.py` 通过；`scripts/eval_compare.py --labels tests/compare_eval/labels.example.jsonl` 全部命中；`npm --prefix frontend run build` 通过。
+
+- 提交：（待提交）
+
 ### 27) RPI 优化 P2 后端 + P3：评分失败 RPI 显式 null，全 Low 计入平均
 - `agentcore_deploy/main.py:_risk_pressure_index` 改为三态返回 `Optional[float]`：`None` = 评分失败/缺失（前端显示"—"），`0.0` = 全 Low 或无风险（合法低分），`>0.0` = 正常分数；新增 `scoring_status` keyword-only 入参，仅当 status 是 `"failed"` 或 `"missing"` 时返回 None。
 - `_extract_priority_counts_from_result` 新增 `scoring_status` 输出字段：优先读 `agent_report.scoring_status`（commit 1 注入），不存在但 `priority_matrix` 存在时回退 `"ok"`（保护历史 record），`agent_report` 完全缺失则 `"missing"`。

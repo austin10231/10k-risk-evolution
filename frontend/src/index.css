@@ -4662,6 +4662,131 @@ select.input {
   display: inline;
 }
 
+.rl-compare-headline {
+  display: grid;
+  gap: 6px;
+}
+
+.rl-compare-headline-pretitle {
+  color: #64748b;
+  font-size: 0.82rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.rl-compare-headline-pretitle strong {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.rl-compare-headline-arrow {
+  color: #94a3b8;
+  font-weight: 800;
+}
+
+.rl-compare-headline-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+}
+
+.rl-compare-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  border: 1px solid rgba(203, 213, 225, 0.7);
+  background: rgba(248, 250, 252, 0.85);
+  color: #0f172a;
+}
+
+.rl-compare-chip.added    { color: #047857; border-color: rgba(187, 247, 208, 0.85); background: rgba(220, 252, 231, 0.65); }
+.rl-compare-chip.removed  { color: #b91c1c; border-color: rgba(254, 205, 211, 0.85); background: rgba(254, 226, 226, 0.65); }
+.rl-compare-chip.rewritten{ color: #b45309; border-color: rgba(253, 230, 138, 0.85); background: rgba(254, 243, 199, 0.65); }
+.rl-compare-chip.muted    { color: #64748b; }
+
+.rl-compare-chip-link {
+  background: transparent;
+  border: 0;
+  color: #2563eb;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 0 0 0 4px;
+}
+
+.rl-compare-chip-link:hover {
+  text-decoration: underline;
+}
+
+.rl-compare-result-tabs {
+  margin-top: 2px;
+}
+
+.rl-compare-changes-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.rl-compare-advanced {
+  border: 1px dashed rgba(148, 163, 184, 0.55);
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: rgba(247, 251, 255, 0.45);
+}
+
+.rl-compare-advanced > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #475569;
+  list-style: none;
+}
+
+.rl-compare-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rl-compare-advanced > summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 14px;
+  color: #94a3b8;
+  transition: transform 120ms ease;
+}
+
+.rl-compare-advanced[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.rl-compare-advanced-body {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.rl-compare-advanced-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.rl-compare-threshold-tip {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .rl-compare-result-pill.retained strong {
   color: #2563eb;
 }
