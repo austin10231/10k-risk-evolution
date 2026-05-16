@@ -2661,16 +2661,17 @@ select.input {
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.75fr);
-  align-items: start;
+  align-items: stretch;
 }
 
 .rl-compare-workbench.is-yoy {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.75fr);
 }
 
 .rl-compare-side {
   display: grid;
   gap: 11px;
+  height: 100%;
 }
 
 .rl-compare-side-kpis {
@@ -4503,10 +4504,10 @@ select.input {
 }
 
 .rl-compare-side-note {
-  border: 1px solid #e2e8f0;
-  border-radius: 11px;
-  background: #f8fafc;
-  padding: 9px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
   color: #64748b;
   font-size: 0.78rem;
   line-height: 1.5;

@@ -670,7 +670,7 @@ export default function ComparePage() {
           {!loadingRecords && mode === 'cross' ? (
             <div className="mt-4 grid gap-4 xl:grid-cols-2">
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-2">
                   <div>
                     <label className="section-title rl-compare-title-lite">Company</label>
                     <select className="input mt-2" value={companyA} onChange={(e) => setCompanyA(e.target.value)}>
@@ -694,7 +694,7 @@ export default function ComparePage() {
                 </div>
               </div>
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-2">
                   <div>
                     <label className="section-title rl-compare-title-lite">Company</label>
                     <select className="input mt-2" value={companyB} onChange={(e) => setCompanyB(e.target.value)}>
@@ -727,34 +727,32 @@ export default function ComparePage() {
           </div>
         </div>
 
-        {mode === 'cross' ? (
-          <aside className="rl-up-results rl-compare-side">
-            <p className="section-title rl-compare-title-lite">Comparison Lens</p>
-            <div className="rl-compare-side-kpis">
-              <div className="metric-card">
-                <p className="metric-label">Mode</p>
-                <p className="metric-value">Cross</p>
-              </div>
-              <div className="metric-card">
-                <p className="metric-label">Records Ready</p>
-                <p className="metric-value">{records.length}</p>
-              </div>
+        <aside className="rl-up-results rl-compare-side">
+          <p className="section-title rl-compare-title-lite">Comparison Lens</p>
+          <div className="rl-compare-side-kpis">
+            <div className="metric-card">
+              <p className="metric-label">Mode</p>
+              <p className="metric-value">{mode === 'yoy' ? 'YOY' : 'Cross'}</p>
             </div>
+            <div className="metric-card">
+              <p className="metric-label">Records Ready</p>
+              <p className="metric-value">{records.length}</p>
+            </div>
+          </div>
 
-            <div className="rl-up-result-meta">
-              <span>{latestRecord?.year ? `${latestRecord.year} Record` : 'Latest Record'}</span>
-              <span className="rl-up-result-value" title={labelMap.get(latestId) || latestId || '—'}>
-                {labelMap.get(latestId) || latestId || '—'}
-              </span>
-            </div>
-            <div className="rl-up-result-meta">
-              <span>{priorRecord?.year ? `${priorRecord.year} Record` : 'Prior Record'}</span>
-              <span className="rl-up-result-value" title={labelMap.get(priorId) || priorId || '—'}>
-                {labelMap.get(priorId) || priorId || '—'}
-              </span>
-            </div>
-          </aside>
-        ) : null}
+          <div className="rl-up-result-meta">
+            <span>{latestRecord?.year ? `${latestRecord.year} Record` : 'Latest Record'}</span>
+            <span className="rl-up-result-value" title={labelMap.get(latestId) || latestId || '—'}>
+              {labelMap.get(latestId) || latestId || '—'}
+            </span>
+          </div>
+          <div className="rl-up-result-meta">
+            <span>{priorRecord?.year ? `${priorRecord.year} Record` : 'Prior Record'}</span>
+            <span className="rl-up-result-value" title={labelMap.get(priorId) || priorId || '—'}>
+              {labelMap.get(priorId) || priorId || '—'}
+            </span>
+          </div>
+        </aside>
       </section>
 
       {data && (
@@ -980,9 +978,6 @@ export default function ComparePage() {
                 Restore {dismissed.size} dismissed pair{dismissed.size === 1 ? '' : 's'}
               </button>
             ) : null}
-            <span className="rl-compare-threshold-note">
-              Avg match {Math.round(((data?.summary?.avg_match_score ?? 0)) * 100)}%
-            </span>
           </div>
         </section>
       )}
