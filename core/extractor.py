@@ -148,7 +148,7 @@ def _category_looks_like_bullet(category: str) -> bool:
     return False
 
 
-def _is_low_quality_risk_blocks(blocks: list[dict]) -> bool:
+def _is_low_quality_risk_blocks(blocks: list[dict], filing_type: str = "10-K") -> bool:
     """Quality gate for AI risk blocks.
 
     Flags outputs that are likely mis-grouped (too few risks or too many
@@ -173,9 +173,15 @@ def _is_low_quality_risk_blocks(blocks: list[dict]) -> bool:
             if title:
                 sub_risk_count += 1
 
-    if sub_risk_count < 3:
+    ft = _coerce_filing_type(filing_type)
+    # 10-Q Item 1A is usually shorter than 10-K; use a looser floor.
+    min_sub_risks = 2 if ft == "10-Q" else 3
+    if sub_risk_count < min_sub_risks:
         return True
-    if category_count > 0 and (generic_count / category_count) > 0.7:
+    generic_ratio = (generic_count / category_count) if category_count > 0 else 1.0
+    # 10-Q may legitimately concentrate in fewer broad headings.
+    max_generic_ratio = 0.95 if ft == "10-Q" else 0.7
+    if generic_ratio > max_generic_ratio:
         return True
     return False
 
@@ -1369,13 +1375,19 @@ Output rules:
         merged = _resplit_single_bucket_with_llm(merged)
         merged = _consolidate_small_generic_blocks(merged)
         if merged:
-            if _is_low_quality_risk_blocks(merged):
+            ai_cnt = _count_risk_items(merged)
+            fb_cnt = _count_risk_items(fallback)
+            ev_ratio = _evidence_ratio(merged, item1a_text)
+            min_ev_ratio = 0.35 if ft == "10-Q" else 0.5
+            low_quality = _is_low_quality_risk_blocks(merged, ft)
+
+            # If AI extraction is materially richer than fallback, keep it
+            # even when quality heuristics are conservative.
+            if low_quality and ai_cnt < max(4, fb_cnt):
                 _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
                 return fallback
-            ai_cnt = _count_risk_items(merged)
-            ev_ratio = _evidence_ratio(merged, item1a_text)
 
-            if ai_cnt >= 1 and ev_ratio >= 0.5:
+            if ai_cnt >= 1 and ev_ratio >= min_ev_ratio:
                 _AI_RISKS_CACHE[cache_key] = copy.deepcopy(merged)
                 return merged
     except Exception as exc:

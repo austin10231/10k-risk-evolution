@@ -83,16 +83,18 @@ TICKER_MAP_KEY = "company_ticker_map.json"
 HTML_PREFIX = "10k_html_datasets"
 PDF_PREFIX = "10k_pdf_datasets"
 TABLES_PREFIX = "tables_extraction"
-HTML_10Q_PREFIX = "10Q_files"
-RESULTS_10Q_PREFIX = "10Q_filling"
+LEGACY_10Q_FILINGS_PREFIX = "10Q_fillings"
 
-# ── New S3 layout (S3_PLAN.md Part 1) ────────────────────────────────
-# When USE_NEW_S3_LAYOUT=1 the runtime reads / writes filings under
-# 10k_filings/<industry>/<company_dir>/<year>_<10K|10Q>.{html,json} and uses
-# 10k_filings/index.json as the filing index. The legacy paths above
-# remain readable as a fallback so partially-migrated state is OK.
+# ── New S3 layout (parallel 10-K / 10-Q folders) ─────────────────────
+# When USE_NEW_S3_LAYOUT=1:
+#   - 10-K lives under 10k_filings/<industry>/<company_dir>/...
+#   - 10-Q lives under 10Q_fillings/<industry>/<company_dir>/...
+# Each prefix has its own index.json. The runtime merges both indexes for
+# records listing and lookup.
 NEW_FILINGS_PREFIX = "10k_filings"
 NEW_INDEX_KEY = f"{NEW_FILINGS_PREFIX}/index.json"
+NEW_10Q_FILINGS_PREFIX = "10Q_fillings"
+NEW_10Q_INDEX_KEY = f"{NEW_10Q_FILINGS_PREFIX}/index.json"
 USE_NEW_LAYOUT = os.getenv("USE_NEW_S3_LAYOUT", "0").strip() == "1"
 NEW_RECORD_ID_RE = re.compile(
     r"^(?P<dir>[A-Za-z0-9._\-]+)_(?P<year>\d{4})_(?P<form>10K|10Q)(?:_Q(?P<quarter>[1-4]))?$"
@@ -160,19 +162,33 @@ def _legacy_html_keys_for_record(record_id: str, filing_type: Any) -> List[str]:
     return out
 
 
+def _legacy_10q_html_key(
+    *,
+    industry: str,
+    company_dir: str,
+    year: int,
+    filing_quarter: int,
+) -> str:
+    q = filing_quarter if filing_quarter in {1, 2, 3, 4} else 0
+    q_suffix = f"_Q{q}" if q > 0 else ""
+    return (
+        f"{LEGACY_10Q_FILINGS_PREFIX}/{str(industry or 'Other').strip() or 'Other'}/"
+        f"{str(company_dir or '').strip()}/{int(year or 0)}_10Q{q_suffix}.html"
+    )
+
+
 def _legacy_10q_result_key(
     *,
     industry: str,
     company_dir: str,
     year: int,
     filing_quarter: int,
-    record_id: str,
 ) -> str:
     q = filing_quarter if filing_quarter in {1, 2, 3, 4} else 0
     q_suffix = f"_Q{q}" if q > 0 else ""
     return (
-        f"{RESULTS_10Q_PREFIX}/{str(industry or 'Other').strip() or 'Other'}/"
-        f"{str(company_dir or '').strip()}/{int(year or 0)}_10Q{q_suffix}_{str(record_id or '').strip()}.json"
+        f"{LEGACY_10Q_FILINGS_PREFIX}/{str(industry or 'Other').strip() or 'Other'}/"
+        f"{str(company_dir or '').strip()}/{int(year or 0)}_10Q{q_suffix}_risks.json"
     )
 
 
@@ -281,8 +297,8 @@ def _invalidate_runtime_caches(storage_key: str = "") -> None:
         _DASHBOARD_SUMMARY_CACHE["ts"] = now
         return
 
-    if key.startswith(f"{NEW_FILINGS_PREFIX}/"):
-        # Any write under 10k_filings/<industry>/<company>/<year>_<10K|10Q>.{html,json}
+    if key.startswith(f"{NEW_FILINGS_PREFIX}/") or key.startswith(f"{NEW_10Q_FILINGS_PREFIX}/"):
+        # Any write under 10k_filings/... or 10Q_fillings/...
         # invalidates the per-record cache + the dashboard summary cache.
         # We don't try to derive the synthetic record_id from the key
         # (it would require re-reading the index); clearing the whole
@@ -392,7 +408,7 @@ def _new_layout_keys_for_record_id(rid: str) -> Optional[tuple[str, str, str, in
     filing_type = "10-Q" if m.group("form") == "10Q" else "10-K"
     filing_quarter = int(m.group("quarter")) if m.group("quarter") else 0
 
-    new_index = _load_new_layout_index_doc()
+    new_index = _load_new_layout_10q_index_doc() if filing_type == "10-Q" else _load_new_layout_index_doc()
     industries = new_index.get("industries", {}) if isinstance(new_index, dict) else {}
     for ind_dir, companies in (industries or {}).items():
         if not isinstance(companies, dict):
@@ -418,10 +434,14 @@ def _new_layout_keys_for_record_id(rid: str) -> Optional[tuple[str, str, str, in
                     json_key = str(filing.get("json_key", "") or "").strip()
                     if json_key:
                         return ind_dir, company_dir, json_key, year, filing_type, f_quarter
-        # Backward-compatible fallback for legacy 10-K path shape.
+        # Backward-compatible fallback for legacy 10-K / 10-Q path shapes.
         if filing_type == "10-K":
             json_key = f"{NEW_FILINGS_PREFIX}/{ind_dir}/{company_dir}/{year}_10K_risks.json"
             return ind_dir, company_dir, json_key, year, filing_type, 0
+        if filing_type == "10-Q":
+            q_suffix = f"_Q{filing_quarter}" if filing_quarter > 0 else ""
+            json_key = f"{NEW_10Q_FILINGS_PREFIX}/{ind_dir}/{company_dir}/{year}_10Q{q_suffix}_risks.json"
+            return ind_dir, company_dir, json_key, year, filing_type, filing_quarter
     return None
 
 
@@ -431,6 +451,12 @@ def _load_new_layout_index_doc() -> dict:
     the same `_INDEX_CACHE` slot using the dict shape.
     """
     raw = _json_from_bytes(_read_s3_bytes(NEW_INDEX_KEY), {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def _load_new_layout_10q_index_doc() -> dict:
+    """Read the dict-shaped index.json under 10Q_fillings/."""
+    raw = _json_from_bytes(_read_s3_bytes(NEW_10Q_INDEX_KEY), {})
     return raw if isinstance(raw, dict) else {}
 
 
@@ -490,8 +516,24 @@ def _load_index() -> List[dict]:
 
     out: List[dict] = []
     if USE_NEW_LAYOUT:
-        new_doc = _load_new_layout_index_doc()
-        out = _flatten_new_layout_index(new_doc)
+        new_doc_10k = _load_new_layout_index_doc()
+        new_doc_10q = _load_new_layout_10q_index_doc()
+        out = _flatten_new_layout_index(new_doc_10k) + _flatten_new_layout_index(new_doc_10q)
+        # De-dupe by record_id in case of accidental overlap during migration.
+        deduped: Dict[str, dict] = {}
+        for rec in out:
+            rid = str(rec.get("record_id", "") or "").strip()
+            if not rid:
+                continue
+            prev = deduped.get(rid)
+            if not isinstance(prev, dict):
+                deduped[rid] = rec
+                continue
+            prev_ts = str(prev.get("created_at", "") or "")
+            curr_ts = str(rec.get("created_at", "") or "")
+            if curr_ts > prev_ts:
+                deduped[rid] = rec
+        out = list(deduped.values())
         if not out:
             # Soft fallback — if the new index hasn't been published yet
             # we still want the API to surface the legacy data instead
@@ -1081,8 +1123,10 @@ def _add_record(
         if ext == "html" and company_dir:
             ft_token = _filing_type_token(filing_type)
             quarter_suffix = f"_Q{filing_quarter}" if filing_type == "10-Q" and filing_quarter > 0 else ""
-            html_key = f"{NEW_FILINGS_PREFIX}/{industry}/{company_dir}/{year}_{ft_token}{quarter_suffix}.html"
-            json_key = f"{NEW_FILINGS_PREFIX}/{industry}/{company_dir}/{year}_{ft_token}{quarter_suffix}_risks.json"
+            base_prefix = NEW_10Q_FILINGS_PREFIX if filing_type == "10-Q" else NEW_FILINGS_PREFIX
+            index_key = NEW_10Q_INDEX_KEY if filing_type == "10-Q" else NEW_INDEX_KEY
+            html_key = f"{base_prefix}/{industry}/{company_dir}/{year}_{ft_token}{quarter_suffix}.html"
+            json_key = f"{base_prefix}/{industry}/{company_dir}/{year}_{ft_token}{quarter_suffix}_risks.json"
             _write_s3_bytes(html_key, file_bytes)
             _write_s3_bytes(
                 json_key,
@@ -1090,13 +1134,13 @@ def _add_record(
             )
 
             rid = _new_layout_record_id(company_dir, year, filing_type, filing_quarter)
-            new_index_doc = _load_new_layout_index_doc()
+            new_index_doc = _load_new_layout_10q_index_doc() if filing_type == "10-Q" else _load_new_layout_index_doc()
             if not isinstance(new_index_doc, dict) or not new_index_doc:
                 new_index_doc = {
                     "version": 1,
                     "schema": {
-                        "html_key": f"{NEW_FILINGS_PREFIX}/<industry>/<company_dir>/<year>_<10K|10Q>.html",
-                        "json_key": f"{NEW_FILINGS_PREFIX}/<industry>/<company_dir>/<year>_<10K|10Q>_risks.json",
+                        "html_key": f"{base_prefix}/<industry>/<company_dir>/<year>_{ft_token}{quarter_suffix}.html",
+                        "json_key": f"{base_prefix}/<industry>/<company_dir>/<year>_{ft_token}{quarter_suffix}_risks.json",
                     },
                     "industries": {},
                 }
@@ -1108,10 +1152,7 @@ def _add_record(
                 sub_risk_count=int(risk_items), filing_type=filing_type, filing_quarter=filing_quarter,
                 extracted_at=datetime.now(timezone.utc).isoformat(),
             )
-            _write_s3_bytes(
-                NEW_INDEX_KEY,
-                json.dumps(new_index_doc, indent=2, ensure_ascii=False, default=str).encode("utf-8"),
-            )
+            _write_s3_bytes(index_key, json.dumps(new_index_doc, indent=2, ensure_ascii=False, default=str).encode("utf-8"))
 
             return {
                 "record_id": rid,
@@ -1140,14 +1181,18 @@ def _add_record(
         result_key = f"{RESULTS_PREFIX}/{rid}.json"
     else:
         if filing_type == "10-Q":
-            data_key = f"{HTML_10Q_PREFIX}/{rid}.{ext}"
             company_dir = _new_layout_company_dir(company, ticker) or _sanitize_company(company)
+            data_key = _legacy_10q_html_key(
+                industry=industry,
+                company_dir=company_dir,
+                year=year,
+                filing_quarter=filing_quarter,
+            )
             result_key = _legacy_10q_result_key(
                 industry=industry,
                 company_dir=company_dir,
                 year=year,
                 filing_quarter=filing_quarter,
-                record_id=rid,
             )
         else:
             data_key = f"{_legacy_html_prefix_for_filing_type(filing_type)}/{rid}.{ext}"
