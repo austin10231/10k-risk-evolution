@@ -1579,10 +1579,10 @@ def _bucket_from_source_heading(category: Any) -> str:
         return "Legal & Regulatory"
     if any(k in low for k in ("cyber", "technology", "information security", "data privacy", "data security")):
         return "Technology & Cybersecurity"
-    if any(k in low for k in ("operations", "operational", "supply chain", "supplier", "manufacturing", "logistics")):
-        return "Operations & Supply Chain"
     if any(k in low for k in ("strategy", "market", "commercial", "competition", "customer demand")):
         return "Strategy & Market"
+    if any(k in low for k in ("operations", "operational", "supply chain", "supplier", "manufacturing", "logistics")):
+        return "Operations & Supply Chain"
     if any(k in low for k in ("financial", "liquidity", "capital resources", "credit", "debt", "cash flow")):
         return "Financial & Liquidity"
     if any(k in low for k in ("governance", "workforce", "human capital", "board", "talent", "labor")):
@@ -1866,6 +1866,7 @@ def _manual_extract_result(
     industry: str,
     year: int,
     filing_type: str,
+    ticker: str = "",
 ) -> tuple[Optional[dict], str]:
     if (
         extract_item1_overview_bedrock is None
@@ -1884,6 +1885,37 @@ def _manual_extract_result(
     industry_name = str(industry or "Other").strip() or "Other"
     ft = _canonical_filing_type(filing_type)
     yy = int(year or 0)
+    tkr = _normalize_ticker(ticker)
+
+    def _count_sub_risks(blocks: Any) -> int:
+        total = 0
+        for b in blocks if isinstance(blocks, list) else []:
+            if not isinstance(b, dict):
+                continue
+            for sr in b.get("sub_risks", []) or []:
+                if isinstance(sr, dict):
+                    title = str(sr.get("title", "") or "").strip()
+                else:
+                    title = str(sr or "").strip()
+                if title:
+                    total += 1
+        return total
+
+    def _is_sparse_or_generic_10q(blocks: Any) -> bool:
+        if not isinstance(blocks, list) or not blocks:
+            return True
+        cnt = _count_sub_risks(blocks)
+        first_cat = str((blocks[0] or {}).get("category", "") if isinstance(blocks[0], dict) else "").strip().lower()
+        generic_cat = first_cat in {"risk factors", "general risks", "general", "other", "risks"}
+        # 10-Q Item 1A often says "no material changes" and gives very few lines.
+        if cnt <= 3:
+            return True
+        if len(blocks) == 1 and generic_cat and cnt <= 12:
+            return True
+        # Sparse 10-Q extraction tends to underrepresent enterprise risk landscape.
+        if cnt < 6:
+            return True
+        return False
 
     try:
         if is_pdf:
@@ -1902,6 +1934,31 @@ def _manual_extract_result(
 
     if not risks:
         return None, "Could not extract risks from Item 1A."
+
+    # 10-Q stabilization: when Item 1A is sparse/generic, enrich with
+    # baseline 10-K risks (same year first, then previous year).
+    if ft == "10-Q" and _is_sparse_or_generic_10q(risks) and download_10k_html_for_company_year is not None:
+        for fallback_year in [yy, yy - 1]:
+            if fallback_year <= 0:
+                continue
+            try:
+                k_html, k_meta, _k_err = download_10k_html_for_company_year(company_name, fallback_year, tkr)
+            except Exception:
+                k_html, k_meta = None, None
+            if not k_html:
+                continue
+            try:
+                k_risks = extract_item1a_risks_bedrock(k_html, company_name, "10-K")
+            except Exception:
+                k_risks = None
+            if isinstance(k_risks, list) and _count_sub_risks(k_risks) >= 8:
+                risks = k_risks
+                # Keep 10-Q overview, but disclose risk source provenance.
+                if isinstance(overview, dict):
+                    overview["risk_source"] = "10-K_baseline_for_sparse_10-Q"
+                    overview["risk_source_year"] = int(fallback_year)
+                break
+
     if isinstance(risks, list):
         risks = _annotate_dashboard_category(risks)
 
@@ -1960,6 +2017,7 @@ def _auto_fetch_and_extract(
             industry=ind,
             year=yy,
             filing_type=ft,
+            ticker=tk,
         )
         if not result:
             skipped.append({"year": yy, "reason": extract_err or "Extraction failed."})
@@ -5306,6 +5364,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     industry=industry,
                     year=year,
                     filing_type=filing_type,
+                    ticker=ticker,
                 )
                 if not result:
                     self._send_json(400, {"ok": False, "error": err or "Extraction failed."})
