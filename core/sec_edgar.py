@@ -192,6 +192,7 @@ def _select_filing_for_year(submissions: dict, year: int):
     recent = submissions.get("filings", {}).get("recent", {})
     forms = recent.get("form", [])
     filing_dates = recent.get("filingDate", [])
+    report_dates = recent.get("reportDate", [])
     accessions = recent.get("accessionNumber", [])
     primary_docs = recent.get("primaryDocument", [])
     total = min(len(forms), len(filing_dates), len(accessions), len(primary_docs))
@@ -202,23 +203,50 @@ def _select_filing_for_year(submissions: dict, year: int):
         filing_date = str(filing_dates[i] or "")
         if len(filing_date) < 4:
             continue
+        report_date = str(report_dates[i] or "") if i < len(report_dates) else ""
         try:
             fy = int(filing_date[:4])
         except Exception:
             continue
-        if int(fy) != int(year):
+        try:
+            ry = int(report_date[:4]) if len(report_date) >= 4 else 0
+        except Exception:
+            ry = 0
+        # SEC 10-K is often filed in the next calendar year (e.g. FY2025
+        # filing in early 2026). Prefer explicit reportDate year when present.
+        exact_report_year = (ry == int(year))
+        exact_filing_year = (fy == int(year))
+        tolerant_next_year = (
+            fy == int(year) + 1
+            and filing_date[5:7].isdigit()
+            and int(filing_date[5:7]) <= 4
+        )
+        if not (exact_report_year or exact_filing_year or tolerant_next_year):
             continue
+        match_rank = 0
+        if exact_report_year:
+            match_rank = 3
+        elif exact_filing_year:
+            match_rank = 2
+        elif tolerant_next_year:
+            match_rank = 1
         matches.append(
             {
                 "year": int(fy),
+                "report_year": int(ry) if ry else 0,
                 "filing_date": filing_date,
+                "report_date": report_date,
                 "accession_number": str(accessions[i]),
                 "primary_document": str(primary_docs[i]),
+                "_match_rank": match_rank,
             }
         )
     if not matches:
         return None
-    matches.sort(key=lambda x: x.get("filing_date", ""), reverse=True)
+    matches.sort(
+        key=lambda x: (int(x.get("_match_rank", 0)), str(x.get("filing_date", ""))),
+        reverse=True,
+    )
     return matches[0]
 
 
@@ -359,6 +387,8 @@ def download_10k_pdf_for_company_year(company_name: str, year: int, ticker: str 
         "cik": cik,
         "ticker": str(ticker or "").upper(),
         "filing_date": filing.get("filing_date", ""),
+        "report_date": filing.get("report_date", ""),
+        "report_year": filing.get("report_year", 0),
         "accession_number": filing.get("accession_number", ""),
         "primary_document": filing.get("primary_document", ""),
         "downloaded_document": doc_name,
@@ -412,6 +442,8 @@ def download_10k_html_for_company_year(company_name: str, year: int, ticker: str
         "cik": cik,
         "ticker": str(ticker or "").upper(),
         "filing_date": filing.get("filing_date", ""),
+        "report_date": filing.get("report_date", ""),
+        "report_year": filing.get("report_year", 0),
         "accession_number": filing.get("accession_number", ""),
         "primary_document": filing.get("primary_document", ""),
         "downloaded_document": doc_name,

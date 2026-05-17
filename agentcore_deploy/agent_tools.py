@@ -43,6 +43,21 @@ DEFAULT_NEWS_DAYS = 30
 DEFAULT_LIST_LIMIT = 80
 DEFAULT_SEARCH_LIMIT = 12
 
+APPLE_CONTAMINATION_TERMS = (
+    "hotel",
+    "hospitality",
+    "reit",
+    "real estate",
+    "lodging",
+    "property lease",
+    "room revenue",
+    "franchise",
+)
+
+FORCED_INDUSTRY_BY_TICKER = {
+    "AAPL": "Technology",
+}
+
 
 # Chinese → canonical English company name aliases. Bedrock's LLM occasionally
 # passes Chinese names verbatim from a Chinese-language user query into tool
@@ -602,6 +617,91 @@ def _flatten_risks_for_listing(risks_blocks: list, cap: int) -> List[dict]:
     return flat[: max(1, int(cap or DEFAULT_TOP_RISKS_CAP))]
 
 
+def _canonical_industry(company: str, ticker: str, fallback: str) -> str:
+    tk = _coerce_str(ticker).upper()
+    if tk in FORCED_INDUSTRY_BY_TICKER:
+        return FORCED_INDUSTRY_BY_TICKER[tk]
+    if "apple" in _coerce_str(company).lower():
+        return "Technology"
+    out = _coerce_str(fallback) or "Other"
+    return out
+
+
+def _is_probable_apple_contamination(result_payload: dict) -> bool:
+    if not isinstance(result_payload, dict):
+        return False
+    risks_blocks = result_payload.get("risks", []) if isinstance(result_payload.get("risks"), list) else []
+    if not risks_blocks:
+        return False
+    sample_text: List[str] = []
+    for cat_block in risks_blocks[:6]:
+        if not isinstance(cat_block, dict):
+            continue
+        sample_text.append(_coerce_str(cat_block.get("category")))
+        for sr in (cat_block.get("sub_risks", []) or [])[:8]:
+            if not isinstance(sr, dict):
+                continue
+            sample_text.append(_coerce_str(sr.get("title")))
+    blob = " ".join(x.lower() for x in sample_text if x).strip()
+    if not blob:
+        return False
+    contamination_hits = sum(1 for term in APPLE_CONTAMINATION_TERMS if term in blob)
+    return contamination_hits >= 2
+
+
+def _ensure_record_integrity(backend, rec: dict, requested_company: str, requested_year: int) -> tuple[dict, dict]:
+    """Best-effort filing integrity guard.
+
+    For Apple/AAPL, detect known legacy contamination patterns (hotel/REIT
+    vocabulary mixed into Apple risk payload) and force one SEC re-fetch for
+    that year. Returns (record, note_dict)."""
+    note: dict = {}
+    if not isinstance(rec, dict):
+        return rec, note
+    company_text = _coerce_str(rec.get("company") or requested_company).lower()
+    ticker = _coerce_str(rec.get("ticker")).upper()
+    if not ticker:
+        try:
+            ticker_lookup = backend._build_ticker_lookup()
+            ticker = _coerce_str(backend._resolve_record_ticker(rec, ticker_lookup=ticker_lookup)).upper()
+        except Exception:
+            ticker = ""
+    is_apple_target = ("apple" in company_text) or (ticker == "AAPL")
+    if not is_apple_target:
+        return rec, note
+
+    rid = _coerce_str(rec.get("record_id"))
+    payload = backend._load_result(rid) if rid else None
+    if not _is_probable_apple_contamination(payload if isinstance(payload, dict) else {}):
+        return rec, note
+
+    auto_fetch = getattr(backend, "_auto_fetch_and_extract", None)
+    if not callable(auto_fetch):
+        return rec, {"integrity_warning": "apple_contamination_detected_but_no_autofetch"}
+
+    year = _coerce_int(rec.get("year"), requested_year)
+    if year <= 0:
+        return rec, {"integrity_warning": "apple_contamination_detected_but_invalid_year"}
+
+    try:
+        fetched = auto_fetch(
+            company="Apple",
+            ticker="AAPL",
+            industry="Technology",
+            start_year=year,
+            end_year=year,
+        )
+    except Exception as exc:
+        return rec, {"integrity_warning": f"apple_refetch_failed:{type(exc).__name__}:{exc}"}
+
+    note = {
+        "integrity_repair": "apple_refetch_attempted",
+        "integrity_refetch_count": _coerce_int((fetched or {}).get("count"), 0) if isinstance(fetched, dict) else 0,
+    }
+    repaired = _resolve_record(backend, "Apple", year)
+    return (repaired if repaired else rec), note
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Handler factories — each returns ``(**kwargs) -> dict``
 # ──────────────────────────────────────────────────────────────────────────────
@@ -650,6 +750,12 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
                 "auto_fetch_attempt": auto_fetch_attempt,
             }
 
+        rec, integrity_note = _ensure_record_integrity(
+            backend,
+            rec,
+            requested_company=company_aliased or company,
+            requested_year=year,
+        )
         record_id = _coerce_str(rec.get("record_id"))
         result = backend._load_result(record_id) if record_id else None
         if not isinstance(result, dict):
@@ -664,7 +770,11 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
             "record_id": record_id,
             "company": _coerce_str(rec.get("company")),
             "year": _coerce_int(rec.get("year"), year),
-            "industry": _coerce_str(rec.get("industry")),
+            "industry": _canonical_industry(
+                _coerce_str(rec.get("company")),
+                _coerce_str(rec.get("ticker")),
+                _coerce_str(rec.get("industry")),
+            ),
             "ticker": _coerce_str(rec.get("ticker")),
             "risk_block_count": len(risks_blocks),
             "sub_risk_total": sum(len(b.get("sub_risks", []) or []) for b in risks_blocks if isinstance(b, dict)),
@@ -676,6 +786,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
             },
             "top_risks": top_risks,
             "auto_fetch_attempt": auto_fetch_attempt,
+            **(integrity_note if isinstance(integrity_note, dict) else {}),
         }
 
     return _handler
@@ -699,6 +810,19 @@ def _make_compare_risks(backend) -> Callable[..., dict]:
             missing.append({"company": company_b, "year": year_b})
         if missing:
             return {"error": "no_matching_filing", "missing": missing}
+
+        rec_a, integrity_note_a = _ensure_record_integrity(
+            backend,
+            rec_a,
+            requested_company=company_a,
+            requested_year=year_a,
+        )
+        rec_b, integrity_note_b = _ensure_record_integrity(
+            backend,
+            rec_b,
+            requested_company=company_b,
+            requested_year=year_b,
+        )
 
         rid_a = _coerce_str(rec_a.get("record_id"))
         rid_b = _coerce_str(rec_b.get("record_id"))
@@ -741,6 +865,10 @@ def _make_compare_risks(backend) -> Callable[..., dict]:
                 "new_count": len(payload.get("new_risks") or []),
                 "removed_count": len(payload.get("removed_risks") or []),
                 "common_count": len(payload.get("common_risks") or []),
+            },
+            "integrity_notes": {
+                "filing_a": integrity_note_a if isinstance(integrity_note_a, dict) else {},
+                "filing_b": integrity_note_b if isinstance(integrity_note_b, dict) else {},
             },
         }
 
@@ -900,7 +1028,7 @@ def _make_list_available_companies(backend) -> Callable[..., dict]:
             block = agg.setdefault(key, {
                 "company": company,
                 "ticker": ticker.upper() if ticker else "",
-                "industry": industry,
+                "industry": _canonical_industry(company, ticker, industry),
                 "years": set(),
             })
             if year > 0:

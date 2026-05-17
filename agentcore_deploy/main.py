@@ -112,6 +112,9 @@ _RECORDS_LIST_CACHE: Dict[str, Dict[str, Any]] = {}
 _RECORDS_LIST_CACHE_TTL_SECONDS = 30
 _DASHBOARD_SUMMARY_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
 _DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 300
+_FORCED_INDUSTRY_BY_TICKER: Dict[str, str] = {
+    "AAPL": "Technology",
+}
 
 
 def _env(name: str, default: str = "") -> str:
@@ -1651,6 +1654,8 @@ def _auto_fetch_and_extract(
     comp = str(company or "").strip()
     tk = str(ticker or "").strip().upper()
     ind = str(industry or "Other").strip() or "Other"
+    if _normalize_ticker(tk) == "AAPL":
+        ind = "Technology"
     sy = int(start_year or 0)
     ey = int(end_year or 0)
     if not comp:
@@ -1758,11 +1763,15 @@ def _record_summary(
     if not isinstance(rec, dict):
         rec = {}
     ticker = _resolve_record_ticker(rec, ticker_lookup=ticker_lookup)
+    industry = str(rec.get("industry", "") or "").strip() or "Other"
+    forced_industry = _FORCED_INDUSTRY_BY_TICKER.get(_normalize_ticker(ticker))
+    if forced_industry:
+        industry = forced_industry
     base = {
         "record_id": rec.get("record_id"),
         "company": rec.get("company"),
         "ticker": ticker,
-        "industry": rec.get("industry"),
+        "industry": industry,
         "year": rec.get("year"),
         "filing_type": rec.get("filing_type"),
         "file_ext": rec.get("file_ext"),
@@ -3931,6 +3940,52 @@ def _normalize_news_row(item: dict, provider: str, og_cache: Dict[str, str], og_
     }
 
 
+def _parse_news_timestamp(value: Any) -> Optional[datetime]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        # Typical API shape: 2026-05-16T14:33:10.000000Z
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(str(value), fmt).replace(tzinfo=timezone.utc)
+            return dt
+        except Exception:
+            continue
+    return None
+
+
+def _news_relevance_score(item: dict, company: str, ticker: str) -> int:
+    if not isinstance(item, dict):
+        return 0
+    hay = " ".join(
+        [
+            str(item.get("title") or ""),
+            str(item.get("summary") or ""),
+            str(item.get("source") or ""),
+        ]
+    ).lower()
+    score = 0
+    tk = str(ticker or "").strip().upper()
+    if tk and tk.lower() in hay:
+        score += 3
+    comp = str(company or "").strip().lower()
+    if comp:
+        if comp in hay:
+            score += 3
+        tokens = [w for w in re.split(r"[^a-z0-9]+", comp) if len(w) >= 3]
+        score += sum(1 for w in tokens[:4] if w in hay)
+    return score
+
+
 def _fetch_news(company: str, ticker: str, days: int, limit: int):
     company_norm = str(company or "").strip()
     ticker_norm = str(ticker or "").strip().upper()
@@ -3979,6 +4034,37 @@ def _fetch_news(company: str, ticker: str, days: int, limit: int):
                 out.append(normalized)
 
         if out:
+            now_utc = datetime.now(timezone.utc)
+            floor_dt = now_utc - timedelta(days=day_window + 1)
+            ceil_dt = now_utc + timedelta(days=1)
+
+            # 1) Hard time-window sanity filtering.
+            out = [
+                row
+                for row in out
+                if (
+                    (lambda dt: bool(dt and floor_dt <= dt <= ceil_dt))(
+                        _parse_news_timestamp(row.get("published_at"))
+                    )
+                )
+            ]
+
+            # 2) Relevance filtering when company/ticker is specified.
+            if (company_norm or ticker_norm) and out:
+                scored = [(row, _news_relevance_score(row, company_norm, ticker_norm)) for row in out]
+                out = [row for row, s in scored if s >= 2]
+
+            if not out:
+                continue
+
+            # 3) Keep newest first and enforce requested cap.
+            out.sort(
+                key=lambda row: (
+                    _parse_news_timestamp(row.get("published_at")) or datetime.min.replace(tzinfo=timezone.utc)
+                ),
+                reverse=True,
+            )
+            out = out[:limit_value]
             _cache_news_items(cache_key, out, provider_name)
             return {"error": "", "items": out, "provider": provider_name, "cached": False}
 
