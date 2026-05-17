@@ -391,7 +391,7 @@ def _build_react_system_prompt(
         "== BEHAVIOR RULES ==",
         "1. NEVER fabricate risk factors, scores, or company data. If a tool returns no data or an `error` field, tell the user honestly and suggest what they could do (upload, pick a different year, etc.).",
         "2. When citing a specific risk, include the exact title (or first 12 words) from the tool result. Do not paraphrase risk titles.",
-        "3. If the user asks about a company that's not in AVAILABLE DATA, call list_available_companies first to confirm before declining.",
+        "3. The preloaded AVAILABLE DATA may be truncated. Before saying a company is unavailable, you MUST call list_available_companies (or load_company_risks directly) to verify.",
         "4. For comparison questions, prefer compare_risks (one call) over two separate load_company_risks calls.",
         "5. Keep tool calls minimal — never call the same tool twice with the same input. If you already have the data, use it.",
         "6. For stock market / price / trading questions, call stock_quote first before answering. Do not claim market features are unavailable unless stock_quote explicitly returns an error.",

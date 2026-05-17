@@ -4582,7 +4582,9 @@ def _agent_query(payload: dict) -> dict:
     try:
         list_companies_handler = tool_handlers.get("list_available_companies")
         if callable(list_companies_handler):
-            companies_blob = list_companies_handler(limit=50) or {}
+            # Use a wider preload window so the chat model doesn't
+            # incorrectly infer "company not in system" from a tiny sample.
+            companies_blob = list_companies_handler(limit=200) or {}
             company_rows = companies_blob.get("companies", []) if isinstance(companies_blob, dict) else []
             summary_lines = []
             for row in company_rows:
@@ -4594,7 +4596,18 @@ def _agent_query(payload: dict) -> dict:
                 if comp and yrs:
                     yr_label = f"{min(yrs)}-{max(yrs)}" if len(yrs) > 1 else str(yrs[0])
                     summary_lines.append(f"  - {comp}{f' ({tk})' if tk else ''}: {yr_label}")
-            available_companies_summary = "\n".join(summary_lines) if summary_lines else "(no filings yet)"
+            total = int(companies_blob.get("total", 0) or 0) if isinstance(companies_blob, dict) else 0
+            returned = int(companies_blob.get("returned", 0) or 0) if isinstance(companies_blob, dict) else len(summary_lines)
+            if summary_lines:
+                trunc_note = ""
+                if total > returned > 0:
+                    trunc_note = (
+                        f"(index shows {total} companies; preloaded {returned}. "
+                        "If target company not listed here, call list_available_companies explicitly.)"
+                    )
+                available_companies_summary = "\n".join([trunc_note] + summary_lines if trunc_note else summary_lines)
+            else:
+                available_companies_summary = "(no filings yet)"
         else:
             available_companies_summary = "(no list_available_companies handler)"
     except Exception as exc:
