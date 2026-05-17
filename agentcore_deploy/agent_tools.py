@@ -223,6 +223,30 @@ def _ticker_hint_from_company(raw: Any) -> str:
     return _coerce_str(COMPANY_TICKER_HINTS.get(key)).upper()
 
 
+def _is_ticker_like(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", value or ""))
+
+
+def _resolve_ticker_from_company_backend(backend, raw_value: Any) -> str:
+    hinted = _ticker_hint_from_company(raw_value)
+    if hinted:
+        return hinted
+    company_hint = _resolve_company_alias(raw_value)
+    if not company_hint:
+        return ""
+    resolver = getattr(backend, "_resolve_ticker_for_company", None)
+    if not callable(resolver):
+        return ""
+    try:
+        resolved = resolver(company=company_hint, ticker_hint="")
+    except Exception:
+        return ""
+    if not isinstance(resolved, dict) or not resolved.get("ok"):
+        return ""
+    ticker = _coerce_str(resolved.get("ticker")).upper()
+    return ticker if _is_ticker_like(ticker) else ""
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Tool specs (Bedrock Converse `toolConfig.tools` items)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -453,17 +477,50 @@ def _resolve_record(backend, company_or_ticker: str, year: int) -> Optional[dict
     if not raw or yy <= 0:
         return None
 
-    direct = backend._find_record(raw, yy)
-    if direct:
-        return direct
-
     aliased = _resolve_company_alias(raw)
-    if aliased and aliased != raw:
-        direct = backend._find_record(aliased, yy)
-        if direct:
-            return direct
+    ticker_hint = _resolve_ticker_from_company_backend(backend, raw)
+    raw_lower = raw.lower()
+    aliased_lower = aliased.lower()
+
+    # First pass: strict company-name match in the requested year.
+    # If duplicates exist (dirty historical data), prefer ticker match.
+    name_candidates: List[dict] = []
+    for rec in backend._load_index():
+        if not isinstance(rec, dict):
+            continue
+        try:
+            if _coerce_int(rec.get("year"), 0) != yy:
+                continue
+            rec_name = _coerce_str(rec.get("company")).lower()
+            if rec_name in {raw_lower, aliased_lower}:
+                name_candidates.append(rec)
+        except Exception:
+            continue
+    if name_candidates:
+        if ticker_hint:
+            try:
+                ticker_lookup = backend._build_ticker_lookup()
+            except Exception:
+                ticker_lookup = (None, None)
+            ticker_matched = []
+            for rec in name_candidates:
+                try:
+                    t = _coerce_str(
+                        backend._resolve_record_ticker(rec, ticker_lookup=ticker_lookup)
+                    ).upper()
+                except Exception:
+                    t = ""
+                if t == ticker_hint:
+                    ticker_matched.append(rec)
+            if ticker_matched:
+                ticker_matched.sort(key=lambda r: _coerce_str(r.get("created_at")), reverse=True)
+                return ticker_matched[0]
+        name_candidates.sort(key=lambda r: _coerce_str(r.get("created_at")), reverse=True)
+        return name_candidates[0]
 
     ticker_needle = raw.upper().strip()
+    if not _is_ticker_like(ticker_needle):
+        ticker_needle = ticker_hint
     if not ticker_needle:
         return None
     try:
@@ -558,12 +615,39 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
         if not company or year <= 0:
             return {"error": "missing_params: company and year are required"}
 
-        rec = _resolve_record(backend, company, year)
+        company_aliased = _resolve_company_alias(company)
+        rec = _resolve_record(backend, company_aliased or company, year)
+        auto_fetch_attempt = {}
+        if not rec:
+            auto_fetch = getattr(backend, "_auto_fetch_and_extract", None)
+            if callable(auto_fetch):
+                ticker_hint = _resolve_ticker_from_company_backend(backend, company_aliased or company)
+                try:
+                    fetched = auto_fetch(
+                        company=company_aliased or company,
+                        ticker=ticker_hint,
+                        industry="Other",
+                        start_year=year,
+                        end_year=year,
+                    )
+                except Exception as exc:
+                    fetched = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+                if isinstance(fetched, dict):
+                    auto_fetch_attempt = {
+                        "ok": bool(fetched.get("ok")),
+                        "count": _coerce_int(fetched.get("count"), 0),
+                        "error": _coerce_str(fetched.get("error")),
+                        "skipped": fetched.get("skipped", [])[:2] if isinstance(fetched.get("skipped"), list) else [],
+                    }
+                if isinstance(fetched, dict) and _coerce_int(fetched.get("count"), 0) > 0:
+                    rec = _resolve_record(backend, company_aliased or company, year)
+
         if not rec:
             return {
                 "error": "no_matching_filing",
-                "requested": {"company": company, "year": year},
-                "available_years_for_company": _years_for_company(backend, company),
+                "requested": {"company": company_aliased or company, "year": year},
+                "available_years_for_company": _years_for_company(backend, company_aliased or company),
+                "auto_fetch_attempt": auto_fetch_attempt,
             }
 
         record_id = _coerce_str(rec.get("record_id"))
@@ -591,6 +675,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
                 if isinstance(priority_matrix.get(bucket), dict)
             },
             "top_risks": top_risks,
+            "auto_fetch_attempt": auto_fetch_attempt,
         }
 
     return _handler
@@ -663,27 +748,8 @@ def _make_compare_risks(backend) -> Callable[..., dict]:
 
 
 def _make_stock_quote(backend) -> Callable[..., dict]:
-    def _is_ticker_like(value: str) -> bool:
-        return bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", value or ""))
-
     def _resolve_ticker_from_company(raw_value: str) -> str:
-        hinted = _ticker_hint_from_company(raw_value)
-        if hinted:
-            return hinted
-        company_hint = _resolve_company_alias(raw_value)
-        if not company_hint:
-            return ""
-        resolver = getattr(backend, "_resolve_ticker_for_company", None)
-        if not callable(resolver):
-            return ""
-        try:
-            resolved = resolver(company=company_hint, ticker_hint="")
-        except Exception:
-            return ""
-        if not isinstance(resolved, dict) or not resolved.get("ok"):
-            return ""
-        ticker = _coerce_str(resolved.get("ticker")).upper()
-        return ticker if _is_ticker_like(ticker) else ""
+        return _resolve_ticker_from_company_backend(backend, raw_value)
 
     def _handler(**kwargs) -> dict:
         ticker_raw = _coerce_str(kwargs.get("ticker"))
@@ -733,18 +799,45 @@ def _make_stock_quote(backend) -> Callable[..., dict]:
 
 def _make_fetch_news(backend) -> Callable[..., dict]:
     def _handler(**kwargs) -> dict:
-        company = _coerce_str(kwargs.get("company"))
+        company = _resolve_company_alias(_coerce_str(kwargs.get("company")))
         ticker = _coerce_str(kwargs.get("ticker")).upper()
         days = _coerce_int(kwargs.get("days"), DEFAULT_NEWS_DAYS)
         limit = _coerce_int(kwargs.get("limit"), DEFAULT_NEWS_LIMIT)
         if not company and not ticker:
             return {"error": "missing_params: company or ticker is required"}
+
+        resolved_from_company = ""
+        if not ticker and company:
+            resolved_from_company = _resolve_ticker_from_company_backend(backend, company)
+            ticker = resolved_from_company or ticker
+
         try:
             payload = backend._fetch_news(company, ticker, days, limit)
         except Exception as exc:
             return {"error": f"fetch_news_failed: {type(exc).__name__}: {exc}"}
+
+        if isinstance(payload, dict):
+            items_raw0 = payload.get("items", []) if isinstance(payload.get("items"), list) else []
+            should_retry = bool(payload.get("error")) or (not items_raw0 and company and not resolved_from_company)
+        else:
+            should_retry = False
+        if should_retry:
+            fallback_ticker = _resolve_ticker_from_company_backend(backend, company)
+            if fallback_ticker and fallback_ticker != ticker:
+                resolved_from_company = fallback_ticker
+                ticker = fallback_ticker
+                try:
+                    payload = backend._fetch_news(company, ticker, days, limit)
+                except Exception as exc:
+                    return {"error": f"fetch_news_failed: {type(exc).__name__}: {exc}"}
+
         if isinstance(payload, dict) and payload.get("error"):
-            return {"company": company, "ticker": ticker, "error": _coerce_str(payload.get("error"))}
+            return {
+                "company": company,
+                "ticker": ticker,
+                "resolved_from_company": resolved_from_company or "",
+                "error": _coerce_str(payload.get("error")),
+            }
         items_raw = payload.get("items", []) if isinstance(payload, dict) else []
         items: List[dict] = []
         for row in items_raw if isinstance(items_raw, list) else []:
@@ -762,6 +855,7 @@ def _make_fetch_news(backend) -> Callable[..., dict]:
         return {
             "company": company,
             "ticker": ticker,
+            "resolved_from_company": resolved_from_company or "",
             "days": days,
             "items_count": len(items),
             "provider": _coerce_str((payload or {}).get("provider")) if isinstance(payload, dict) else "",

@@ -394,8 +394,10 @@ def _build_react_system_prompt(
         "3. If the user asks about a company that's not in AVAILABLE DATA, call list_available_companies first to confirm before declining.",
         "4. For comparison questions, prefer compare_risks (one call) over two separate load_company_risks calls.",
         "5. Keep tool calls minimal — never call the same tool twice with the same input. If you already have the data, use it.",
-        f"6. Respond in {lang_label} only. If the user wrote in Chinese, answer in Chinese; otherwise English.",
-        "7. The dashboard's Risk Priority Index (RPI, 0-100) is weighted from three per-risk dimensions (Financial Impact, Likelihood, Urgency) into High/Medium/Low buckets. Mention this only if the user asks how scoring works.",
+        "6. For stock market / price / trading questions, call stock_quote first before answering. Do not claim market features are unavailable unless stock_quote explicitly returns an error.",
+        "7. For headline / media / breaking-news questions, call fetch_news first before answering. Do not claim news features are unavailable unless fetch_news explicitly returns an error.",
+        f"8. Respond in {lang_label} only. If the user wrote in Chinese, answer in Chinese; otherwise English.",
+        "9. The dashboard's Risk Priority Index (RPI, 0-100) is weighted from three per-risk dimensions (Financial Impact, Likelihood, Urgency) into High/Medium/Low buckets. Mention this only if the user asks how scoring works.",
         "",
         "When you have enough information, write a final natural-language answer (no JSON, no tool_use blocks). Final answer should be 3-7 sentences plus optional bullet evidence.",
     ]
