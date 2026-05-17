@@ -47,9 +47,14 @@ except Exception:
     extract_text_from_pdf = None
 
 try:
-    from core.sec_edgar import download_10k_html_for_company_year, build_filing_html_url
+    from core.sec_edgar import (
+        download_10k_html_for_company_year,
+        download_10q_html_for_company_year,
+        build_filing_html_url,
+    )
 except Exception:
     download_10k_html_for_company_year = None
+    download_10q_html_for_company_year = None
     download_10k_pdf_for_company_year = None
     build_filing_html_url = None
 
@@ -81,13 +86,13 @@ TABLES_PREFIX = "tables_extraction"
 
 # ── New S3 layout (S3_PLAN.md Part 1) ────────────────────────────────
 # When USE_NEW_S3_LAYOUT=1 the runtime reads / writes filings under
-# 10k_filings/<industry>/<company_dir>/<year>_10K.{html,json} and uses
+# 10k_filings/<industry>/<company_dir>/<year>_<10K|10Q>.{html,json} and uses
 # 10k_filings/index.json as the filing index. The legacy paths above
 # remain readable as a fallback so partially-migrated state is OK.
 NEW_FILINGS_PREFIX = "10k_filings"
 NEW_INDEX_KEY = f"{NEW_FILINGS_PREFIX}/index.json"
 USE_NEW_LAYOUT = os.getenv("USE_NEW_S3_LAYOUT", "0").strip() == "1"
-NEW_RECORD_ID_RE = re.compile(r"^(?P<dir>[A-Za-z0-9._\-]+)_(?P<year>\d{4})_10K$")
+NEW_RECORD_ID_RE = re.compile(r"^(?P<dir>[A-Za-z0-9._\-]+)_(?P<year>\d{4})_(?P<form>10K|10Q)$")
 _NEWS_CACHE: Dict[str, Dict[str, Any]] = {}
 _NEWS_CACHE_TTL_SECONDS = 120
 _STOCK_PROVIDER_STATE: Dict[str, Dict[str, Any]] = {}
@@ -119,6 +124,17 @@ _FORCED_INDUSTRY_BY_TICKER: Dict[str, str] = {
 
 def _env(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or default)
+
+
+def _canonical_filing_type(value: Any) -> str:
+    txt = str(value or "").strip().upper()
+    if txt in {"10Q", "10-Q"}:
+        return "10-Q"
+    return "10-K"
+
+
+def _filing_type_token(value: Any) -> str:
+    return "10Q" if _canonical_filing_type(value) == "10-Q" else "10K"
 
 
 def _bucket() -> str:
@@ -194,7 +210,7 @@ def _invalidate_runtime_caches(storage_key: str = "") -> None:
         return
 
     if key.startswith(f"{NEW_FILINGS_PREFIX}/"):
-        # Any write under 10k_filings/<industry>/<company>/<year>_10K.{html,json}
+        # Any write under 10k_filings/<industry>/<company>/<year>_<10K|10Q>.{html,json}
         # invalidates the per-record cache + the dashboard summary cache.
         # We don't try to derive the synthetic record_id from the key
         # (it would require re-reading the index); clearing the whole
@@ -271,15 +287,17 @@ def _json_from_bytes(data: Optional[bytes], fallback: Any):
         return fallback
 
 
-def _new_layout_record_id(company_dir: str, year: int) -> str:
+def _new_layout_record_id(company_dir: str, year: int, filing_type: str = "10-K") -> str:
     """Synthetic record_id for a filing in the new layout. The format
-    mirrors `<dir>_<year>_10K` so it is parseable back into (dir, year)
-    via NEW_RECORD_ID_RE without an extra round-trip to the index."""
-    return f"{str(company_dir or '').strip()}_{int(year or 0)}_10K"
+    mirrors `<dir>_<year>_<form_token>` so it is parseable back into
+    (dir, year, form) via NEW_RECORD_ID_RE without an extra round-trip
+    to the index."""
+    return f"{str(company_dir or '').strip()}_{int(year or 0)}_{_filing_type_token(filing_type)}"
 
 
-def _new_layout_keys_for_record_id(rid: str) -> Optional[tuple[str, str, str, int]]:
-    """Parse a new-layout rid into (industry_dir, company_dir, json_key, year).
+def _new_layout_keys_for_record_id(rid: str) -> Optional[tuple[str, str, str, int, str]]:
+    """Parse a new-layout rid into
+    (industry_dir, company_dir, json_key, year, filing_type).
 
     Requires the new index to be readable so we can resolve which
     industry directory the company sits under. Returns None if the rid
@@ -290,15 +308,34 @@ def _new_layout_keys_for_record_id(rid: str) -> Optional[tuple[str, str, str, in
         return None
     company_dir = m.group("dir")
     year = int(m.group("year"))
+    filing_type = "10-Q" if m.group("form") == "10Q" else "10-K"
 
     new_index = _load_new_layout_index_doc()
     industries = new_index.get("industries", {}) if isinstance(new_index, dict) else {}
     for ind_dir, companies in (industries or {}).items():
         if not isinstance(companies, dict):
             continue
-        if company_dir in companies:
+        block = companies.get(company_dir)
+        if not isinstance(block, dict):
+            continue
+        filings = block.get("filings", [])
+        if isinstance(filings, list):
+            for filing in filings:
+                if not isinstance(filing, dict):
+                    continue
+                try:
+                    f_year = int(filing.get("year") or 0)
+                except Exception:
+                    continue
+                f_type = _canonical_filing_type(filing.get("filing_type"))
+                if f_year == year and f_type == filing_type:
+                    json_key = str(filing.get("json_key", "") or "").strip()
+                    if json_key:
+                        return ind_dir, company_dir, json_key, year, filing_type
+        # Backward-compatible fallback for legacy 10-K path shape.
+        if filing_type == "10-K":
             json_key = f"{NEW_FILINGS_PREFIX}/{ind_dir}/{company_dir}/{year}_10K_risks.json"
-            return ind_dir, company_dir, json_key, year
+            return ind_dir, company_dir, json_key, year, filing_type
     return None
 
 
@@ -314,7 +351,7 @@ def _load_new_layout_index_doc() -> dict:
 def _flatten_new_layout_index(doc: dict) -> List[dict]:
     """Convert the dict-shaped 10k_filings/index.json into the flat
     record list the rest of the runtime expects. Each filing becomes one
-    record with synthetic `record_id = <company_dir>_<year>_10K`.
+    record with synthetic `record_id = <company_dir>_<year>_<form>`.
     """
     out: List[dict] = []
     industries = doc.get("industries", {}) if isinstance(doc, dict) else {}
@@ -336,7 +373,11 @@ def _flatten_new_layout_index(doc: dict) -> List[dict]:
                 except Exception:
                     continue
                 out.append({
-                    "record_id": _new_layout_record_id(company_dir, year),
+                    "record_id": _new_layout_record_id(
+                        company_dir,
+                        year,
+                        str(f.get("filing_type", "10-K") or "10-K"),
+                    ),
                     "company": company,
                     "ticker": ticker,
                     "industry": ind_dir,
@@ -403,11 +444,11 @@ def _load_result(record_id: str) -> Optional[dict]:
 
     payload: Optional[dict] = None
 
-    # New-layout rids look like "<company_dir>_<year>_10K"; resolve their
+    # New-layout rids look like "<company_dir>_<year>_<form>"; resolve their
     # JSON via the dict-shaped index.json. Falls through to legacy on miss.
     new_keys = _new_layout_keys_for_record_id(rid)
     if new_keys:
-        _ind, _comp, json_key, _year = new_keys
+        _ind, _comp, json_key, _year, _filing_type = new_keys
         payload = _json_from_bytes(_read_s3_bytes(json_key), None)
 
     if not isinstance(payload, dict):
@@ -870,7 +911,7 @@ def _add_record(
 ) -> dict:
     company = str(company or "").strip()
     industry = str(industry or "Other").strip() or "Other"
-    filing_type = str(filing_type or "10-K").strip() or "10-K"
+    filing_type = _canonical_filing_type(filing_type)
     ticker = _normalize_ticker(ticker)
     year = int(year or 0)
     ext = "pdf" if str(file_ext or "").strip().lower() == "pdf" else "html"
@@ -927,22 +968,23 @@ def _add_record(
         # so existing PDF flows keep working untouched.
         company_dir = _new_layout_company_dir(company, ticker)
         if ext == "html" and company_dir:
-            html_key = f"{NEW_FILINGS_PREFIX}/{industry}/{company_dir}/{year}_10K.html"
-            json_key = f"{NEW_FILINGS_PREFIX}/{industry}/{company_dir}/{year}_10K_risks.json"
+            ft_token = _filing_type_token(filing_type)
+            html_key = f"{NEW_FILINGS_PREFIX}/{industry}/{company_dir}/{year}_{ft_token}.html"
+            json_key = f"{NEW_FILINGS_PREFIX}/{industry}/{company_dir}/{year}_{ft_token}_risks.json"
             _write_s3_bytes(html_key, file_bytes)
             _write_s3_bytes(
                 json_key,
                 json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
             )
 
-            rid = _new_layout_record_id(company_dir, year)
+            rid = _new_layout_record_id(company_dir, year, filing_type)
             new_index_doc = _load_new_layout_index_doc()
             if not isinstance(new_index_doc, dict) or not new_index_doc:
                 new_index_doc = {
                     "version": 1,
                     "schema": {
-                        "html_key": f"{NEW_FILINGS_PREFIX}/<industry>/<company_dir>/<year>_10K.html",
-                        "json_key": f"{NEW_FILINGS_PREFIX}/<industry>/<company_dir>/<year>_10K_risks.json",
+                        "html_key": f"{NEW_FILINGS_PREFIX}/<industry>/<company_dir>/<year>_<10K|10Q>.html",
+                        "json_key": f"{NEW_FILINGS_PREFIX}/<industry>/<company_dir>/<year>_<10K|10Q>_risks.json",
                     },
                     "industries": {},
                 }
@@ -1046,6 +1088,7 @@ def _upsert_new_layout_index(
     extracted_at: str,
     cik: str = "",
 ) -> None:
+    filing_type = _canonical_filing_type(filing_type)
     industries = index_doc.setdefault("industries", {})
     industry_block = industries.setdefault(industry_dir, {})
     company_block = industry_block.setdefault(company_dir, {
@@ -1063,10 +1106,20 @@ def _upsert_new_layout_index(
         company_block["cik"] = cik
 
     filings = company_block.setdefault("filings", [])
-    filings[:] = [f for f in filings if int(f.get("year") or 0) != int(year)]
+    next_filings: List[dict] = []
+    for f in filings:
+        try:
+            same_year = int(f.get("year") or 0) == int(year)
+        except Exception:
+            same_year = False
+        same_type = _canonical_filing_type(f.get("filing_type")) == filing_type
+        if same_year and same_type:
+            continue
+        next_filings.append(f)
+    filings[:] = next_filings
     filings.append({
         "year": int(year),
-        "filing_type": str(filing_type or "10-K"),
+        "filing_type": filing_type,
         "html_key": html_key,
         "json_key": json_key,
         "sub_risk_count": int(sub_risk_count or 0),
@@ -1608,7 +1661,7 @@ def _manual_extract_result(
 
     is_pdf = str(file_name or "").strip().lower().endswith(".pdf")
     industry_name = str(industry or "Other").strip() or "Other"
-    ft = str(filing_type or "10-K").strip() or "10-K"
+    ft = _canonical_filing_type(filing_type)
     yy = int(year or 0)
 
     try:
@@ -1645,10 +1698,13 @@ def _auto_fetch_and_extract(
     company: str,
     ticker: str,
     industry: str,
+    filing_type: str,
     start_year: int,
     end_year: int,
 ) -> dict:
-    if download_10k_html_for_company_year is None:
+    ft = _canonical_filing_type(filing_type)
+    html_downloader = download_10q_html_for_company_year if ft == "10-Q" else download_10k_html_for_company_year
+    if html_downloader is None:
         return {"ok": False, "error": "SEC auto-fetch is unavailable in runtime."}
 
     comp = str(company or "").strip()
@@ -1667,13 +1723,13 @@ def _auto_fetch_and_extract(
     skipped: List[dict] = []
     for yy in range(sy, ey + 1):
         try:
-            html_bytes, sec_meta, sec_err = download_10k_html_for_company_year(comp, yy, tk)
+            html_bytes, sec_meta, sec_err = html_downloader(comp, yy, tk)
         except Exception as exc:
             skipped.append({"year": yy, "reason": f"SEC request failed: {type(exc).__name__}: {exc}"})
             continue
 
         if not html_bytes:
-            skipped.append({"year": yy, "reason": sec_err or "Could not fetch 10-K HTML from SEC EDGAR."})
+            skipped.append({"year": yy, "reason": sec_err or f"Could not fetch {ft} HTML from SEC EDGAR."})
             continue
 
         result, extract_err = _manual_extract_result(
@@ -1682,7 +1738,7 @@ def _auto_fetch_and_extract(
             company=comp,
             industry=ind,
             year=yy,
-            filing_type="10-K",
+            filing_type=ft,
         )
         if not result:
             skipped.append({"year": yy, "reason": extract_err or "Extraction failed."})
@@ -1709,7 +1765,7 @@ def _auto_fetch_and_extract(
                 company=comp,
                 industry=ind,
                 year=yy,
-                filing_type="10-K",
+                filing_type=ft,
                 ticker=tk,
                 file_bytes=html_bytes,
                 file_ext="html",
@@ -4992,7 +5048,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 company = str(body.get("company", "") or "").strip()
                 ticker = str(body.get("ticker", "") or "").strip().upper()
                 industry = str(body.get("industry", "Other") or "Other").strip() or "Other"
-                filing_type = str(body.get("filing_type", "10-K") or "10-K").strip() or "10-K"
+                filing_type = _canonical_filing_type(body.get("filing_type", "10-K"))
                 year = _to_int(body.get("year", 0), 0)
                 file_name = str(body.get("file_name", "") or "").strip() or "filing.html"
                 file_b64 = str(body.get("file_b64", "") or body.get("file_content_base64", "") or "").strip()
@@ -5068,12 +5124,14 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 company = str(body.get("company", "") or "").strip()
                 ticker = str(body.get("ticker", "") or "").strip().upper()
                 industry = str(body.get("industry", "Other") or "Other").strip() or "Other"
+                filing_type = _canonical_filing_type(body.get("filing_type", "10-K"))
                 start_year = _to_int(body.get("start_year", 0), 0)
                 end_year = _to_int(body.get("end_year", 0), 0)
                 payload = _auto_fetch_and_extract(
                     company=company,
                     ticker=ticker,
                     industry=industry,
+                    filing_type=filing_type,
                     start_year=start_year,
                     end_year=end_year,
                 )

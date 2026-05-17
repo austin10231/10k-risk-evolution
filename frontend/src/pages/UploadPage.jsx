@@ -190,6 +190,7 @@ export default function UploadPage() {
   const [selectedResult, setSelectedResult] = useState(null)
   const [loadingSelected, setLoadingSelected] = useState(false)
   const [recordsIndustryFilter, setRecordsIndustryFilter] = useState('all')
+  const [recordsFilingTypeFilter, setRecordsFilingTypeFilter] = useState('all')
   const [selectedCompanyKey, setSelectedCompanyKey] = useState('')
 
   const fileInputRef = useRef(null)
@@ -292,15 +293,26 @@ export default function UploadPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [records])
 
+  const recordFilingTypes = useMemo(() => {
+    const set = new Set()
+    records.forEach((r) => {
+      const value = String(r?.filing_type || '10-K').trim() || '10-K'
+      set.add(value)
+    })
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [records])
+
   const visibleRecords = useMemo(() => {
     const q = search.trim().toLowerCase()
     return records.filter((r) => {
       const recordIndustry = String(r?.industry || 'Other').trim() || 'Other'
       if (recordsIndustryFilter !== 'all' && recordIndustry !== recordsIndustryFilter) return false
+      const recordFilingType = String(r?.filing_type || '10-K').trim() || '10-K'
+      if (recordsFilingTypeFilter !== 'all' && recordFilingType !== recordsFilingTypeFilter) return false
       if (!q) return true
       return [r.company, r.industry, r.filing_type, String(r.year), r.record_id].join(' ').toLowerCase().includes(q)
     })
-  }, [records, search, recordsIndustryFilter])
+  }, [records, search, recordsIndustryFilter, recordsFilingTypeFilter])
 
   const companyGroups = useMemo(() => {
     const groups = new Map()
@@ -427,6 +439,7 @@ export default function UploadPage() {
         company: companyName,
         ticker: ticker,
         industry: industry,
+        filing_type: filingType,
         start_year: start,
         end_year: end,
       })
@@ -706,6 +719,13 @@ export default function UploadPage() {
                     </select>
                   </div>
                   <div>
+                    <label className="rl-field-label">Filing Type</label>
+                    <select className="input mt-2" value={filingType} onChange={(e) => setFilingType(e.target.value)}>
+                      <option value="10-K">10-K</option>
+                      <option value="10-Q">10-Q</option>
+                    </select>
+                  </div>
+                  <div>
                     <label className="rl-field-label">End Year</label>
                     <select className="input mt-2" value={autoEndYear} onChange={(e) => setAutoEndYear(e.target.value)}>
                       {YEARS.map((y) => (
@@ -764,6 +784,18 @@ export default function UploadPage() {
                 >
                   <option value="all">All industries</option>
                   {recordIndustries.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={recordsFilingTypeFilter}
+                  onChange={(e) => setRecordsFilingTypeFilter(e.target.value)}
+                  className="input w-full md:w-40"
+                >
+                  <option value="all">All filing types</option>
+                  {recordFilingTypes.map((value) => (
                     <option key={value} value={value}>
                       {value}
                     </option>

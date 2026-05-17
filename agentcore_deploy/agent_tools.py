@@ -275,7 +275,7 @@ TOOL_SPECS: Dict[str, dict] = {
                 "Returns the top risk factors ranked by priority bucket then RPI score, "
                 "each with its category, title, priority, score, and the three scoring "
                 "dimensions (financial_impact, likelihood, urgency). "
-                "Use this whenever the user asks about a specific company's 10-K risks. "
+                "Use this whenever the user asks about a specific company's 10-K/10-Q risks. "
                 "If the company/year is missing from local index, backend will attempt "
                 "a one-shot SEC EDGAR auto-fetch for that year first. "
                 "If still unavailable, the response carries an `error` field. "
@@ -294,7 +294,12 @@ TOOL_SPECS: Dict[str, dict] = {
                             "type": "integer",
                             "minimum": 1995,
                             "maximum": 2030,
-                            "description": "Filing year (the calendar year the 10-K covers).",
+                            "description": "Filing year (the calendar year the filing covers).",
+                        },
+                        "filing_type": {
+                            "type": "string",
+                            "enum": ["10-K", "10-Q"],
+                            "description": "Optional filing type selector. Defaults to 10-K.",
                         },
                         "max_risks": {
                             "type": "integer",
@@ -395,7 +400,7 @@ TOOL_SPECS: Dict[str, dict] = {
         "toolSpec": {
             "name": "list_available_companies",
             "description": (
-                "List companies that have at least one 10-K filing with extracted risks "
+                "List companies that have at least one filing (10-K or 10-Q) with extracted risks "
                 "in the system. Returns ticker, industry, and the years available per "
                 "company. Use this to validate a company name before calling "
                 "load_company_risks, or when the user asks 'what companies do you have "
@@ -479,7 +484,14 @@ def _coerce_int(v: Any, default: int = 0) -> int:
         return default
 
 
-def _resolve_record(backend, company_or_ticker: str, year: int) -> Optional[dict]:
+def _coerce_filing_type(value: Any) -> str:
+    txt = _coerce_str(value).upper()
+    if txt in {"10Q", "10-Q"}:
+        return "10-Q"
+    return "10-K"
+
+
+def _resolve_record(backend, company_or_ticker: str, year: int, filing_type: str = "") -> Optional[dict]:
     """Match a record by either company name or ticker (case-insensitive)
     plus exact filing year. Returns the index entry (with ``record_id``) or
     ``None`` when no match. We intentionally do not LLM-fuzz-match — the
@@ -492,6 +504,7 @@ def _resolve_record(backend, company_or_ticker: str, year: int) -> Optional[dict
     """
     raw = _coerce_str(company_or_ticker)
     yy = _coerce_int(year, 0)
+    ft = _coerce_filing_type(filing_type) if _coerce_str(filing_type) else ""
     if not raw or yy <= 0:
         return None
 
@@ -508,6 +521,8 @@ def _resolve_record(backend, company_or_ticker: str, year: int) -> Optional[dict
             continue
         try:
             if _coerce_int(rec.get("year"), 0) != yy:
+                continue
+            if ft and _coerce_filing_type(rec.get("filing_type")) != ft:
                 continue
             rec_name = _coerce_str(rec.get("company")).lower()
             if rec_name in {raw_lower, aliased_lower}:
@@ -548,6 +563,8 @@ def _resolve_record(backend, company_or_ticker: str, year: int) -> Optional[dict
     for rec in backend._load_index():
         try:
             if _coerce_int(rec.get("year"), 0) != yy:
+                continue
+            if ft and _coerce_filing_type(rec.get("filing_type")) != ft:
                 continue
             t = backend._resolve_record_ticker(rec, ticker_lookup=ticker_lookup)
             if isinstance(t, str) and t.upper() == ticker_needle:
@@ -691,6 +708,7 @@ def _ensure_record_integrity(backend, rec: dict, requested_company: str, request
             company="Apple",
             ticker="AAPL",
             industry="Technology",
+            filing_type="10-K",
             start_year=year,
             end_year=year,
         )
@@ -714,12 +732,13 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
     def _handler(**kwargs) -> dict:
         company = _coerce_str(kwargs.get("company"))
         year = _coerce_int(kwargs.get("year"), 0)
+        filing_type = _coerce_filing_type(kwargs.get("filing_type", "10-K"))
         max_risks = _coerce_int(kwargs.get("max_risks"), DEFAULT_TOP_RISKS_CAP)
         if not company or year <= 0:
             return {"error": "missing_params: company and year are required"}
 
         company_aliased = _resolve_company_alias(company)
-        rec = _resolve_record(backend, company_aliased or company, year)
+        rec = _resolve_record(backend, company_aliased or company, year, filing_type)
         auto_fetch_attempt = {}
         retrieval_mode = "existing_index"
         if not rec:
@@ -731,6 +750,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
                         company=company_aliased or company,
                         ticker=ticker_hint,
                         industry="Other",
+                        filing_type=filing_type,
                         start_year=year,
                         end_year=year,
                     )
@@ -744,7 +764,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
                         "skipped": fetched.get("skipped", [])[:2] if isinstance(fetched.get("skipped"), list) else [],
                     }
                 if isinstance(fetched, dict) and _coerce_int(fetched.get("count"), 0) > 0:
-                    rec = _resolve_record(backend, company_aliased or company, year)
+                    rec = _resolve_record(backend, company_aliased or company, year, filing_type)
                     retrieval_mode = "sec_auto_fetch"
 
         if not rec:
@@ -752,6 +772,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
                 "error": "no_matching_filing",
                 "requested": {"company": company_aliased or company, "year": year},
                 "available_years_for_company": _years_for_company(backend, company_aliased or company),
+                "filing_type": filing_type,
                 "auto_fetch_attempt": auto_fetch_attempt,
                 "retrieval_mode": "missing_after_autofetch",
             }
@@ -776,6 +797,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
             "record_id": record_id,
             "company": _coerce_str(rec.get("company")),
             "year": _coerce_int(rec.get("year"), year),
+            "filing_type": _coerce_str(rec.get("filing_type")) or filing_type,
             "industry": _canonical_industry(
                 _coerce_str(rec.get("company")),
                 _coerce_str(rec.get("ticker")),

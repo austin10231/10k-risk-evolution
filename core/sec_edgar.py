@@ -163,7 +163,7 @@ def _extract_best_cik_from_search_payload(payload: dict, company_name: str = "")
     return _extract_cik_from_search_payload(payload)
 
 
-def find_cik(company_name: str, ticker: str = "") -> str:
+def find_cik(company_name: str, ticker: str = "", form_type: str = "10-K") -> str:
     cik = _find_cik_by_ticker(ticker)
     if cik:
         return cik
@@ -175,9 +175,10 @@ def find_cik(company_name: str, ticker: str = "") -> str:
         queries.append(f'"{company_name}" {ticker}')
         queries.append(ticker)
 
+    form = str(form_type or "10-K").strip().upper() or "10-K"
     for q_raw in queries:
         q = quote(q_raw)
-        payload = _sec_get_json(f"https://efts.sec.gov/LATEST/search-index?q={q}&forms=10-K")
+        payload = _sec_get_json(f"https://efts.sec.gov/LATEST/search-index?q={q}&forms={quote(form)}")
         cik = _extract_best_cik_from_search_payload(payload, company_name)
         if cik:
             return cik
@@ -188,7 +189,8 @@ def _submissions_for_cik(cik_10: str) -> dict:
     return _sec_get_json(f"https://data.sec.gov/submissions/CIK{cik_10}.json")
 
 
-def _select_filing_for_year(submissions: dict, year: int):
+def _select_filing_for_year(submissions: dict, year: int, form_type: str = "10-K"):
+    form = str(form_type or "10-K").strip().upper() or "10-K"
     recent = submissions.get("filings", {}).get("recent", {})
     forms = recent.get("form", [])
     filing_dates = recent.get("filingDate", [])
@@ -198,7 +200,7 @@ def _select_filing_for_year(submissions: dict, year: int):
     total = min(len(forms), len(filing_dates), len(accessions), len(primary_docs))
     matches = []
     for i in range(total):
-        if str(forms[i]).upper() != "10-K":
+        if str(forms[i]).upper() != form:
             continue
         filing_date = str(filing_dates[i] or "")
         if len(filing_date) < 4:
@@ -212,8 +214,9 @@ def _select_filing_for_year(submissions: dict, year: int):
             ry = int(report_date[:4]) if len(report_date) >= 4 else 0
         except Exception:
             ry = 0
-        # SEC 10-K is often filed in the next calendar year (e.g. FY2025
-        # filing in early 2026). Prefer explicit reportDate year when present.
+        # SEC annual filings are often filed in the next calendar year
+        # (e.g. FY2025 filing in early 2026). Prefer explicit reportDate
+        # year when present.
         exact_report_year = (ry == int(year))
         exact_filing_year = (fy == int(year))
         tolerant_next_year = (
@@ -282,6 +285,8 @@ def _pick_primary_pdf_doc(primary_document: str, index_json: dict) -> str:
         low = nm.lower()
         if "10-k" in low or "10k" in low:
             score -= 40
+        if "10-q" in low or "10q" in low:
+            score -= 40
         if "form" in low:
             score -= 20
         if "index" in low:
@@ -307,6 +312,8 @@ def _pick_primary_html_doc(primary_document: str, index_json: dict) -> str:
         score = 100
         low = nm.lower()
         if "10-k" in low or "10k" in low:
+            score -= 40
+        if "10-q" in low or "10q" in low:
             score -= 40
         if "form" in low:
             score -= 20
@@ -365,7 +372,7 @@ def download_filing_html_by_cik(cik_10: str, accession_number: str, primary_docu
 
 
 def download_10k_pdf_for_company_year(company_name: str, year: int, ticker: str = ""):
-    cik = find_cik(company_name, ticker)
+    cik = find_cik(company_name, ticker, "10-K")
     if not cik:
         return None, {}, "Could not find CIK from SEC EDGAR."
 
@@ -420,7 +427,7 @@ def build_filing_html_url(meta: dict) -> str:
 
 
 def download_10k_html_for_company_year(company_name: str, year: int, ticker: str = ""):
-    cik = find_cik(company_name, ticker)
+    cik = find_cik(company_name, ticker, "10-K")
     if not cik:
         return None, {}, "Could not find CIK from SEC EDGAR."
 
@@ -451,4 +458,39 @@ def download_10k_html_for_company_year(company_name: str, year: int, ticker: str
     }
     if not html_bytes:
         return None, meta, err or "Failed to download 10-K HTML from SEC."
+    return html_bytes, meta, ""
+
+
+def download_10q_html_for_company_year(company_name: str, year: int, ticker: str = ""):
+    cik = find_cik(company_name, ticker, "10-Q")
+    if not cik:
+        return None, {}, "Could not find CIK from SEC EDGAR."
+
+    try:
+        submissions = _submissions_for_cik(cik)
+    except Exception as e:
+        return None, {"cik": cik}, f"Failed to fetch SEC submissions for CIK {cik}: {e}"
+
+    filing = _select_filing_for_year(submissions, int(year), "10-Q")
+    if not filing:
+        return None, {"cik": cik}, f"No 10-Q filing found for {company_name} in {year}."
+
+    html_bytes, doc_name, err = download_filing_html_by_cik(
+        cik_10=cik,
+        accession_number=filing.get("accession_number", ""),
+        primary_document=filing.get("primary_document", ""),
+    )
+    meta = {
+        "cik": cik,
+        "ticker": str(ticker or "").upper(),
+        "filing_date": filing.get("filing_date", ""),
+        "report_date": filing.get("report_date", ""),
+        "report_year": filing.get("report_year", 0),
+        "accession_number": filing.get("accession_number", ""),
+        "primary_document": filing.get("primary_document", ""),
+        "downloaded_document": doc_name,
+        "year": int(year),
+    }
+    if not html_bytes:
+        return None, meta, err or "Failed to download 10-Q HTML from SEC."
     return html_bytes, meta, ""

@@ -372,7 +372,7 @@ def _build_react_system_prompt(
     has_compare = bool(ctx.get("has_compare_data"))
 
     lines = [
-        "You are RiskLens AI, a multi-step research assistant for SEC 10-K risk factor analysis.",
+        "You are RiskLens AI, a multi-step research assistant for SEC 10-K / 10-Q risk factor analysis.",
         f"You can call up to {MAX_ITER} tool calls before producing a final answer.",
         "",
         "== USER CONTEXT ==",
@@ -386,7 +386,7 @@ def _build_react_system_prompt(
         f"  - has_compare_data: {has_compare}",
         "",
         "== AVAILABLE DATA (from the system index) ==",
-        available_companies_summary or "(no data available; offer to upload a 10-K)",
+        available_companies_summary or "(no data available; offer to upload a filing)",
         "",
         "== BEHAVIOR RULES ==",
         "1. NEVER fabricate risk factors, scores, or company data. If a tool returns no data or an `error` field, tell the user honestly and suggest what they could do (upload, pick a different year, etc.).",
