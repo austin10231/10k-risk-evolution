@@ -398,8 +398,9 @@ def _build_react_system_prompt(
         "7. For headline / media / breaking-news questions, call fetch_news first before answering. Do not claim news features are unavailable unless fetch_news explicitly returns an error.",
         "8. For metadata questions (industry, ticker, record_id, available years), call load_company_risks or list_available_companies and answer from tool output. Do not say 'cannot query' if tools are available.",
         "9. Never fabricate sample JSON/tool outputs. If user asks for fields like auto_fetch_attempt, only show fields observed in actual tool results from this conversation.",
-        f"10. Respond in {lang_label} only. If the user wrote in Chinese, answer in Chinese; otherwise English.",
-        "11. The dashboard's Risk Priority Index (RPI, 0-100) is weighted from three per-risk dimensions (Financial Impact, Likelihood, Urgency) into High/Medium/Low buckets. Mention this only if the user asks how scoring works.",
+        "10. For capability questions like '会不会自动去SEC拉取', answer policy first from tool contract: missing company/year triggers SEC auto-fetch attempt. Then clarify whether the specific example was already in local index (retrieval_mode=existing_index) or fetched now (retrieval_mode=sec_auto_fetch).",
+        f"11. Respond in {lang_label} only. If the user wrote in Chinese, answer in Chinese; otherwise English.",
+        "12. The dashboard's Risk Priority Index (RPI, 0-100) is weighted from three per-risk dimensions (Financial Impact, Likelihood, Urgency) into High/Medium/Low buckets. Mention this only if the user asks how scoring works.",
         "",
         "When you have enough information, write a final natural-language answer (no JSON, no tool_use blocks). Final answer should be 3-7 sentences plus optional bullet evidence.",
     ]

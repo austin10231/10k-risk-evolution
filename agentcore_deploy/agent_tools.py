@@ -276,8 +276,11 @@ TOOL_SPECS: Dict[str, dict] = {
                 "each with its category, title, priority, score, and the three scoring "
                 "dimensions (financial_impact, likelihood, urgency). "
                 "Use this whenever the user asks about a specific company's 10-K risks. "
-                "If the company or year is not in the system, the response carries an "
-                "`error` field — do not fabricate; tell the user what is available."
+                "If the company/year is missing from local index, backend will attempt "
+                "a one-shot SEC EDGAR auto-fetch for that year first. "
+                "If still unavailable, the response carries an `error` field. "
+                "Use returned `retrieval_mode` to tell user whether data came from "
+                "existing index or live auto-fetch."
             ),
             "inputSchema": {
                 "json": {
@@ -718,6 +721,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
         company_aliased = _resolve_company_alias(company)
         rec = _resolve_record(backend, company_aliased or company, year)
         auto_fetch_attempt = {}
+        retrieval_mode = "existing_index"
         if not rec:
             auto_fetch = getattr(backend, "_auto_fetch_and_extract", None)
             if callable(auto_fetch):
@@ -741,6 +745,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
                     }
                 if isinstance(fetched, dict) and _coerce_int(fetched.get("count"), 0) > 0:
                     rec = _resolve_record(backend, company_aliased or company, year)
+                    retrieval_mode = "sec_auto_fetch"
 
         if not rec:
             return {
@@ -748,6 +753,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
                 "requested": {"company": company_aliased or company, "year": year},
                 "available_years_for_company": _years_for_company(backend, company_aliased or company),
                 "auto_fetch_attempt": auto_fetch_attempt,
+                "retrieval_mode": "missing_after_autofetch",
             }
 
         rec, integrity_note = _ensure_record_integrity(
@@ -786,6 +792,7 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
             },
             "top_risks": top_risks,
             "auto_fetch_attempt": auto_fetch_attempt,
+            "retrieval_mode": retrieval_mode,
             **(integrity_note if isinstance(integrity_note, dict) else {}),
         }
 
