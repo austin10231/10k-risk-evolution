@@ -1564,6 +1564,36 @@ def _has_bedrock_runtime_credentials() -> bool:
     return False
 
 
+def _bucket_from_source_heading(category: Any) -> str:
+    """Map extractor-provided source headings to dashboard buckets.
+
+    This acts as a conservative anchor when per-title keyword scoring is weak.
+    It prevents 10-Q records from collapsing into a single dashboard bucket
+    due to sparse title-level signals.
+    """
+    low = str(category or "").strip().lower()
+    if not low:
+        return ""
+
+    if any(k in low for k in ("legal", "regulatory", "compliance", "antitrust", "litigation", "law")):
+        return "Legal & Regulatory"
+    if any(k in low for k in ("cyber", "technology", "information security", "data privacy", "data security")):
+        return "Technology & Cybersecurity"
+    if any(k in low for k in ("operations", "operational", "supply chain", "supplier", "manufacturing", "logistics")):
+        return "Operations & Supply Chain"
+    if any(k in low for k in ("strategy", "market", "commercial", "competition", "customer demand")):
+        return "Strategy & Market"
+    if any(k in low for k in ("financial", "liquidity", "capital resources", "credit", "debt", "cash flow")):
+        return "Financial & Liquidity"
+    if any(k in low for k in ("governance", "workforce", "human capital", "board", "talent", "labor")):
+        return "People & Governance"
+    if any(k in low for k in ("esg", "sustainability", "climate", "environmental", "carbon")):
+        return "ESG & Sustainability"
+    if any(k in low for k in ("capital markets", "shareholder", "stockholder", "common stock", "dividend")):
+        return "Capital Markets"
+    return ""
+
+
 def _json_obj_from_text(text: str) -> dict:
     raw = str(text or "").strip().replace("```json", "").replace("```", "").strip()
     try:
@@ -1622,6 +1652,7 @@ def _extract_sub_risks(result: dict) -> List[dict]:
     out: List[dict] = []
     for cat_block in result.get("risks", []) if isinstance(result, dict) else []:
         original_category = str(cat_block.get("category", "Unknown") or "Unknown")
+        heading_bucket = _bucket_from_source_heading(original_category)
         for sr in cat_block.get("sub_risks", []) or []:
             if isinstance(sr, dict):
                 title = str(sr.get("title", "") or "").strip()
@@ -1640,7 +1671,7 @@ def _extract_sub_risks(result: dict) -> List[dict]:
             else:
                 mapped_category, score = _normalize_risk_category(original_category, title, labels)
                 if score < 2:
-                    mapped_category = _classify_with_llm_fallback(original_category, title, labels)
+                    mapped_category = heading_bucket or _classify_with_llm_fallback(original_category, title, labels)
             out.append(
                 {
                     "category": mapped_category,
@@ -1658,6 +1689,7 @@ def _annotate_dashboard_category(risks_blocks: list) -> list:
         if not isinstance(block, dict):
             continue
         original_category = str(block.get("category", "") or "").strip() or "Unknown"
+        heading_bucket = _bucket_from_source_heading(original_category)
         new_subs = []
         for sr in block.get("sub_risks", []) or []:
             if isinstance(sr, dict):
@@ -1669,7 +1701,7 @@ def _annotate_dashboard_category(risks_blocks: list) -> list:
                 if mapped not in FIXED_RISK_CATEGORIES:
                     mapped, score = _normalize_risk_category(original_category, title, labels)
                     if score < 2:
-                        mapped = _classify_with_llm_fallback(original_category, title, labels)
+                        mapped = heading_bucket or _classify_with_llm_fallback(original_category, title, labels)
                 sr_out = dict(sr)
                 sr_out["title"] = title
                 sr_out["labels"] = labels
@@ -1682,7 +1714,7 @@ def _annotate_dashboard_category(risks_blocks: list) -> list:
                     continue
                 mapped, score = _normalize_risk_category(original_category, title, [])
                 if score < 2:
-                    mapped = _classify_with_llm_fallback(original_category, title, [])
+                    mapped = heading_bucket or _classify_with_llm_fallback(original_category, title, [])
                 new_subs.append(
                     {
                         "title": title,
