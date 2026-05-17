@@ -83,6 +83,8 @@ TICKER_MAP_KEY = "company_ticker_map.json"
 HTML_PREFIX = "10k_html_datasets"
 PDF_PREFIX = "10k_pdf_datasets"
 TABLES_PREFIX = "tables_extraction"
+HTML_10Q_PREFIX = "10Q_files"
+RESULTS_10Q_PREFIX = "10Q_filling"
 
 # ── New S3 layout (S3_PLAN.md Part 1) ────────────────────────────────
 # When USE_NEW_S3_LAYOUT=1 the runtime reads / writes filings under
@@ -137,6 +139,41 @@ def _canonical_filing_type(value: Any) -> str:
 
 def _filing_type_token(value: Any) -> str:
     return "10Q" if _canonical_filing_type(value) == "10-Q" else "10K"
+
+
+def _legacy_html_prefix_for_filing_type(value: Any) -> str:
+    return f"{HTML_PREFIX}/{_canonical_filing_type(value)}"
+
+
+def _legacy_html_keys_for_record(record_id: str, filing_type: Any) -> List[str]:
+    rid = str(record_id or "").strip()
+    if not rid:
+        return []
+    keys = [
+        f"{_legacy_html_prefix_for_filing_type(filing_type)}/{rid}.html",
+        f"{HTML_PREFIX}/{rid}.html",  # backward-compatible legacy flat key
+    ]
+    out: List[str] = []
+    for key in keys:
+        if key and key not in out:
+            out.append(key)
+    return out
+
+
+def _legacy_10q_result_key(
+    *,
+    industry: str,
+    company_dir: str,
+    year: int,
+    filing_quarter: int,
+    record_id: str,
+) -> str:
+    q = filing_quarter if filing_quarter in {1, 2, 3, 4} else 0
+    q_suffix = f"_Q{q}" if q > 0 else ""
+    return (
+        f"{RESULTS_10Q_PREFIX}/{str(industry or 'Other').strip() or 'Other'}/"
+        f"{str(company_dir or '').strip()}/{int(year or 0)}_10Q{q_suffix}_{str(record_id or '').strip()}.json"
+    )
 
 
 def _coerce_filing_quarter(value: Any, filing_type: Any) -> int:
@@ -495,10 +532,16 @@ def _load_result(record_id: str) -> Optional[dict]:
 
     payload: Optional[dict] = None
 
+    rec = next((r for r in _load_index() if str(r.get("record_id", "") or "").strip() == rid), None)
+    if isinstance(rec, dict):
+        rec_result_key = str(rec.get("result_key", "") or "").strip()
+        if rec_result_key:
+            payload = _json_from_bytes(_read_s3_bytes(rec_result_key), None)
+
     # New-layout rids look like "<company_dir>_<year>_<form>"; resolve their
     # JSON via the dict-shaped index.json. Falls through to legacy on miss.
     new_keys = _new_layout_keys_for_record_id(rid)
-    if new_keys:
+    if new_keys and not isinstance(payload, dict):
         _ind, _comp, json_key, _year, _filing_type, _filing_quarter = new_keys
         payload = _json_from_bytes(_read_s3_bytes(json_key), None)
 
@@ -986,8 +1029,15 @@ def _add_record(
         if not old_id:
             continue
         old_ext = "pdf" if str(d.get("file_ext", "html")).lower() == "pdf" else "html"
-        old_prefix = PDF_PREFIX if old_ext == "pdf" else HTML_PREFIX
-        _delete_s3_key(f"{old_prefix}/{old_id}.{old_ext}")
+        if old_ext == "pdf":
+            _delete_s3_key(f"{PDF_PREFIX}/{old_id}.{old_ext}")
+        else:
+            old_ft = str(d.get("filing_type", "") or filing_type)
+            for key in _legacy_html_keys_for_record(old_id, old_ft):
+                _delete_s3_key(key)
+        old_result_key = str(d.get("result_key", "") or "").strip()
+        if old_result_key:
+            _delete_s3_key(old_result_key)
         _delete_s3_key(f"{RESULTS_PREFIX}/{old_id}.json")
 
     index = [
@@ -1072,6 +1122,8 @@ def _add_record(
                 "filing_type": filing_type,
                 "filing_quarter": filing_quarter,
                 "file_ext": ext,
+                "file_key": html_key,
+                "result_key": json_key,
                 "risk_items": int(risk_items),
                 "risk_categories": int(risk_categories),
                 "has_ai_summary": bool(has_ai_summary),
@@ -1083,11 +1135,27 @@ def _add_record(
     sid = uuid.uuid4().hex[:4]
     quarter_token = f"_Q{filing_quarter}" if filing_type == "10-Q" and filing_quarter > 0 else ""
     rid = f"{safe}_{year}_{_sanitize_filing_type(filing_type)}{quarter_token}_{sid}"
-    data_prefix = PDF_PREFIX if ext == "pdf" else HTML_PREFIX
+    if ext == "pdf":
+        data_key = f"{PDF_PREFIX}/{rid}.{ext}"
+        result_key = f"{RESULTS_PREFIX}/{rid}.json"
+    else:
+        if filing_type == "10-Q":
+            data_key = f"{HTML_10Q_PREFIX}/{rid}.{ext}"
+            company_dir = _new_layout_company_dir(company, ticker) or _sanitize_company(company)
+            result_key = _legacy_10q_result_key(
+                industry=industry,
+                company_dir=company_dir,
+                year=year,
+                filing_quarter=filing_quarter,
+                record_id=rid,
+            )
+        else:
+            data_key = f"{_legacy_html_prefix_for_filing_type(filing_type)}/{rid}.{ext}"
+            result_key = f"{RESULTS_PREFIX}/{rid}.json"
 
-    _write_s3_bytes(f"{data_prefix}/{rid}.{ext}", file_bytes)
+    _write_s3_bytes(data_key, file_bytes)
     _write_s3_bytes(
-        f"{RESULTS_PREFIX}/{rid}.json",
+        result_key,
         json.dumps(result_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
     )
 
@@ -1100,6 +1168,8 @@ def _add_record(
         "filing_type": filing_type,
         "filing_quarter": filing_quarter,
         "file_ext": ext,
+        "file_key": data_key,
+        "result_key": result_key,
         "risk_items": int(risk_items),
         "risk_categories": int(risk_categories),
         "has_ai_summary": bool(has_ai_summary),
