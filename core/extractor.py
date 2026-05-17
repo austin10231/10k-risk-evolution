@@ -1,5 +1,5 @@
 """
-Extract Item 1 overview and Item 1A risks from SEC 10-K filings.
+Extract Item 1 overview and Item 1A risks from SEC 10-K / 10-Q filings.
 
 Supports:
   - HTML: BeautifulSoup parsing with bold/italic detection
@@ -8,9 +8,9 @@ Supports:
 Public API:
   HTML path:
     extract_item1_overview(html_bytes, company, industry) -> dict
-    extract_item1a_risks(html_bytes) -> list[dict]
+    extract_item1a_risks(html_bytes, filing_type="10-K") -> list[dict]
     extract_item1_overview_bedrock(html_bytes, company, industry) -> dict
-    extract_item1a_risks_bedrock(html_bytes, company) -> list[dict]
+    extract_item1a_risks_bedrock(html_bytes, company, filing_type="10-K") -> list[dict]
   PDF path:
     extract_text_from_pdf(pdf_bytes) -> str
     extract_item1_overview_from_text(text, company, industry) -> dict
@@ -43,9 +43,20 @@ _ITEM1_START = re.compile(
 _ITEM1A_START = re.compile(
     r"item\s*1\s*a[\.\:\s\u2014\u2013\-]+\s*risk\s+factors", re.IGNORECASE,
 )
+_ITEM1A_START_10Q = re.compile(
+    r"(part\s*ii[\.\,\:\s\u2014\u2013\-]+)?item\s*1\s*a[\.\:\s\u2014\u2013\-]+\s*risk\s+factors",
+    re.IGNORECASE,
+)
 _ITEM1A_END = [
     re.compile(r"item\s*1\s*b[\.\:\s\u2014\u2013\-]", re.IGNORECASE),
     re.compile(r"item\s*2[\.\:\s\u2014\u2013\-]", re.IGNORECASE),
+]
+_ITEM1A_END_10Q = [
+    re.compile(r"item\s*2[\.\:\s\u2014\u2013\-]+\s*unregistered\s+sales", re.IGNORECASE),
+    re.compile(r"item\s*3[\.\:\s\u2014\u2013\-]+\s*defaults?\s+upon\s+senior\s+securities", re.IGNORECASE),
+    re.compile(r"item\s*4[\.\:\s\u2014\u2013\-]+\s*mine\s+safety\s+disclosures", re.IGNORECASE),
+    re.compile(r"item\s*5[\.\:\s\u2014\u2013\-]+\s*other\s+information", re.IGNORECASE),
+    re.compile(r"item\s*6[\.\:\s\u2014\u2013\-]+\s*exhibits", re.IGNORECASE),
 ]
 
 _AI_OVERVIEW_CACHE: dict[str, dict] = {}
@@ -137,6 +148,38 @@ def _category_looks_like_bullet(category: str) -> bool:
     return False
 
 
+def _is_low_quality_risk_blocks(blocks: list[dict]) -> bool:
+    """Quality gate for AI risk blocks.
+
+    Flags outputs that are likely mis-grouped (too few risks or too many
+    generic buckets), so caller can fallback to deterministic extraction.
+    """
+    if not isinstance(blocks, list) or not blocks:
+        return True
+    category_count = 0
+    generic_count = 0
+    sub_risk_count = 0
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        category_count += 1
+        if _is_generic_category_name(block.get("category", "")):
+            generic_count += 1
+        for sr in block.get("sub_risks", []) or []:
+            if isinstance(sr, dict):
+                title = str(sr.get("title", "") or "").strip()
+            else:
+                title = str(sr or "").strip()
+            if title:
+                sub_risk_count += 1
+
+    if sub_risk_count < 3:
+        return True
+    if category_count > 0 and (generic_count / category_count) > 0.7:
+        return True
+    return False
+
+
 def _secret(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or default)
 
@@ -168,9 +211,19 @@ def _clean_text(text: str) -> str:
     return result.strip()
 
 
-def _locate_item1a_range(text: str):
+def _coerce_filing_type(value: str) -> str:
+    txt = str(value or "").strip().upper()
+    if txt in {"10Q", "10-Q"}:
+        return "10-Q"
+    return "10-K"
+
+
+def _locate_item1a_range(text: str, filing_type: str = "10-K"):
     """Find start and end char positions of Item 1A in text. Returns (start, end) or None."""
-    matches_1a = list(_ITEM1A_START.finditer(text))
+    ft = _coerce_filing_type(filing_type)
+    start_re = _ITEM1A_START_10Q if ft == "10-Q" else _ITEM1A_START
+    end_res = _ITEM1A_END_10Q if ft == "10-Q" else _ITEM1A_END
+    matches_1a = list(start_re.finditer(text))
     if not matches_1a:
         return None
 
@@ -184,7 +237,7 @@ def _locate_item1a_range(text: str):
         start_pos = matches_1a[-1].end()
 
     end_pos = len(text)
-    for pat in _ITEM1A_END:
+    for pat in end_res:
         for m in pat.finditer(text):
             if m.start() > start_pos + 500:
                 pre = text[max(0, m.start() - 200):m.start()]
@@ -470,7 +523,7 @@ def _full_text(soup: BeautifulSoup) -> str:
     return soup.get_text(separator="\n")
 
 
-def locate_item1a(html_bytes: bytes) -> str:
+def locate_item1a(html_bytes: bytes, filing_type: str = "10-K") -> str:
     """Locate Item 1A text. Walks edgartools → sec-parser → BS4 in order.
 
     P3 of EXTRACTION_FIX_PLAN.md: each provider that returns a non-empty but
@@ -480,43 +533,44 @@ def locate_item1a(html_bytes: bytes) -> str:
     stopped at <500 chars. Diagnostics on every layer are emitted to stderr
     so operators can see which provider produced what.
     """
+    ft = _coerce_filing_type(filing_type)
     candidates: list[tuple[str, str]] = []  # (provider, cleaned_text)
 
     try:
-        text, _meta = locate_item1a_with_edgartools(html_bytes)
+        text, _meta = locate_item1a_with_edgartools(html_bytes, form=ft)
         cleaned = _clean_text(text) if text else ""
-        print(f"[locate_item1a] edgartools={len(cleaned)} chars", file=sys.stderr)
+        print(f"[locate_item1a] edgartools[{ft}]={len(cleaned)} chars", file=sys.stderr)
         if cleaned:
             candidates.append(("edgartools", cleaned))
             if len(cleaned) >= _ITEM1A_MIN_CHARS:
                 return cleaned
     except SectionNotFound:
-        print("[locate_item1a] edgartools=SectionNotFound", file=sys.stderr)
+        print(f"[locate_item1a] edgartools[{ft}]=SectionNotFound", file=sys.stderr)
     except Exception as exc:
-        print(f"[locate_item1a] edgartools={type(exc).__name__}:{exc}", file=sys.stderr)
+        print(f"[locate_item1a] edgartools[{ft}]={type(exc).__name__}:{exc}", file=sys.stderr)
 
     try:
         text, _meta = locate_item1a_with_sec_parser(html_bytes)
         cleaned = _clean_text(text) if text else ""
-        print(f"[locate_item1a] sec-parser={len(cleaned)} chars", file=sys.stderr)
+        print(f"[locate_item1a] sec-parser[{ft}]={len(cleaned)} chars", file=sys.stderr)
         if cleaned:
             candidates.append(("sec-parser", cleaned))
             if len(cleaned) >= _ITEM1A_MIN_CHARS:
                 return cleaned
     except SectionNotFound:
-        print("[locate_item1a] sec-parser=SectionNotFound", file=sys.stderr)
+        print(f"[locate_item1a] sec-parser[{ft}]=SectionNotFound", file=sys.stderr)
     except Exception as exc:
-        print(f"[locate_item1a] sec-parser={type(exc).__name__}:{exc}", file=sys.stderr)
+        print(f"[locate_item1a] sec-parser[{ft}]={type(exc).__name__}:{exc}", file=sys.stderr)
 
     full = _full_text(_make_soup(html_bytes))
-    rng = _locate_item1a_range(full)
+    rng = _locate_item1a_range(full, ft)
     if rng is None:
-        print("[locate_item1a] bs4=no-range", file=sys.stderr)
+        print(f"[locate_item1a] bs4[{ft}]=no-range", file=sys.stderr)
     else:
         start_pos, end_pos = rng
         cleaned = _clean_text(full[start_pos:end_pos])
         print(
-            f"[locate_item1a] bs4={len(cleaned)} chars (range {start_pos}-{end_pos})",
+            f"[locate_item1a] bs4[{ft}]={len(cleaned)} chars (range {start_pos}-{end_pos})",
             file=sys.stderr,
         )
         if cleaned:
@@ -1190,6 +1244,7 @@ Do not include markdown fences or extra keys."""
 def extract_item1a_risks_bedrock(
     html_bytes: bytes,
     company_name: str = "",
+    filing_type: str = "10-K",
 ) -> list[dict]:
     """
     AI-enhanced Item 1A risk extraction using the Bedrock extraction
@@ -1198,13 +1253,14 @@ def extract_item1a_risks_bedrock(
       [{"category": str, "sub_risks": [str, ...]}, ...]
     Falls back to extract_item1a_risks() on any failure.
     """
-    fallback = extract_item1a_risks(html_bytes)
-    key_raw = html_bytes + f"|{company_name}".encode("utf-8", errors="ignore")
+    ft = _coerce_filing_type(filing_type)
+    fallback = extract_item1a_risks(html_bytes, filing_type=ft)
+    key_raw = html_bytes + f"|{company_name}|{ft}".encode("utf-8", errors="ignore")
     cache_key = hashlib.sha256(key_raw).hexdigest()
     if cache_key in _AI_RISKS_CACHE:
         return copy.deepcopy(_AI_RISKS_CACHE[cache_key])
     try:
-        item1a_text = locate_item1a(html_bytes)
+        item1a_text = locate_item1a(html_bytes, filing_type=ft)
         if not item1a_text or len(item1a_text) < 200:
             _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
             return fallback
@@ -1248,7 +1304,7 @@ def extract_item1a_risks_bedrock(
 
         all_cleaned: list[dict] = []
         for chunk_index, item1a_chunk in enumerate(item1a_chunks, start=1):
-            prompt = f"""You are an expert SEC 10-K parser.
+            prompt = f"""You are an expert SEC {ft} risk-factor parser.
 
 Extract risk factors from Item 1A text and organize them into category blocks.
 Use exact wording from source risk statements whenever possible.
@@ -1260,7 +1316,7 @@ Input text (Item 1A):
 \"\"\"{item1a_chunk}\"\"\"
 
 Categorization rules:
-- 10-K Item 1A typically contains 3-8 distinct risk categories. Use the SOURCE TEXT's
+- Use the SOURCE TEXT's
   own subheadings (e.g., "Macroeconomic and Industry Risks", "Business Risks",
   "Legal and Regulatory Compliance Risks", "Financial Risks", "General Risks") as
   category names whenever the source provides them.
@@ -1274,7 +1330,7 @@ Categorization rules:
 - Category names should be 2-6 words, capitalized as titles.
 
 Bullet-list handling (CRITICAL):
-- 10-K filings frequently introduce a parent risk like "Our results may be
+- SEC filings often introduce a parent risk like "Our results may be
   adversely affected by:" followed by a bulleted enumeration of contributing
   factors (lines starting with •, ‣, –, *, "(i)", "(ii)", "(a)", etc.).
 - Treat the bullets as a continuation of the parent risk. KEEP the parent
@@ -1313,10 +1369,13 @@ Output rules:
         merged = _resplit_single_bucket_with_llm(merged)
         merged = _consolidate_small_generic_blocks(merged)
         if merged:
+            if _is_low_quality_risk_blocks(merged):
+                _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
+                return fallback
             ai_cnt = _count_risk_items(merged)
             ev_ratio = _evidence_ratio(merged, item1a_text)
 
-            if ai_cnt >= 1 and ev_ratio >= 0.4:
+            if ai_cnt >= 1 and ev_ratio >= 0.5:
                 _AI_RISKS_CACHE[cache_key] = copy.deepcopy(merged)
                 return merged
     except Exception as exc:
@@ -1325,18 +1384,19 @@ Output rules:
     return fallback
 
 
-def extract_item1a_risks(html_bytes: bytes) -> list[dict]:
+def extract_item1a_risks(html_bytes: bytes, filing_type: str = "10-K") -> list[dict]:
     """Extract Item 1A risks from HTML using bold/italic tag detection."""
+    ft = _coerce_filing_type(filing_type)
     soup = _make_soup(html_bytes)
     full = _full_text(soup)
 
-    section_text = locate_item1a(html_bytes)
+    section_text = locate_item1a(html_bytes, filing_type=ft)
     if section_text:
         section_risks = _extract_risks_from_item1a_text(section_text)
         if section_risks:
             return section_risks
 
-    rng = _locate_item1a_range(full)
+    rng = _locate_item1a_range(full, ft)
     if rng is None:
         return []
 

@@ -35,8 +35,8 @@ def _normalize_heading(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value).strip()
 
 
-@lru_cache(maxsize=8)
-def _parse_with_edgartools(html_text: str):
+@lru_cache(maxsize=16)
+def _parse_with_edgartools(html_text: str, form: str = "10-K"):
     try:
         from edgar.documents import ParserConfig, parse_html
     except Exception as exc:
@@ -45,7 +45,7 @@ def _parse_with_edgartools(html_text: str):
     try:
         config = ParserConfig(
             detect_sections=True,
-            form="10-K",
+            form=str(form or "10-K"),
             table_extraction=False,
             detect_table_types=False,
             extract_table_relationships=False,
@@ -86,9 +86,14 @@ def _parse_with_sec_parser(html_text: str) -> tuple[tuple[str, str], ...]:
     return tuple(rows)
 
 
-def _get_edgar_section(html_bytes: bytes, section_keys: tuple[str, ...]) -> tuple[str, dict[str, Any]]:
+def _get_edgar_section(
+    html_bytes: bytes,
+    section_keys: tuple[str, ...],
+    *,
+    form: str = "10-K",
+) -> tuple[str, dict[str, Any]]:
     html_text = _decode_html(html_bytes)
-    doc = _parse_with_edgartools(html_text)
+    doc = _parse_with_edgartools(html_text, str(form or "10-K"))
     available = []
     try:
         available = list(doc.get_available_sec_sections() or [])
@@ -107,20 +112,35 @@ def _get_edgar_section(html_bytes: bytes, section_keys: tuple[str, ...]) -> tupl
                 info = dict(doc.get_sec_section_info(key) or {})
             except Exception:
                 info = {}
-            info.update({"source": "edgartools", "section_key": key, "available_sections": available})
+            info.update(
+                {
+                    "source": "edgartools",
+                    "section_key": key,
+                    "available_sections": available,
+                    "form": str(form or "10-K"),
+                }
+            )
             return text, info
 
     raise SectionNotFound(f"Section not found via edgartools. Available sections: {available[:20]}")
 
 
-def locate_item1a_with_edgartools(html_bytes: bytes) -> tuple[str, dict[str, Any]]:
+def locate_item1a_with_edgartools(html_bytes: bytes, form: str = "10-K") -> tuple[str, dict[str, Any]]:
+    ft = str(form or "10-K").strip().upper() or "10-K"
+    keys_10q = (
+        "part_ii_item_1a",
+        "item_1a",
+        "item1a",
+    )
+    keys_10k = (
+        "part_i_item_1a",
+        "item_1a",
+        "item1a",
+    )
     return _get_edgar_section(
         html_bytes,
-        (
-            "part_i_item_1a",
-            "item_1a",
-            "item1a",
-        ),
+        keys_10q if ft == "10-Q" else keys_10k,
+        form=ft,
     )
 
 

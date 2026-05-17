@@ -294,7 +294,7 @@ export default function UploadPage() {
   }, [records])
 
   const recordFilingTypes = useMemo(() => {
-    const set = new Set()
+    const set = new Set(['10-K', '10-Q'])
     records.forEach((r) => {
       const value = String(r?.filing_type || '10-K').trim() || '10-K'
       set.add(value)
