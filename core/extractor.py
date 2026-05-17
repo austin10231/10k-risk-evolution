@@ -174,6 +174,12 @@ def _is_low_quality_risk_blocks(blocks: list[dict], filing_type: str = "10-K") -
                 sub_risk_count += 1
 
     ft = _coerce_filing_type(filing_type)
+    # "Single-bucket collapse" is a common bad extraction mode for 10-Q:
+    # dozens of risks are grouped under one broad heading (often legal/regulatory).
+    # Keep tiny filings permissive, but reject dense one-bucket outputs.
+    if category_count == 1 and sub_risk_count >= (8 if ft == "10-Q" else 12):
+        return True
+
     # 10-Q Item 1A is usually shorter than 10-K; use a looser floor.
     min_sub_risks = 2 if ft == "10-Q" else 3
     if sub_risk_count < min_sub_risks:
@@ -1381,11 +1387,17 @@ Output rules:
             min_ev_ratio = 0.35 if ft == "10-Q" else 0.5
             low_quality = _is_low_quality_risk_blocks(merged, ft)
 
-            # If AI extraction is materially richer than fallback, keep it
-            # even when quality heuristics are conservative.
-            if low_quality and ai_cnt < max(4, fb_cnt):
-                _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
-                return fallback
+            if low_quality:
+                # Guardrail: never keep a dense single-bucket collapse for
+                # 10-Q/10-K when deterministic fallback has at least one risk.
+                if len(merged) <= 1 and fb_cnt >= 1:
+                    _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
+                    return fallback
+                # Otherwise, keep richer AI output only when not materially
+                # weaker than fallback.
+                if ai_cnt < max(4, fb_cnt):
+                    _AI_RISKS_CACHE[cache_key] = copy.deepcopy(fallback)
+                    return fallback
 
             if ai_cnt >= 1 and ev_ratio >= min_ev_ratio:
                 _AI_RISKS_CACHE[cache_key] = copy.deepcopy(merged)
