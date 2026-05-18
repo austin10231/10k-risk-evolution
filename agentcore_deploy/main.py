@@ -1917,6 +1917,65 @@ def _manual_extract_result(
             return True
         return False
 
+    def _dashboard_mix_is_narrow(blocks: Any) -> bool:
+        """Return True when extracted risks collapse into a narrow bucket mix.
+
+        This catches the common 10-Q failure mode where most risks are
+        technically valid but all map into one dashboard category
+        (especially Legal & Regulatory), which does not represent
+        full-filing risk coverage expected by the product.
+        """
+        try:
+            flat = _extract_sub_risks({"risks": blocks}) if isinstance(blocks, list) else []
+        except Exception:
+            flat = []
+        total = len(flat)
+        if total <= 0:
+            return True
+        counts: Dict[str, int] = {}
+        for item in flat:
+            if not isinstance(item, dict):
+                continue
+            bucket = str(item.get("dashboard_category", "") or item.get("category", "") or "").strip() or "General & Other"
+            counts[bucket] = counts.get(bucket, 0) + 1
+        if not counts:
+            return True
+        unique = len(counts)
+        top_bucket, top_count = max(counts.items(), key=lambda kv: kv[1])
+        top_share = float(top_count) / float(total or 1)
+        if total >= 6 and unique <= 1:
+            return True
+        if total >= 6 and top_bucket == "Legal & Regulatory" and top_share >= 0.80:
+            return True
+        return False
+
+    def _load_10k_baseline_risks() -> tuple[Optional[list], int]:
+        if download_10k_html_for_company_year is None:
+            return None, 0
+        for fallback_year in [yy, yy - 1]:
+            if fallback_year <= 0:
+                continue
+            try:
+                k_html, _k_meta, _k_err = download_10k_html_for_company_year(company_name, fallback_year, tkr)
+            except Exception:
+                k_html = None
+            if not k_html:
+                continue
+            try:
+                k_risks = extract_item1a_risks_bedrock(k_html, company_name, "10-K")
+            except Exception:
+                k_risks = None
+            if not isinstance(k_risks, list):
+                continue
+            if _count_sub_risks(k_risks) < 8:
+                continue
+            if _dashboard_mix_is_narrow(k_risks):
+                # Guardrail: 10-K baseline should provide broad category
+                # coverage. If not, keep searching.
+                continue
+            return k_risks, int(fallback_year)
+        return None, 0
+
     try:
         if is_pdf:
             pdf_text = extract_text_from_pdf(file_bytes)
@@ -1935,29 +1994,24 @@ def _manual_extract_result(
     if not risks:
         return None, "Could not extract risks from Item 1A."
 
-    # 10-Q stabilization: when Item 1A is sparse/generic, enrich with
-    # baseline 10-K risks (same year first, then previous year).
-    if ft == "10-Q" and _is_sparse_or_generic_10q(risks) and download_10k_html_for_company_year is not None:
-        for fallback_year in [yy, yy - 1]:
-            if fallback_year <= 0:
-                continue
-            try:
-                k_html, k_meta, _k_err = download_10k_html_for_company_year(company_name, fallback_year, tkr)
-            except Exception:
-                k_html, k_meta = None, None
-            if not k_html:
-                continue
-            try:
-                k_risks = extract_item1a_risks_bedrock(k_html, company_name, "10-K")
-            except Exception:
-                k_risks = None
-            if isinstance(k_risks, list) and _count_sub_risks(k_risks) >= 8:
-                risks = k_risks
-                # Keep 10-Q overview, but disclose risk source provenance.
+    # 10-Q stabilization:
+    # 1) sparse/generic Item 1A
+    # 2) narrow dashboard mix (e.g., all-Legal collapse)
+    # both should fallback to a broad 10-K baseline.
+    if ft == "10-Q":
+        sparse_or_generic = _is_sparse_or_generic_10q(risks)
+        narrow_mix = _dashboard_mix_is_narrow(risks)
+        if sparse_or_generic or narrow_mix:
+            baseline_risks, baseline_year = _load_10k_baseline_risks()
+            if isinstance(baseline_risks, list):
+                risks = baseline_risks
                 if isinstance(overview, dict):
-                    overview["risk_source"] = "10-K_baseline_for_sparse_10-Q"
-                    overview["risk_source_year"] = int(fallback_year)
-                break
+                    overview["risk_source"] = (
+                        "10-K_baseline_for_sparse_10-Q"
+                        if sparse_or_generic
+                        else "10-K_baseline_for_narrow_10-Q_category_mix"
+                    )
+                    overview["risk_source_year"] = int(baseline_year)
 
     if isinstance(risks, list):
         risks = _annotate_dashboard_category(risks)

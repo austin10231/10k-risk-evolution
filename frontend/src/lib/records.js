@@ -74,7 +74,12 @@ export function groupedRiskTitles(result) {
     subs.forEach((sub) => {
       const title = String(typeof sub === 'string' ? sub : sub?.title || '').trim()
       if (!title) return
-      const category = pickCategory(categoryRaw, typeof sub === 'object' ? sub : null)
+      // Details panels should reflect extractor/source categories so the
+      // displayed grouping stays consistent with `riskCategoryCount(result)`.
+      // Dashboard bucket mapping is still available via flattenRisks().
+      const category = String(
+        (typeof sub === 'object' ? sub?.original_category : '') || categoryRaw || 'Unknown',
+      ).trim() || 'Unknown'
       if (!grouped.has(category)) grouped.set(category, [])
       grouped.get(category).push(title)
     })
