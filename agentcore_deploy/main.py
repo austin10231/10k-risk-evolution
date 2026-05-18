@@ -243,6 +243,7 @@ def _extract_10q_incremental_update(item1a_text: str) -> dict:
         "has_incremental_updates": False,
         "trigger_phrase": "",
         "incremental_risk_items": [],
+        "incremental_risk_themes": [],
         "incremental_count": 0,
         "source_excerpt": "",
     }
@@ -317,9 +318,78 @@ def _extract_10q_incremental_update(item1a_text: str) -> dict:
         deduped.append(item)
 
     if deduped:
-        out["has_incremental_updates"] = True
-        out["incremental_risk_items"] = deduped[:30]
-        out["incremental_count"] = len(out["incremental_risk_items"])
+        theme_specs = [
+            (
+                "antitrust_litigation",
+                "Antitrust / Litigation",
+                re.compile(r"\b(antitrust|doj|litigation|lawsuit|investigation|enforcement|penalt(?:y|ies))\b", re.IGNORECASE),
+                "Antitrust and related litigation/investigation exposures may lead to penalties, remedies, or required business-practice changes.",
+            ),
+            (
+                "dma_appstore_terms",
+                "DMA / App Store Terms",
+                re.compile(r"\b(dma|app store|business terms|fee structure|steering|payment processing|search services|default search)\b", re.IGNORECASE),
+                "DMA- and App Store-business-term changes may increase cost burden and constrain product, pricing, or go-to-market choices.",
+            ),
+            (
+                "regulatory_compliance",
+                "Regulatory / Compliance",
+                re.compile(r"\b(regulation|regulatory|compliance|laws|executive orders|directives)\b", re.IGNORECASE),
+                "New and changing laws/regulations may increase compliance burden and create enforcement and interpretation uncertainty.",
+            ),
+            (
+                "technology_platform",
+                "Technology / Platform",
+                re.compile(r"\b(technology|ios|ipados|safari|api|ai|artificial intelligence|machine learning|platform)\b", re.IGNORECASE),
+                "Technology and platform-policy changes may require product or architecture adjustments and could affect adoption.",
+            ),
+        ]
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for u in deduped:
+            chosen = None
+            for key, label, pat, summary in theme_specs:
+                if pat.search(u):
+                    chosen = (key, label, summary)
+                    break
+            if chosen is None:
+                chosen = ("other_incremental", "Other Incremental Updates", "Incremental updates may introduce additional compliance, commercial, or operational pressure.")
+            key, label, summary = chosen
+            bucket = grouped.get(key)
+            if not bucket:
+                bucket = {"key": key, "label": label, "summary": summary, "examples": [], "count": 0}
+                grouped[key] = bucket
+            bucket["count"] += 1
+            if len(bucket["examples"]) < 2:
+                bucket["examples"].append(u)
+
+        # Keep 2-3 structured themes (closest to sub-risk granularity).
+        ordered = sorted(grouped.values(), key=lambda x: (-int(x.get("count", 0) or 0), str(x.get("key", ""))))
+        top = ordered[:3]
+        items: List[str] = []
+        themes_payload: List[dict] = []
+        for t in top:
+            summary = str(t.get("summary", "") or "").strip()
+            examples = t.get("examples", []) if isinstance(t.get("examples"), list) else []
+            example_snippet = ""
+            if examples:
+                sample = re.sub(r"\s+", " ", str(examples[0] or "").strip())
+                if len(sample) > 140:
+                    sample = sample[:140].rstrip(" ,;:.") + "..."
+                example_snippet = f" Example: {sample}"
+            items.append((summary + example_snippet).strip())
+            themes_payload.append(
+                {
+                    "theme_key": str(t.get("key", "") or ""),
+                    "theme_label": str(t.get("label", "") or ""),
+                    "count": int(t.get("count", 0) or 0),
+                    "examples": [str(x) for x in examples],
+                }
+            )
+
+        out["has_incremental_updates"] = bool(items)
+        out["incremental_risk_items"] = items
+        out["incremental_risk_themes"] = themes_payload
+        out["incremental_count"] = len(items)
     out["source_excerpt"] = tail[:1200]
     return out
 
@@ -1724,6 +1794,12 @@ def _resolve_dashboard_bucket(
     if pre_dashboard in FIXED_RISK_CATEGORIES:
         return pre_dashboard
 
+    # Hard legal precedence for explicit antitrust/litigation language.
+    # This prevents accidental drift into Operations/Strategy buckets.
+    legal_hard = f"{original_category} {title} {' '.join(labels or [])}".lower()
+    if any(k in legal_hard for k in ("antitrust", "doj", "lawsuit", "litigation", "legal action", "investigation")):
+        return "Legal & Regulatory"
+
     heading_bucket = _bucket_from_source_heading(original_category)
     mapped, score = _normalize_risk_category(original_category, title, labels)
 
@@ -2101,6 +2177,9 @@ def _manual_extract_result(
         low = str(title or "").strip().lower()
         if not low:
             return ""
+        # Never move explicit antitrust/litigation risks away from Legal.
+        if any(k in low for k in ("antitrust", "doj", "lawsuit", "litigation", "legal action", "investigation")):
+            return "Legal & Regulatory"
         # App Store / business-terms / partner relationships are primarily
         # market-strategy risks even when discussed in legal contexts.
         if any(k in low for k in (
@@ -2141,6 +2220,51 @@ def _manual_extract_result(
                     sr["dashboard_category"] = hint
         return blocks
 
+    def _dedupe_incremental_with_risks(incremental_info: dict, blocks: list) -> dict:
+        if not isinstance(incremental_info, dict):
+            return incremental_info
+        items = incremental_info.get("incremental_risk_items", [])
+        if not isinstance(items, list) or not items:
+            return incremental_info
+
+        risk_titles: List[str] = []
+        for b in blocks if isinstance(blocks, list) else []:
+            if not isinstance(b, dict):
+                continue
+            for sr in b.get("sub_risks", []) or []:
+                if isinstance(sr, dict):
+                    t = str(sr.get("title", "") or "").strip()
+                else:
+                    t = str(sr or "").strip()
+                if t:
+                    risk_titles.append(t)
+
+        risk_norm = [re.sub(r"\s+", " ", t.lower()) for t in risk_titles]
+        kept: List[str] = []
+        for item in items:
+            text = str(item or "").strip()
+            if not text:
+                continue
+            norm = re.sub(r"\s+", " ", text.lower())
+            # Remove near-verbatim duplicate phrasing already present in risks.
+            if any(norm == rt or norm in rt or rt in norm for rt in risk_norm):
+                continue
+            kept.append(text)
+
+        out = dict(incremental_info)
+        if kept:
+            out["incremental_risk_items"] = kept
+            out["incremental_count"] = len(kept)
+            out["has_incremental_updates"] = True
+        else:
+            # Keep one compact summary so front-end still signals incremental
+            # context without dumping redundant lines.
+            fallback_summary = "Incremental updates detected in Item 1A; details overlap with extracted risk factors."
+            out["incremental_risk_items"] = [fallback_summary]
+            out["incremental_count"] = 1
+            out["has_incremental_updates"] = True
+        return out
+
     try:
         item1a_raw_text = ""
         if is_pdf:
@@ -2174,12 +2298,17 @@ def _manual_extract_result(
         risks = _annotate_dashboard_category(risks)
         if ft == "10-Q" and isinstance(incremental_update, dict):
             risks = _rebalance_10q_legal_collapse(risks, incremental_update)
+            incremental_update = _dedupe_incremental_with_risks(incremental_update, risks)
 
     overview = dict(overview or {})
     overview["year"] = yy
-    overview["filing_type"] = ft
+    overview["filing_type"] = str(overview.get("filing_type") or ft)
     overview["company"] = overview.get("company") or company_name
     overview["industry"] = overview.get("industry") or industry_name
+    overview["risk_source"] = str(
+        overview.get("risk_source")
+        or ("10-Q_item1a_extracted" if ft == "10-Q" else "10-K_item1a_extracted")
+    )
 
     result_payload = {"company_overview": overview, "risks": risks}
     if ft == "10-Q":
