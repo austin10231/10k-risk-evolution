@@ -2069,45 +2069,6 @@ def _manual_extract_result(
             return True
         return False
 
-    def _load_10k_baseline_risks() -> tuple[Optional[list], int]:
-        if download_10k_html_for_company_year is None:
-            return None, 0
-        for fallback_year in [yy, yy - 1]:
-            if fallback_year <= 0:
-                continue
-            try:
-                k_html, _k_meta, _k_err = download_10k_html_for_company_year(company_name, fallback_year, tkr)
-            except Exception:
-                k_html = None
-            if not k_html:
-                continue
-            try:
-                k_risks = extract_item1a_risks_bedrock(k_html, company_name, "10-K")
-            except Exception:
-                k_risks = None
-            if not isinstance(k_risks, list):
-                continue
-            if _count_sub_risks(k_risks) < 8:
-                continue
-            return k_risks, int(fallback_year)
-        return None, 0
-
-    def _normalized_title_key(value: Any) -> str:
-        return re.sub(r"\s+", " ", str(value or "").strip().lower())
-
-    def _block_titles(block: Any) -> List[str]:
-        out: List[str] = []
-        if not isinstance(block, dict):
-            return out
-        for sr in block.get("sub_risks", []) or []:
-            if isinstance(sr, dict):
-                t = str(sr.get("title", "") or "").strip()
-            else:
-                t = str(sr or "").strip()
-            if t:
-                out.append(t)
-        return out
-
     def _dashboard_distribution(blocks: Any) -> tuple[int, Dict[str, int]]:
         try:
             flat = _extract_sub_risks({"risks": blocks}) if isinstance(blocks, list) else []
@@ -2121,7 +2082,7 @@ def _manual_extract_result(
             counts[b] = counts.get(b, 0) + 1
         return len(flat), counts
 
-    def _should_blend_with_10k_baseline(blocks: Any, incremental_info: Any) -> bool:
+    def _is_legal_collapsed_10q(blocks: Any, incremental_info: Any) -> bool:
         if not isinstance(incremental_info, dict) or not incremental_info.get("has_incremental_updates"):
             return False
         total, counts = _dashboard_distribution(blocks)
@@ -2136,49 +2097,49 @@ def _manual_extract_result(
             return True
         return False
 
-    def _merge_baseline_and_incremental(baseline: list, current: list) -> list:
-        if not isinstance(baseline, list) or not baseline:
-            return current if isinstance(current, list) else []
-        merged: List[dict] = []
-        cat_pos: Dict[str, int] = {}
-        seen_titles: Set[str] = set()
+    def _delta_bucket_hint(title: str) -> str:
+        low = str(title or "").strip().lower()
+        if not low:
+            return ""
+        # App Store / business-terms / partner relationships are primarily
+        # market-strategy risks even when discussed in legal contexts.
+        if any(k in low for k in (
+            "app store", "business terms", "fee structure", "distribution",
+            "payment processing", "commercial relationship", "business partner",
+            "search services", "default search", "customer demand",
+        )):
+            return "Strategy & Market"
+        # Platform and developer-surface changes are product/technology risks.
+        if any(k in low for k in (
+            "ios", "ipados", "safari", "api", "developer", "operating system",
+            "technology", "machine learning", "artificial intelligence",
+        )):
+            return "Technology & Cybersecurity"
+        # Supply/ops style phrasing.
+        if any(k in low for k in ("supply chain", "operations", "distribution channel", "reseller")):
+            return "Operations & Supply Chain"
+        return ""
 
-        def _append_block(cat: str, titles: List[str]) -> None:
-            if not titles:
-                return
-            c = str(cat or "Risk Factors").strip() or "Risk Factors"
-            ck = _normalized_title_key(c)
-            if ck in cat_pos:
-                idx = cat_pos[ck]
-                target = merged[idx].setdefault("sub_risks", [])
-                for t in titles:
-                    k = _normalized_title_key(t)
-                    if k and k not in seen_titles:
-                        target.append(t)
-                        seen_titles.add(k)
-                return
-            deduped: List[str] = []
-            for t in titles:
-                k = _normalized_title_key(t)
-                if k and k not in seen_titles:
-                    deduped.append(t)
-                    seen_titles.add(k)
-            if not deduped:
-                return
-            cat_pos[ck] = len(merged)
-            merged.append({"category": c, "sub_risks": deduped})
-
-        for b in baseline:
-            if not isinstance(b, dict):
+    def _rebalance_10q_legal_collapse(blocks: list, incremental_info: dict) -> list:
+        if not isinstance(blocks, list):
+            return blocks
+        if not _is_legal_collapsed_10q(blocks, incremental_info):
+            return blocks
+        # Re-map titles with strong 10-Q delta cues away from Legal bucket.
+        for block in blocks:
+            if not isinstance(block, dict):
                 continue
-            _append_block(str(b.get("category", "") or "Risk Factors"), _block_titles(b))
-
-        # Add only true 10-Q deltas that are not already in baseline.
-        for b in current if isinstance(current, list) else []:
-            if not isinstance(b, dict):
-                continue
-            _append_block(str(b.get("category", "") or "Risk Factors"), _block_titles(b))
-        return merged
+            for sr in block.get("sub_risks", []) or []:
+                if not isinstance(sr, dict):
+                    continue
+                current_bucket = str(sr.get("dashboard_category", "") or "").strip()
+                if current_bucket != "Legal & Regulatory":
+                    continue
+                title = str(sr.get("title", "") or "").strip()
+                hint = _delta_bucket_hint(title)
+                if hint in FIXED_RISK_CATEGORIES and hint != "Legal & Regulatory":
+                    sr["dashboard_category"] = hint
+        return blocks
 
     try:
         item1a_raw_text = ""
@@ -2205,34 +2166,14 @@ def _manual_extract_result(
     if not risks:
         return None, "Could not extract risks from Item 1A."
 
-    # 10-Q stabilization: keep existing behavior unchanged —
-    # only sparse/generic Item 1A falls back to 10-K baseline.
-    if ft == "10-Q":
-        sparse_or_generic = _is_sparse_or_generic_10q(risks)
-        if sparse_or_generic:
-            baseline_risks, baseline_year = _load_10k_baseline_risks()
-            if isinstance(baseline_risks, list):
-                risks = baseline_risks
-                if isinstance(overview, dict):
-                    overview["risk_source"] = "10-K_baseline_for_sparse_10-Q"
-                    overview["risk_source_year"] = int(baseline_year)
-
     incremental_update = {}
     if ft == "10-Q":
         incremental_update = _extract_10q_incremental_update(item1a_raw_text)
-        # If 10-Q contains explicit incremental updates but extracted risk mix
-        # collapses into mostly one bucket (typically Legal), compose final
-        # risks as: broad 10-K baseline + 10-Q incremental deltas.
-        if _should_blend_with_10k_baseline(risks, incremental_update):
-            baseline_risks, baseline_year = _load_10k_baseline_risks()
-            if isinstance(baseline_risks, list) and baseline_risks:
-                risks = _merge_baseline_and_incremental(baseline_risks, risks if isinstance(risks, list) else [])
-                if isinstance(overview, dict):
-                    overview["risk_source"] = "10-K_baseline_plus_10-Q_incremental"
-                    overview["risk_source_year"] = int(baseline_year)
 
     if isinstance(risks, list):
         risks = _annotate_dashboard_category(risks)
+        if ft == "10-Q" and isinstance(incremental_update, dict):
+            risks = _rebalance_10q_legal_collapse(risks, incremental_update)
 
     overview = dict(overview or {})
     overview["year"] = yy
