@@ -2092,6 +2092,94 @@ def _manual_extract_result(
             return k_risks, int(fallback_year)
         return None, 0
 
+    def _normalized_title_key(value: Any) -> str:
+        return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+    def _block_titles(block: Any) -> List[str]:
+        out: List[str] = []
+        if not isinstance(block, dict):
+            return out
+        for sr in block.get("sub_risks", []) or []:
+            if isinstance(sr, dict):
+                t = str(sr.get("title", "") or "").strip()
+            else:
+                t = str(sr or "").strip()
+            if t:
+                out.append(t)
+        return out
+
+    def _dashboard_distribution(blocks: Any) -> tuple[int, Dict[str, int]]:
+        try:
+            flat = _extract_sub_risks({"risks": blocks}) if isinstance(blocks, list) else []
+        except Exception:
+            flat = []
+        counts: Dict[str, int] = {}
+        for item in flat:
+            if not isinstance(item, dict):
+                continue
+            b = str(item.get("dashboard_category", "") or item.get("category", "") or "").strip() or "General & Other"
+            counts[b] = counts.get(b, 0) + 1
+        return len(flat), counts
+
+    def _should_blend_with_10k_baseline(blocks: Any, incremental_info: Any) -> bool:
+        if not isinstance(incremental_info, dict) or not incremental_info.get("has_incremental_updates"):
+            return False
+        total, counts = _dashboard_distribution(blocks)
+        if total < 6 or not counts:
+            return False
+        uniq = len(counts)
+        top_bucket, top_count = max(counts.items(), key=lambda kv: kv[1])
+        top_share = float(top_count) / float(total or 1)
+        if uniq <= 1:
+            return True
+        if top_bucket == "Legal & Regulatory" and top_share >= 0.75:
+            return True
+        return False
+
+    def _merge_baseline_and_incremental(baseline: list, current: list) -> list:
+        if not isinstance(baseline, list) or not baseline:
+            return current if isinstance(current, list) else []
+        merged: List[dict] = []
+        cat_pos: Dict[str, int] = {}
+        seen_titles: Set[str] = set()
+
+        def _append_block(cat: str, titles: List[str]) -> None:
+            if not titles:
+                return
+            c = str(cat or "Risk Factors").strip() or "Risk Factors"
+            ck = _normalized_title_key(c)
+            if ck in cat_pos:
+                idx = cat_pos[ck]
+                target = merged[idx].setdefault("sub_risks", [])
+                for t in titles:
+                    k = _normalized_title_key(t)
+                    if k and k not in seen_titles:
+                        target.append(t)
+                        seen_titles.add(k)
+                return
+            deduped: List[str] = []
+            for t in titles:
+                k = _normalized_title_key(t)
+                if k and k not in seen_titles:
+                    deduped.append(t)
+                    seen_titles.add(k)
+            if not deduped:
+                return
+            cat_pos[ck] = len(merged)
+            merged.append({"category": c, "sub_risks": deduped})
+
+        for b in baseline:
+            if not isinstance(b, dict):
+                continue
+            _append_block(str(b.get("category", "") or "Risk Factors"), _block_titles(b))
+
+        # Add only true 10-Q deltas that are not already in baseline.
+        for b in current if isinstance(current, list) else []:
+            if not isinstance(b, dict):
+                continue
+            _append_block(str(b.get("category", "") or "Risk Factors"), _block_titles(b))
+        return merged
+
     try:
         item1a_raw_text = ""
         if is_pdf:
@@ -2129,12 +2217,22 @@ def _manual_extract_result(
                     overview["risk_source"] = "10-K_baseline_for_sparse_10-Q"
                     overview["risk_source_year"] = int(baseline_year)
 
-    if isinstance(risks, list):
-        risks = _annotate_dashboard_category(risks)
-
     incremental_update = {}
     if ft == "10-Q":
         incremental_update = _extract_10q_incremental_update(item1a_raw_text)
+        # If 10-Q contains explicit incremental updates but extracted risk mix
+        # collapses into mostly one bucket (typically Legal), compose final
+        # risks as: broad 10-K baseline + 10-Q incremental deltas.
+        if _should_blend_with_10k_baseline(risks, incremental_update):
+            baseline_risks, baseline_year = _load_10k_baseline_risks()
+            if isinstance(baseline_risks, list) and baseline_risks:
+                risks = _merge_baseline_and_incremental(baseline_risks, risks if isinstance(risks, list) else [])
+                if isinstance(overview, dict):
+                    overview["risk_source"] = "10-K_baseline_plus_10-Q_incremental"
+                    overview["risk_source_year"] = int(baseline_year)
+
+    if isinstance(risks, list):
+        risks = _annotate_dashboard_category(risks)
 
     overview = dict(overview or {})
     overview["year"] = yy
