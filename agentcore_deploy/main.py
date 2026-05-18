@@ -38,6 +38,7 @@ try:
         extract_item1_overview_from_text,
         extract_item1a_risks_from_text,
         extract_text_from_pdf,
+        locate_item1a,
     )
 except Exception:
     extract_item1_overview_bedrock = None
@@ -45,6 +46,7 @@ except Exception:
     extract_item1_overview_from_text = None
     extract_item1a_risks_from_text = None
     extract_text_from_pdf = None
+    locate_item1a = None
 
 try:
     from core.sec_edgar import (
@@ -223,6 +225,103 @@ def _infer_filing_quarter(sec_meta: Any, filing_type: Any) -> int:
         if len(parts) >= 2 and parts[1].isdigit():
             return _month_to_quarter(int(parts[1]))
     return 0
+
+
+def _extract_10q_incremental_update(item1a_text: str) -> dict:
+    """Parse 10-Q Item 1A and extract incremental risk updates (if any).
+
+    Many 10-Q filings use wording like "Except as set forth below, there
+    have been no material changes..." and then list only newly added or
+    changed risks. This helper extracts that delta slice without changing
+    the primary `risks` structure.
+    """
+    raw = str(item1a_text or "").replace("\xa0", " ")
+    norm = re.sub(r"[ \t]+", " ", raw)
+    norm = re.sub(r"\n{3,}", "\n\n", norm).strip()
+    out = {
+        "detected": False,
+        "has_incremental_updates": False,
+        "trigger_phrase": "",
+        "incremental_risk_items": [],
+        "incremental_count": 0,
+        "source_excerpt": "",
+    }
+    if len(norm) < 120:
+        return out
+
+    trigger_patterns = [
+        re.compile(r"except as set forth below", re.IGNORECASE),
+        re.compile(r"except as discussed below", re.IGNORECASE),
+        re.compile(r"except as (?:described|noted) below", re.IGNORECASE),
+        re.compile(r"there have been no material changes?[^.:\n]{0,240}risk factors?", re.IGNORECASE),
+    ]
+
+    trigger_match = None
+    for pat in trigger_patterns:
+        m = pat.search(norm)
+        if m and (trigger_match is None or m.start() < trigger_match.start()):
+            trigger_match = m
+    if not trigger_match:
+        return out
+
+    out["detected"] = True
+    out["trigger_phrase"] = str(trigger_match.group(0) or "").strip()
+    tail = norm[trigger_match.end():].strip()
+    if not tail:
+        return out
+
+    # Trim at next item heading if present.
+    end_m = re.search(r"(?im)^\s*item\s*1b\b|^\s*item\s*2\b", tail)
+    if end_m:
+        tail = tail[: end_m.start()].strip()
+    if not tail:
+        return out
+
+    # Candidate slices: paragraphs first; if too coarse, split by sentences.
+    para_candidates = [p.strip(" -•\n\t") for p in re.split(r"\n{2,}", tail) if p and p.strip()]
+    units: List[str] = []
+    risk_cue = re.compile(
+        r"\b(risk|risks|regulation|regulatory|compliance|antitrust|litigation|lawsuit|"
+        r"investigation|competition|contract|agreement|dependency|enforcement|penalt(?:y|ies)|"
+        r"dma|doj|search)\b",
+        re.IGNORECASE,
+    )
+
+    for para in para_candidates:
+        p = re.sub(r"\s+", " ", para).strip()
+        if len(p) < 50:
+            continue
+        # Skip header/disclaimer phrases.
+        if re.search(r"no material changes?", p, re.IGNORECASE):
+            continue
+        if len(p) <= 420:
+            if risk_cue.search(p):
+                units.append(p)
+            continue
+        # Split very long paragraphs into sentence-like units.
+        for sent in re.split(r"(?<=[\.;])\s+(?=[A-Z])", p):
+            s = re.sub(r"\s+", " ", sent).strip(" -•\t\n")
+            if len(s) < 60 or len(s) > 520:
+                continue
+            if risk_cue.search(s):
+                units.append(s)
+
+    # Dedupe while preserving order.
+    seen: Set[str] = set()
+    deduped: List[str] = []
+    for item in units:
+        k = re.sub(r"\s+", " ", str(item or "").strip().lower())
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        deduped.append(item)
+
+    if deduped:
+        out["has_incremental_updates"] = True
+        out["incremental_risk_items"] = deduped[:30]
+        out["incremental_count"] = len(out["incremental_risk_items"])
+    out["source_excerpt"] = tail[:1200]
+    return out
 
 
 def _bucket() -> str:
@@ -1977,17 +2076,24 @@ def _manual_extract_result(
         return None, 0
 
     try:
+        item1a_raw_text = ""
         if is_pdf:
             pdf_text = extract_text_from_pdf(file_bytes)
             if not pdf_text:
                 return None, "Textract could not extract text from this PDF."
             overview = extract_item1_overview_from_text(pdf_text, company_name, industry_name)
             risks = extract_item1a_risks_from_text(pdf_text)
+            item1a_raw_text = str(pdf_text or "")
         else:
             # Keep both pipelines while removing user-facing mode choice:
             # HTML defaults to AI-enhanced with internal fallback to standard.
             overview = extract_item1_overview_bedrock(file_bytes, company_name, industry_name)
             risks = extract_item1a_risks_bedrock(file_bytes, company_name, ft)
+            if locate_item1a is not None:
+                try:
+                    item1a_raw_text = str(locate_item1a(file_bytes, filing_type=ft) or "")
+                except Exception:
+                    item1a_raw_text = ""
     except Exception as exc:
         return None, f"Extraction failed: {type(exc).__name__}: {exc}"
 
@@ -2016,13 +2122,23 @@ def _manual_extract_result(
     if isinstance(risks, list):
         risks = _annotate_dashboard_category(risks)
 
+    incremental_update = {}
+    if ft == "10-Q":
+        incremental_update = _extract_10q_incremental_update(item1a_raw_text)
+
     overview = dict(overview or {})
     overview["year"] = yy
     overview["filing_type"] = ft
     overview["company"] = overview.get("company") or company_name
     overview["industry"] = overview.get("industry") or industry_name
 
-    return {"company_overview": overview, "risks": risks}, ""
+    result_payload = {"company_overview": overview, "risks": risks}
+    if ft == "10-Q":
+        result_payload["incremental_10q_update"] = incremental_update
+        result_payload["has_incremental_risk_updates"] = bool(
+            isinstance(incremental_update, dict) and incremental_update.get("has_incremental_updates")
+        )
+    return result_payload, ""
 
 
 def _auto_fetch_and_extract(

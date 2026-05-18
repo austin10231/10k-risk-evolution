@@ -62,6 +62,12 @@ function RecordDetailPanel({ rec, result }) {
   const ov = companyOverview(result)
   const aiSummary = String(result?.ai_summary || '').trim()
   const groups = groupedRiskTitles(result)
+  const is10q = String(ov.filing_type || rec?.filing_type || '').toUpperCase() === '10-Q'
+  const incremental = result?.incremental_10q_update && typeof result.incremental_10q_update === 'object'
+    ? result.incremental_10q_update
+    : null
+  const hasIncremental = Boolean(incremental?.has_incremental_updates)
+  const incrementalCount = Number(incremental?.incremental_count || 0)
 
   return (
     <section className="card p-5">
@@ -112,6 +118,24 @@ function RecordDetailPanel({ rec, result }) {
         <div className="mt-4">
           <div className="rl-section-header">Business Overview</div>
           <p className="rl-body-text">{ov.background}</p>
+        </div>
+      ) : null}
+
+      {is10q ? (
+        <div className="mt-4">
+          <div className="rl-section-header">10-Q Incremental Risk Updates</div>
+          <div className="rl-info-box">
+            {hasIncremental
+              ? `Detected incremental updates in Item 1A (${incrementalCount} items).`
+              : 'No explicit incremental risk update block detected in Item 1A.'}
+          </div>
+          {hasIncremental && Array.isArray(incremental?.incremental_risk_items) ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+              {incremental.incremental_risk_items.slice(0, 8).map((item, idx) => (
+                <li key={`inc-risk-${idx}`}>{String(item || '').trim()}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 
