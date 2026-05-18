@@ -1693,6 +1693,56 @@ def _bucket_from_source_heading(category: Any) -> str:
     return ""
 
 
+def _is_generic_source_category(category: Any) -> bool:
+    low = str(category or "").strip().lower()
+    if not low:
+        return True
+    generic_tokens = {
+        "risk factors",
+        "risks",
+        "general risks",
+        "general risk",
+        "general",
+        "other",
+        "other risks",
+    }
+    return low in generic_tokens
+
+
+def _resolve_dashboard_bucket(
+    *,
+    original_category: str,
+    title: str,
+    labels: List[str],
+    pre_dashboard: str = "",
+) -> str:
+    """Stable dashboard bucket resolver with source-heading anchoring.
+
+    Goal: keep 10-Q blocks from collapsing into a single Legal bucket when
+    the extractor already produced meaningful thematic block headings.
+    """
+    if pre_dashboard in FIXED_RISK_CATEGORIES:
+        return pre_dashboard
+
+    heading_bucket = _bucket_from_source_heading(original_category)
+    mapped, score = _normalize_risk_category(original_category, title, labels)
+
+    # Strong anchor: when source block heading is non-generic and explicitly
+    # maps to a dashboard bucket, prefer it unless title-level evidence is
+    # very strong in another direction.
+    if heading_bucket and not _is_generic_source_category(original_category):
+        if mapped == heading_bucket:
+            return mapped
+        if score <= 4:
+            return heading_bucket
+        # For very strong signals (score>=5), keep title mapping.
+        return mapped
+
+    if score < 2:
+        return _classify_with_llm_fallback(original_category, title, labels)
+    return mapped
+
+
 def _json_obj_from_text(text: str) -> dict:
     raw = str(text or "").strip().replace("```json", "").replace("```", "").strip()
     try:
@@ -1751,7 +1801,6 @@ def _extract_sub_risks(result: dict) -> List[dict]:
     out: List[dict] = []
     for cat_block in result.get("risks", []) if isinstance(result, dict) else []:
         original_category = str(cat_block.get("category", "Unknown") or "Unknown")
-        heading_bucket = _bucket_from_source_heading(original_category)
         for sr in cat_block.get("sub_risks", []) or []:
             if isinstance(sr, dict):
                 title = str(sr.get("title", "") or "").strip()
@@ -1765,12 +1814,12 @@ def _extract_sub_risks(result: dict) -> List[dict]:
                 pre_original = ""
             if not title:
                 continue
-            if pre_dashboard in FIXED_RISK_CATEGORIES:
-                mapped_category = pre_dashboard
-            else:
-                mapped_category, score = _normalize_risk_category(original_category, title, labels)
-                if score < 2:
-                    mapped_category = heading_bucket or _classify_with_llm_fallback(original_category, title, labels)
+            mapped_category = _resolve_dashboard_bucket(
+                original_category=original_category,
+                title=title,
+                labels=labels,
+                pre_dashboard=pre_dashboard,
+            )
             out.append(
                 {
                     "category": mapped_category,
@@ -1788,7 +1837,6 @@ def _annotate_dashboard_category(risks_blocks: list) -> list:
         if not isinstance(block, dict):
             continue
         original_category = str(block.get("category", "") or "").strip() or "Unknown"
-        heading_bucket = _bucket_from_source_heading(original_category)
         new_subs = []
         for sr in block.get("sub_risks", []) or []:
             if isinstance(sr, dict):
@@ -1797,10 +1845,12 @@ def _annotate_dashboard_category(risks_blocks: list) -> list:
                 if not title:
                     continue
                 mapped = str(sr.get("dashboard_category", "") or "").strip()
-                if mapped not in FIXED_RISK_CATEGORIES:
-                    mapped, score = _normalize_risk_category(original_category, title, labels)
-                    if score < 2:
-                        mapped = heading_bucket or _classify_with_llm_fallback(original_category, title, labels)
+                mapped = _resolve_dashboard_bucket(
+                    original_category=original_category,
+                    title=title,
+                    labels=labels,
+                    pre_dashboard=mapped,
+                )
                 sr_out = dict(sr)
                 sr_out["title"] = title
                 sr_out["labels"] = labels
@@ -1811,9 +1861,12 @@ def _annotate_dashboard_category(risks_blocks: list) -> list:
                 title = str(sr or "").strip()
                 if not title:
                     continue
-                mapped, score = _normalize_risk_category(original_category, title, [])
-                if score < 2:
-                    mapped = heading_bucket or _classify_with_llm_fallback(original_category, title, [])
+                mapped = _resolve_dashboard_bucket(
+                    original_category=original_category,
+                    title=title,
+                    labels=[],
+                    pre_dashboard="",
+                )
                 new_subs.append(
                     {
                         "title": title,
