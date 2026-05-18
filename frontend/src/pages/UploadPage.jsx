@@ -189,6 +189,7 @@ export default function UploadPage() {
   const [selectedId, setSelectedId] = useState('')
   const [selectedResult, setSelectedResult] = useState(null)
   const [loadingSelected, setLoadingSelected] = useState(false)
+  const [selectedReloadTick, setSelectedReloadTick] = useState(0)
   const [recordsIndustryFilter, setRecordsIndustryFilter] = useState('all')
   const [recordsFilingTypeFilter, setRecordsFilingTypeFilter] = useState('all')
   const [selectedCompanyKey, setSelectedCompanyKey] = useState('')
@@ -215,6 +216,20 @@ export default function UploadPage() {
       return []
     } finally {
       setLoading(false)
+    }
+  }
+
+  const forceReloadSelectedResult = async (rid) => {
+    const id = String(rid || '').trim()
+    if (!id) return
+    setLoadingSelected(true)
+    try {
+      const res = await get(`/api/records/${encodeURIComponent(id)}?t=${Date.now()}`, { timeoutMs: 15000 })
+      setSelectedResult(res?.result || null)
+    } catch {
+      setSelectedResult(null)
+    } finally {
+      setLoadingSelected(false)
     }
   }
 
@@ -266,7 +281,7 @@ export default function UploadPage() {
     if (!selectedId) return
     let mounted = true
     setLoadingSelected(true)
-    get(`/api/records/${encodeURIComponent(selectedId)}`, { timeoutMs: 15000 })
+    get(`/api/records/${encodeURIComponent(selectedId)}?t=${Date.now()}`, { timeoutMs: 15000 })
       .then((res) => {
         if (!mounted) return
         setSelectedResult(res?.result || null)
@@ -282,7 +297,7 @@ export default function UploadPage() {
     return () => {
       mounted = false
     }
-  }, [selectedId])
+  }, [selectedId, selectedReloadTick])
 
   const recordIndustries = useMemo(() => {
     const set = new Set()
@@ -409,7 +424,11 @@ export default function UploadPage() {
 
       const rid = String(res?.record?.record_id || '')
       await refreshRecords(rid)
-      if (rid) setSelectedId(rid)
+      if (rid) {
+        setSelectedId(rid)
+        setSelectedReloadTick((v) => v + 1)
+        await forceReloadSelectedResult(rid)
+      }
     } catch (e) {
       setError(e.message || 'Extraction failed')
     } finally {
@@ -448,7 +467,11 @@ export default function UploadPage() {
       const latest = successes.length ? successes[successes.length - 1] : null
       const latestRid = String(latest?.record?.record_id || '')
       await refreshRecords(latestRid)
-      if (latestRid) setSelectedId(latestRid)
+      if (latestRid) {
+        setSelectedId(latestRid)
+        setSelectedReloadTick((v) => v + 1)
+        await forceReloadSelectedResult(latestRid)
+      }
     } catch (e) {
       setError(e.message || 'Auto fetch failed')
     } finally {
