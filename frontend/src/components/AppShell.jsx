@@ -817,7 +817,7 @@ export default function AppShell({ children }) {
 
   const openLandingPage = () => {
     if (typeof window === 'undefined') return
-    window.location.assign('https://risklens.pages.dev/')
+    window.location.assign('https://risklensai.org/')
   }
 
   const handleAuthToggle = () => {
@@ -828,7 +828,10 @@ export default function AppShell({ children }) {
       startAuthLogout(returnTo)
       return
     }
-    startAuthLogin(returnTo, { prompt: 'login select_account' })
+    const params = new URLSearchParams()
+    params.set('return_to', `${window.location.origin}${location.pathname}${location.search || ''}`)
+    params.set('lang', uiLang)
+    navigate(`/auth?${params.toString()}`)
   }
 
   const viewerDisplay = useMemo(() => {
