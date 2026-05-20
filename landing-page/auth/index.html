@@ -71,11 +71,8 @@
 
   <script src="../assets/lang-utils.js"></script>
   <script>
-    const COGNITO_DOMAIN = "https://us-west-1lmykvd7p8.auth.us-west-1.amazoncognito.com";
-    const COGNITO_CLIENT_ID = "utqsaifm4gt707delac0g54um";
-    const APP_URL = "https://risklens-ai.pages.dev/";
-    const SCOPE = "openid profile email";
-
+    const API_BASE = "https://10k-risk-evolution-production-982d.up.railway.app";
+    const DEFAULT_RETURN_TO = "https://app.risklensai.org/dashboard";
     const params = new URLSearchParams(window.location.search);
     const mode = (params.get("mode") || "signin").toLowerCase() === "signup" ? "signup" : "signin";
     const lang = params.get("lang") === "zh" ? "zh" : "en";
@@ -125,22 +122,30 @@
       orText.textContent = lang === "zh" ? "或" : "OR";
     }
 
-    const googleBase = `${COGNITO_DOMAIN}/oauth2/authorize?client_id=${COGNITO_CLIENT_ID}&response_type=code&scope=${encodeURIComponent(SCOPE)}&redirect_uri=${encodeURIComponent(APP_URL)}&identity_provider=Google&idp_identifier=Google`;
-    const googleUrl = `${googleBase}&prompt=select_account%20consent`;
-    document.getElementById("google-btn").href = googleUrl;
+    const returnToRaw = String(params.get("return_to") || "").trim();
+    const returnTo = returnToRaw || DEFAULT_RETURN_TO;
 
-    const authBase = mode === "signup"
-      ? `${COGNITO_DOMAIN}/signup?client_id=${COGNITO_CLIENT_ID}&response_type=code&scope=${encodeURIComponent(SCOPE)}&redirect_uri=${encodeURIComponent(APP_URL)}`
-      : `${COGNITO_DOMAIN}/login?client_id=${COGNITO_CLIENT_ID}&response_type=code&scope=${encodeURIComponent(SCOPE)}&redirect_uri=${encodeURIComponent(APP_URL)}&prompt=login`;
+    function buildBackendLoginUrl({ idp = "", prompt = "", loginHint = "" } = {}) {
+      const url = new URL(`${API_BASE.replace(/\/$/, "")}/api/auth/login`);
+      url.searchParams.set("return_to", returnTo);
+      if (idp) url.searchParams.set("idp", idp);
+      if (prompt) url.searchParams.set("prompt", prompt);
+      if (loginHint) url.searchParams.set("login_hint", loginHint);
+      return url.toString();
+    }
+
+    document.getElementById("google-btn").href = buildBackendLoginUrl({
+      idp: "Google",
+      prompt: "select_account"
+    });
 
     document.getElementById("email-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const email = document.getElementById("email").value.trim();
-      let finalUrl = authBase;
-      if (email) {
-        finalUrl += `&login_hint=${encodeURIComponent(email)}`;
-      }
-      window.location.href = finalUrl;
+      window.location.href = buildBackendLoginUrl({
+        prompt: mode === "signup" ? "login" : "login",
+        loginHint: email
+      });
     });
 
     window.RiskLensLang.mountSwitcher();

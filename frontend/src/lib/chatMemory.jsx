@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 
 const STORAGE_KEY = 'risklens_chat_threads_v1'
 const CURRENT_KEY = 'risklens_current_thread_id_v1'
+const SCOPE_KEY = 'risklens_chat_scope_v1'
+const SCOPE_EVENT = 'risklens-chat-scope-changed'
 
 function uid() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -36,6 +38,71 @@ function normalizeThread(raw) {
   }
 }
 
+function normalizeScope(raw) {
+  const txt = String(raw || '').trim()
+  if (!txt) return 'guest'
+  return txt.slice(0, 128)
+}
+
+function scopeStorageKey(scope) {
+  return `${STORAGE_KEY}:${normalizeScope(scope)}`
+}
+
+function scopeCurrentKey(scope) {
+  return `${CURRENT_KEY}:${normalizeScope(scope)}`
+}
+
+function readScopeFromStorage() {
+  if (typeof window === 'undefined') return 'guest'
+  try {
+    return normalizeScope(window.localStorage.getItem(SCOPE_KEY) || 'guest')
+  } catch {
+    return 'guest'
+  }
+}
+
+function readThreadsForScope(scope) {
+  if (typeof window === 'undefined') return [createSeedThread()]
+  try {
+    const normalizedScope = normalizeScope(scope)
+    let raw = window.localStorage.getItem(scopeStorageKey(normalizedScope))
+    if (!raw && normalizedScope === 'guest') {
+      raw = window.localStorage.getItem(STORAGE_KEY)
+    }
+    if (!raw) return [createSeedThread()]
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed) || parsed.length === 0) return [createSeedThread()]
+    return parsed.map(normalizeThread)
+  } catch {
+    return [createSeedThread()]
+  }
+}
+
+function readCurrentThreadIdForScope(scope) {
+  if (typeof window === 'undefined') return ''
+  try {
+    const normalizedScope = normalizeScope(scope)
+    let value = String(window.localStorage.getItem(scopeCurrentKey(normalizedScope)) || '').trim()
+    if (!value && normalizedScope === 'guest') {
+      value = String(window.localStorage.getItem(CURRENT_KEY) || '').trim()
+    }
+    return value
+  } catch {
+    return ''
+  }
+}
+
+export function setChatMemoryScope(scope) {
+  if (typeof window === 'undefined') return
+  const nextScope = normalizeScope(scope)
+  try {
+    window.localStorage.setItem(SCOPE_KEY, nextScope)
+  } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent(SCOPE_EVENT, { detail: { scope: nextScope } }))
+  } catch {}
+}
+
 const ChatMemoryContext = createContext({
   threads: [],
   currentThreadId: '',
@@ -57,23 +124,40 @@ function deriveTitleFromMessages(messages) {
 }
 
 export function ChatMemoryProvider({ children }) {
-  const [threads, setThreads] = useState(() => {
-    if (typeof window === 'undefined') return [createSeedThread()]
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY)
-      if (!raw) return [createSeedThread()]
-      const parsed = JSON.parse(raw)
-      if (!Array.isArray(parsed) || parsed.length === 0) return [createSeedThread()]
-      return parsed.map(normalizeThread)
-    } catch {
-      return [createSeedThread()]
-    }
-  })
+  const initialScope = readScopeFromStorage()
+  const [scope, setScope] = useState(initialScope)
+  const [threads, setThreads] = useState(() => readThreadsForScope(initialScope))
+  const [currentThreadId, setCurrentThreadId] = useState(() => readCurrentThreadIdForScope(initialScope))
 
-  const [currentThreadId, setCurrentThreadId] = useState(() => {
-    if (typeof window === 'undefined') return ''
-    return window.localStorage.getItem(CURRENT_KEY) || ''
-  })
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onScopeEvent = (event) => {
+      const next = normalizeScope(event?.detail?.scope || readScopeFromStorage())
+      setScope((prev) => (prev === next ? prev : next))
+    }
+    const onStorage = (event) => {
+      if (!event || event.key !== SCOPE_KEY) return
+      const next = normalizeScope(event.newValue || readScopeFromStorage())
+      setScope((prev) => (prev === next ? prev : next))
+    }
+    window.addEventListener(SCOPE_EVENT, onScopeEvent)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener(SCOPE_EVENT, onScopeEvent)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
+  useEffect(() => {
+    const nextThreads = readThreadsForScope(scope)
+    const nextCurrentId = readCurrentThreadIdForScope(scope)
+    setThreads(nextThreads)
+    if (nextCurrentId && nextThreads.some((t) => t.id === nextCurrentId)) {
+      setCurrentThreadId(nextCurrentId)
+      return
+    }
+    setCurrentThreadId(nextThreads[0]?.id || '')
+  }, [scope])
 
   useEffect(() => {
     if (!threads.length) {
@@ -89,14 +173,14 @@ export function ChatMemoryProvider({ children }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(threads))
-  }, [threads])
+    window.localStorage.setItem(scopeStorageKey(scope), JSON.stringify(threads))
+  }, [threads, scope])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!currentThreadId) return
-    window.localStorage.setItem(CURRENT_KEY, currentThreadId)
-  }, [currentThreadId])
+    window.localStorage.setItem(scopeCurrentKey(scope), currentThreadId)
+  }, [currentThreadId, scope])
 
   const currentThread = useMemo(
     () => threads.find((t) => t.id === currentThreadId) || threads[0] || null,

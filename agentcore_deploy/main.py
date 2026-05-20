@@ -390,24 +390,68 @@ def _auth_scope() -> str:
     return scope or "openid email profile"
 
 
+def _parse_url_list_env(*env_names: str) -> List[str]:
+    out: List[str] = []
+    seen: Set[str] = set()
+    for name in env_names:
+        raw = str(_env(name, "") or "").strip()
+        if not raw:
+            continue
+        for part in raw.split(","):
+            url = _normalize_url_base(part)
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            out.append(url)
+    return out
+
+
+def _auth_allowed_callback_urls() -> List[str]:
+    return _parse_url_list_env("COGNITO_ALLOWED_CALLBACK_URLS")
+
+
+def _auth_allowed_signout_urls() -> List[str]:
+    return _parse_url_list_env("COGNITO_ALLOWED_SIGNOUT_URLS", "COGNITO_ALLOWED_LOGOUT_URLS")
+
+
 def _auth_redirect_uri(request_headers) -> str:
     explicit = _normalize_url_base(_env("COGNITO_REDIRECT_URI", ""))
-    if explicit:
-        return explicit
+    if explicit and "/api/auth/callback" not in explicit:
+        explicit = ""
     api_base = _auth_api_base_url(request_headers)
-    if not api_base:
-        return ""
-    return f"{api_base}/api/auth/callback"
+    inferred = f"{api_base}/api/auth/callback" if api_base else ""
+    allowed = _auth_allowed_callback_urls()
+    allowed_set = set(allowed)
+    for candidate in (explicit, inferred):
+        if candidate and (not allowed_set or candidate in allowed_set):
+            return candidate
+    if allowed:
+        for candidate in allowed:
+            if candidate.endswith("/api/auth/callback"):
+                return candidate
+    return explicit or inferred
 
 
 def _auth_logout_uri(request_headers, return_to: str = "") -> str:
-    txt = str(return_to or "").strip()
-    if txt:
-        return txt
     explicit = _normalize_url_base(_env("COGNITO_LOGOUT_REDIRECT_URI", ""))
-    if explicit:
+    allowed = _auth_allowed_signout_urls()
+    allowed_set = set(allowed)
+    if explicit and (not allowed_set or explicit in allowed_set):
         return explicit
-    return f"{_auth_app_base_url()}/dashboard"
+
+    requested = _normalize_url_base(return_to)
+    if requested and allowed_set and requested in allowed_set:
+        return requested
+
+    fallback = f"{_auth_app_base_url()}/dashboard"
+    if not allowed_set:
+        return fallback
+    if fallback in allowed_set:
+        return fallback
+    if allowed:
+        return allowed[0]
+
+    return fallback
 
 
 def _auth_config(request_headers) -> dict:
@@ -539,6 +583,7 @@ def _build_set_cookie_header(
     path: str = "/",
     max_age: Optional[int] = None,
     http_only: bool = True,
+    request_headers=None,
 ) -> str:
     cookie = SimpleCookie()
     cookie[name] = str(value or "")
@@ -550,6 +595,15 @@ def _build_set_cookie_header(
         if ttl == 0:
             morsel["expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
     domain = _auth_cookie_domain()
+    if domain and request_headers is not None:
+        try:
+            host_raw = str(request_headers.get("x-forwarded-host", "") or request_headers.get("host", "") or "")
+        except Exception:
+            host_raw = ""
+        host = host_raw.split(",", 1)[0].strip().split(":", 1)[0].strip().lower()
+        dom = str(domain).strip().lstrip(".").lower()
+        if host and dom and not (host == dom or host.endswith(f".{dom}")):
+            domain = ""
     if domain:
         morsel["domain"] = domain
     secure = _auth_cookie_secure()
@@ -6234,6 +6288,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     _auth_encode_signed_payload(flow_payload),
                     path="/api/auth",
                     max_age=ttl,
+                    request_headers=self.headers,
                 )
                 auth_params = {
                     "response_type": "code",
@@ -6244,6 +6299,17 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     "code_challenge_method": "S256",
                     "code_challenge": code_challenge,
                 }
+                prompt = str((query.get("prompt", [""]) or [""])[0]).strip()
+                if not prompt:
+                    prompt = str(_env("COGNITO_PROMPT", "select_account") or "").strip()
+                if prompt:
+                    auth_params["prompt"] = prompt
+                idp = str((query.get("idp", [""]) or [""])[0] or (query.get("identity_provider", [""]) or [""])[0]).strip()
+                if idp:
+                    auth_params["identity_provider"] = re.sub(r"[^A-Za-z0-9._\-]", "", idp)
+                login_hint = str((query.get("login_hint", [""]) or [""])[0]).strip()
+                if login_hint:
+                    auth_params["login_hint"] = login_hint[:180]
                 auth_url = f"{cfg.get('domain', '')}/oauth2/authorize?{urlencode(auth_params)}"
                 self._send_redirect(auth_url, cookies=[flow_cookie])
                 return
@@ -6259,6 +6325,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     "",
                     path="/api/auth",
                     max_age=0,
+                    request_headers=self.headers,
                 )
                 if not cfg.get("enabled"):
                     self._send_redirect(
@@ -6380,6 +6447,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     _auth_encode_signed_payload(session_payload),
                     path="/",
                     max_age=session_ttl,
+                    request_headers=self.headers,
                 )
                 self._send_redirect(
                     _append_url_query(return_to, auth="ok"),
@@ -6397,15 +6465,20 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     "",
                     path="/",
                     max_age=0,
+                    request_headers=self.headers,
                 )
                 clear_flow_cookie = _build_set_cookie_header(
                     _auth_flow_cookie_name(),
                     "",
                     path="/api/auth",
                     max_age=0,
+                    request_headers=self.headers,
                 )
                 cfg = _auth_config(self.headers)
-                if cfg.get("enabled"):
+                allowed_signout_urls = _auth_allowed_signout_urls()
+                configured_logout_uri = _normalize_url_base(_env("COGNITO_LOGOUT_REDIRECT_URI", ""))
+                use_cognito_logout = bool(cfg.get("enabled")) and bool(configured_logout_uri or allowed_signout_urls)
+                if use_cognito_logout:
                     logout_params = {
                         "client_id": cfg.get("client_id", ""),
                         "logout_uri": _auth_logout_uri(self.headers, return_to),

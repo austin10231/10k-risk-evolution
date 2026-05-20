@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { useChatMemory } from '../lib/chatMemory'
+import { setChatMemoryScope, useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
 import { stashPendingChat } from '../lib/pendingChat'
 import { get, startAuthLogin, startAuthLogout } from '../lib/api'
@@ -425,14 +425,19 @@ export default function AppShell({ children }) {
     get('/api/me', { timeoutMs: 9000 })
       .then((res) => {
         if (!alive) return
+        const authenticated = Boolean(res?.authenticated)
+        const user = res?.user && typeof res.user === 'object' ? res.user : null
+        const userId = String(user?.user_id || '').trim()
+        setChatMemoryScope(authenticated && userId ? `user:${userId}` : 'guest')
         setViewer({
           loading: false,
-          authenticated: Boolean(res?.authenticated),
-          user: res?.user && typeof res.user === 'object' ? res.user : null,
+          authenticated,
+          user,
         })
       })
       .catch(() => {
         if (!alive) return
+        setChatMemoryScope('guest')
         setViewer({ loading: false, authenticated: false, user: null })
       })
     return () => {
