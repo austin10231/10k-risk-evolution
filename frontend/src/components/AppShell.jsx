@@ -422,6 +422,15 @@ export default function AppShell({ children }) {
 
   const refreshViewer = useCallback(() => {
     let alive = true
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search || '')
+      if (params.get('code') && !params.get('auth') && !legacyAuthBridgeTriedRef.current) {
+        setViewer((prev) => ({ ...prev, loading: true }))
+        return () => {
+          alive = false
+        }
+      }
+    }
     setViewer((prev) => ({ ...prev, loading: true }))
     get('/api/me', { timeoutMs: 9000, cache: 'no-store' })
       .then((res) => {
@@ -464,7 +473,6 @@ export default function AppShell({ children }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    if (viewer.loading || viewer.authenticated) return
     if (legacyAuthBridgeTriedRef.current) return
     const params = new URLSearchParams(location.search || '')
     const code = String(params.get('code') || '').trim()
@@ -480,6 +488,7 @@ export default function AppShell({ children }) {
     params.delete('legacy_redirect_uri')
     const cleanReturnTo = `${window.location.origin}${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
     const cleanPath = `${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
+    setViewer((prev) => ({ ...prev, loading: true }))
     window.history.replaceState({}, '', cleanPath)
     exchangeLegacyAuthCode({
       code,
@@ -497,7 +506,7 @@ export default function AppShell({ children }) {
       .catch(() => {
         startAuthLogin(cleanReturnTo, { prompt: 'login select_account' })
       })
-  }, [location.pathname, location.search, refreshViewer, viewer.loading, viewer.authenticated])
+  }, [location.pathname, location.search, refreshViewer])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
