@@ -72,7 +72,7 @@
   <script src="../assets/lang-utils.js"></script>
   <script>
     const API_BASE = "https://10k-risk-evolution-production-982d.up.railway.app";
-    const DEFAULT_RETURN_TO = "https://app.risklensai.org/dashboard";
+    const DEFAULT_RETURN_TO = "https://app.risklensai.org/agent";
     const params = new URLSearchParams(window.location.search);
     const mode = (params.get("mode") || "signin").toLowerCase() === "signup" ? "signup" : "signin";
     const lang = params.get("lang") === "zh" ? "zh" : "en";

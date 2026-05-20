@@ -85,17 +85,23 @@ function currentReturnTo() {
   return `${window.location.origin}${window.location.pathname}${window.location.search}`
 }
 
-function buildAuthUrl(endpoint, returnTo = '') {
+function buildAuthUrl(endpoint, returnTo = '', options = {}) {
   const url = new URL(`${API_BASE_URL}${endpoint}`)
   const target = String(returnTo || currentReturnTo()).trim()
   if (target) url.searchParams.set('return_to', target)
+  const idp = String(options.idp || options.identityProvider || '').trim()
+  const prompt = String(options.prompt || '').trim()
+  const loginHint = String(options.loginHint || options.login_hint || '').trim()
+  if (idp) url.searchParams.set('idp', idp)
+  if (prompt) url.searchParams.set('prompt', prompt)
+  if (loginHint) url.searchParams.set('login_hint', loginHint)
   return url.toString()
 }
 
-export function startAuthLogin(returnTo = '') {
+export function startAuthLogin(returnTo = '', options = {}) {
   if (typeof window === 'undefined') return
   clearLegacyAuthTokens()
-  window.location.assign(buildAuthUrl('/api/auth/login', returnTo))
+  window.location.assign(buildAuthUrl('/api/auth/login', returnTo, options))
 }
 
 export function startAuthLogout(returnTo = '') {

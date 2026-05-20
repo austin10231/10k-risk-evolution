@@ -249,6 +249,7 @@ export default function AppShell({ children }) {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [attachError, setAttachError] = useState('')
   const [authMenuOpen, setAuthMenuOpen] = useState(false)
+  const legacyAuthBridgeTriedRef = useRef(false)
   const [viewer, setViewer] = useState({ loading: true, authenticated: false, user: null })
   const fileInputRef = useRef(null)
   const attachMenuRef = useRef(null)
@@ -460,6 +461,22 @@ export default function AppShell({ children }) {
     const next = `${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
     window.history.replaceState({}, '', next)
   }, [location.pathname, location.search])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (viewer.loading || viewer.authenticated) return
+    if (legacyAuthBridgeTriedRef.current) return
+    const params = new URLSearchParams(location.search || '')
+    const hasLegacyCode = Boolean(params.get('code'))
+    const hasAuthState = Boolean(params.get('auth'))
+    if (!hasLegacyCode || hasAuthState) return
+    legacyAuthBridgeTriedRef.current = true
+    params.delete('code')
+    params.delete('state')
+    params.delete('scope')
+    const cleanReturnTo = `${window.location.origin}${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
+    startAuthLogin(cleanReturnTo, { prompt: 'select_account' })
+  }, [location.pathname, location.search, viewer.loading, viewer.authenticated])
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -762,12 +779,12 @@ export default function AppShell({ children }) {
   const handleAuthToggle = () => {
     if (typeof window === 'undefined' || viewer.loading) return
     setAuthMenuOpen(false)
-    const returnTo = `${window.location.origin}${location.pathname}${location.search}`
+    const returnTo = `${window.location.origin}/agent`
     if (viewer.authenticated) {
       startAuthLogout(returnTo)
       return
     }
-    startAuthLogin(returnTo)
+    startAuthLogin(returnTo, { prompt: 'select_account' })
   }
 
   const viewerDisplay = useMemo(() => {

@@ -443,7 +443,7 @@ def _auth_logout_uri(request_headers, return_to: str = "") -> str:
     if requested and allowed_set and requested in allowed_set:
         return requested
 
-    fallback = f"{_auth_app_base_url()}/dashboard"
+    fallback = f"{_auth_app_base_url()}/agent"
     if not allowed_set:
         return fallback
     if fallback in allowed_set:
@@ -619,7 +619,7 @@ def _build_set_cookie_header(
 
 
 def _sanitize_return_to_url(raw: str, request_headers) -> str:
-    default_url = f"{_auth_app_base_url()}/dashboard"
+    default_url = f"{_auth_app_base_url()}/agent"
     txt = str(raw or "").strip()
     if not txt:
         return default_url
