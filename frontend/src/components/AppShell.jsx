@@ -248,10 +248,12 @@ export default function AppShell({ children }) {
   const [dockInlineStyle, setDockInlineStyle] = useState(null)
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [attachError, setAttachError] = useState('')
+  const [authMenuOpen, setAuthMenuOpen] = useState(false)
   const [viewer, setViewer] = useState({ loading: true, authenticated: false, user: null })
   const fileInputRef = useRef(null)
   const attachMenuRef = useRef(null)
   const attachBtnRef = useRef(null)
+  const authMenuRef = useRef(null)
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -285,6 +287,7 @@ export default function AppShell({ children }) {
       topExpandSidebar: '展开侧栏',
       topCollapseSidebar: '收起侧栏',
       topStartNewChat: '新建聊天',
+      authMenu: '账号菜单',
       authSignIn: '登录',
       authSignOut: '退出',
       askLanding: '可问公司、filing、对比、股票或新闻信号…',
@@ -307,6 +310,7 @@ export default function AppShell({ children }) {
       topExpandSidebar: 'Expand sidebar',
       topCollapseSidebar: 'Collapse sidebar',
       topStartNewChat: 'Start new chat',
+      authMenu: 'Account menu',
       authSignIn: 'Sign in',
       authSignOut: 'Sign out',
       askLanding: 'Ask about any company, filing, comparison, stock, or news signal…',
@@ -455,6 +459,7 @@ export default function AppShell({ children }) {
   useEffect(() => {
     setMobileNavOpen(false)
     setActiveMenuThreadId('')
+    setAuthMenuOpen(false)
   }, [location.pathname])
 
   useEffect(() => {
@@ -484,6 +489,7 @@ export default function AppShell({ children }) {
     setActiveMenuThreadId('')
     setEditingThreadId('')
     setEditingTitle('')
+    setAuthMenuOpen(false)
   }, [sidebarCollapsed])
 
   useEffect(() => {
@@ -510,6 +516,21 @@ export default function AppShell({ children }) {
     document.addEventListener('pointerdown', closeMenu)
     return () => document.removeEventListener('pointerdown', closeMenu)
   }, [attachMenuOpen])
+
+  useEffect(() => {
+    if (!authMenuOpen || typeof document === 'undefined') return undefined
+    const closeMenu = (event) => {
+      const target = event.target
+      if (!(target instanceof Element)) {
+        setAuthMenuOpen(false)
+        return
+      }
+      if (authMenuRef.current && authMenuRef.current.contains(target)) return
+      setAuthMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', closeMenu)
+    return () => document.removeEventListener('pointerdown', closeMenu)
+  }, [authMenuOpen])
 
   useEffect(() => {
     const host = workspaceAppRef.current
@@ -735,6 +756,7 @@ export default function AppShell({ children }) {
 
   const handleAuthToggle = () => {
     if (typeof window === 'undefined' || viewer.loading) return
+    setAuthMenuOpen(false)
     const returnTo = `${window.location.origin}${location.pathname}${location.search}`
     if (viewer.authenticated) {
       startAuthLogout(returnTo)
@@ -745,9 +767,11 @@ export default function AppShell({ children }) {
 
   const viewerDisplay = useMemo(() => {
     if (viewer.loading) return { name: 'Loading...', detail: '', initials: '…' }
-    if (!viewer.authenticated || !viewer.user) return { name: 'Guest', detail: 'No auth identity', initials: 'G' }
-    const name = String(viewer.user.name || viewer.user.email || viewer.user.user_id || 'User').trim() || 'User'
-    const detail = String(viewer.user.email || viewer.user.user_id || '').trim()
+    if (!viewer.authenticated || !viewer.user) return { name: 'Guest', detail: '', initials: 'G' }
+    const email = String(viewer.user.email || '').trim()
+    const userId = String(viewer.user.user_id || '').trim()
+    const name = email || userId || 'User'
+    const detail = ''
     const initials = name
       .split(/\s+/)
       .filter(Boolean)
@@ -877,24 +901,28 @@ export default function AppShell({ children }) {
 
       <div className="rl-sidebar-footer">
         <div className="rl-sidebar-footer-left">
-          <div className="rl-sidebar-user" title={viewerDisplay.detail || viewerDisplay.name}>
-            <span className="rl-sidebar-user-avatar">{viewerDisplay.initials}</span>
-            <div className="rl-sidebar-user-copy">
-              <strong>{viewerDisplay.name}</strong>
-              {viewerDisplay.detail ? <small>{viewerDisplay.detail}</small> : null}
-            </div>
+          <div className="rl-sidebar-auth" ref={authMenuRef}>
+            <button
+              className="rl-sidebar-user rl-sidebar-user-trigger"
+              onClick={() => setAuthMenuOpen((open) => !open)}
+              title={viewerDisplay.name}
+              aria-label={i18n.authMenu}
+            >
+              <span className="rl-sidebar-user-avatar">{viewerDisplay.initials}</span>
+              <div className="rl-sidebar-user-copy">
+                <strong>{viewerDisplay.name}</strong>
+              </div>
+            </button>
+            {authMenuOpen ? (
+              <div className="rl-auth-menu">
+                <button className="rl-auth-menu-btn" onClick={handleAuthToggle} disabled={viewer.loading}>
+                  {viewer.authenticated ? i18n.authSignOut : i18n.authSignIn}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="rl-sidebar-footer-right">
-          <button
-            className="rl-footer-auth-btn"
-            onClick={handleAuthToggle}
-            disabled={viewer.loading}
-            aria-label={viewer.authenticated ? i18n.authSignOut : i18n.authSignIn}
-            title={viewer.authenticated ? i18n.authSignOut : i18n.authSignIn}
-          >
-            {viewer.authenticated ? i18n.authSignOut : i18n.authSignIn}
-          </button>
           <button
             className="rl-footer-landing-btn"
             onClick={openLandingPage}
