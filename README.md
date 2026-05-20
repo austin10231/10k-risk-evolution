@@ -10,7 +10,7 @@ A core strength of the project is its **multi-step ReAct Agent**:
 
 ## Links
 
-- Product Homepage: [risklens-ai.pages.dev](https://risklens-ai.pages.dev)
+- Product Homepage: [risklensai.org](https://risklensai.org)
 
 ## Product Preview
 
