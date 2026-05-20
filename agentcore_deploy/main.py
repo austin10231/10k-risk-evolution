@@ -273,6 +273,28 @@ def _request_user_from_headers(headers) -> Optional[dict]:
                 "source": "trusted_header",
             }
 
+    # ALB / OIDC proxy commonly forwards JWT claims via these headers.
+    # We decode payload claims (without signature verification) because
+    # this runtime trusts upstream gateway identity headers.
+    for hdr_name in ("x-amzn-oidc-data", "x-amzn-oidc-accesstoken", "x-oidc-data"):
+        raw_jwt = _h(hdr_name)
+        if not raw_jwt:
+            continue
+        claims = _decode_jwt_payload_unsafe(raw_jwt)
+        sub = str(claims.get("sub", "") or claims.get("username", "") or "").strip()
+        email = str(claims.get("email", "") or claims.get("upn", "") or "").strip()
+        name = str(claims.get("name", "") or claims.get("preferred_username", "") or "").strip()
+        user_id = _sanitize_user_id(sub or email)
+        if user_id:
+            return {
+                "authenticated": True,
+                "user_id": user_id,
+                "sub": sub or user_id,
+                "email": email,
+                "name": name or email or user_id,
+                "source": f"trusted_oidc_header:{hdr_name}",
+            }
+
     auth = _h("Authorization")
     if auth.lower().startswith("bearer "):
         token = auth.split(" ", 1)[-1].strip()

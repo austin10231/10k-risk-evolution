@@ -6,15 +6,37 @@ function captureAuthTokenFromLocation() {
   if (typeof window === 'undefined') return
   try {
     const hash = String(window.location.hash || '')
-    const rawQuery = hash.startsWith('#') ? hash.slice(1) : ''
-    if (!rawQuery.includes('=')) return
-    const params = new URLSearchParams(rawQuery)
-    const idToken = String(params.get('id_token') || '').trim()
-    const accessToken = String(params.get('access_token') || '').trim()
+    const rawHashQuery = hash.startsWith('#') ? hash.slice(1) : ''
+    const search = String(window.location.search || '').replace(/^\?/, '')
+    const parts = [rawHashQuery, search].filter(Boolean)
+    if (!parts.length) return
+    const merged = new URLSearchParams(parts.join('&'))
+    const idToken = String(merged.get('id_token') || '').trim()
+    const accessToken = String(merged.get('access_token') || '').trim()
     const token = idToken || accessToken
     if (!token) return
     window.localStorage.setItem('risklens_id_token', token)
   } catch {}
+}
+
+function resolveAuthTokenFromCookie() {
+  if (typeof document === 'undefined') return ''
+  try {
+    const raw = String(document.cookie || '')
+    if (!raw) return ''
+    const pairs = raw.split(';').map((x) => x.trim()).filter(Boolean)
+    const dict = {}
+    for (const pair of pairs) {
+      const idx = pair.indexOf('=')
+      if (idx <= 0) continue
+      const k = pair.slice(0, idx).trim()
+      const v = pair.slice(idx + 1).trim()
+      dict[k] = v
+    }
+    return decodeURIComponent(dict.id_token || dict.access_token || dict.risklens_id_token || '').trim()
+  } catch {
+    return ''
+  }
 }
 
 function resolveAuthToken() {
@@ -26,6 +48,8 @@ function resolveAuthToken() {
     const sessionVal = String(window.sessionStorage.getItem(key) || '').trim()
     if (sessionVal) return sessionVal
   }
+  const cookieToken = resolveAuthTokenFromCookie()
+  if (cookieToken) return cookieToken
   return ''
 }
 
