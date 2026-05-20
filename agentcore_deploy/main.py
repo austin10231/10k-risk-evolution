@@ -12,6 +12,7 @@ import time
 import threading
 import traceback
 import uuid
+import binascii
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, List, Optional, Set
@@ -112,22 +113,185 @@ _WIKIDATA_STOCK_PROFILE_CACHE: Dict[str, Dict[str, Any]] = {}
 _WIKIDATA_STOCK_PROFILE_TTL_SECONDS = 60 * 60 * 24
 _S3_CLIENT = None
 _S3_CLIENT_LOCK = threading.Lock()
-_INDEX_CACHE: Dict[str, Any] = {"ts": 0.0, "data": []}
+_INDEX_CACHE_BY_NS: Dict[str, Dict[str, Any]] = {}
 _INDEX_CACHE_TTL_SECONDS = 20
 _RESULT_CACHE: Dict[str, Dict[str, Any]] = {}
 _RESULT_CACHE_TTL_SECONDS = 300
 _RESULT_CACHE_MAX_ENTRIES = 600
-_TICKER_MAP_CACHE: Dict[str, Any] = {"ts": 0.0, "data": {}}
+_TICKER_MAP_CACHE_BY_NS: Dict[str, Dict[str, Any]] = {}
 _TICKER_MAP_CACHE_TTL_SECONDS = 60
 _AGENT_REPORTS_CACHE: Dict[str, Any] = {"ts": 0.0, "data": []}
 _AGENT_REPORTS_CACHE_TTL_SECONDS = 90
 _RECORDS_LIST_CACHE: Dict[str, Dict[str, Any]] = {}
 _RECORDS_LIST_CACHE_TTL_SECONDS = 30
-_DASHBOARD_SUMMARY_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
+_DASHBOARD_SUMMARY_CACHE_BY_NS: Dict[str, Dict[str, Any]] = {}
 _DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 300
 _FORCED_INDUSTRY_BY_TICKER: Dict[str, str] = {
     "AAPL": "Technology",
 }
+_REQUEST_CONTEXT = threading.local()
+
+
+def _set_request_user(user: Optional[dict]) -> None:
+    setattr(_REQUEST_CONTEXT, "user", user if isinstance(user, dict) else None)
+
+
+def _clear_request_user() -> None:
+    try:
+        delattr(_REQUEST_CONTEXT, "user")
+    except Exception:
+        return
+
+
+def _get_request_user() -> Optional[dict]:
+    user = getattr(_REQUEST_CONTEXT, "user", None)
+    return user if isinstance(user, dict) else None
+
+
+def _sanitize_user_id(raw: Any) -> str:
+    value = re.sub(r"[^A-Za-z0-9._\-@]", "_", str(raw or "").strip())
+    value = value.strip("._-")
+    if not value:
+        return ""
+    return value[:96]
+
+
+def _request_user_storage_id() -> str:
+    user = _get_request_user()
+    if not isinstance(user, dict):
+        return ""
+    user_id = _sanitize_user_id(user.get("user_id") or user.get("sub"))
+    return user_id
+
+
+def _request_user_prefix() -> str:
+    user_id = _request_user_storage_id()
+    if not user_id:
+        return ""
+    return f"users/{user_id}/"
+
+
+def _cache_namespace() -> str:
+    user_id = _request_user_storage_id()
+    return f"user:{user_id}" if user_id else "global"
+
+
+def _namespaced_result_cache_key(record_id: str) -> str:
+    rid = str(record_id or "").strip()
+    if not rid:
+        return ""
+    return f"{_cache_namespace()}::{rid}"
+
+
+def _scoped_storage_key(base_key: str, *, prefix: str = "") -> str:
+    base = str(base_key or "").strip().lstrip("/")
+    px = str(prefix or "").strip()
+    if not base:
+        return ""
+    if not px:
+        return base
+    return f"{px.rstrip('/')}/{base}"
+
+
+def _read_scope_keys_for(base_key: str, *, prefer_user: bool = False) -> List[str]:
+    base = str(base_key or "").strip().lstrip("/")
+    if not base:
+        return []
+    keys: List[str] = []
+    user_prefix = _request_user_prefix()
+    if user_prefix:
+        scoped = _scoped_storage_key(base, prefix=user_prefix)
+        if prefer_user and scoped not in keys:
+            keys.append(scoped)
+        if base not in keys:
+            keys.append(base)
+        if (not prefer_user) and scoped not in keys:
+            keys.append(scoped)
+        return keys
+    return [base]
+
+
+def _decode_jwt_payload_unsafe(token: str) -> dict:
+    parts = str(token or "").split(".")
+    if len(parts) < 2:
+        return {}
+    payload = parts[1].strip()
+    if not payload:
+        return {}
+    padding = "=" * (-len(payload) % 4)
+    try:
+        raw = base64.urlsafe_b64decode((payload + padding).encode("utf-8"))
+    except (ValueError, binascii.Error):
+        return {}
+    try:
+        obj = json.loads(raw.decode("utf-8", errors="ignore"))
+    except Exception:
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def _request_user_from_headers(headers) -> Optional[dict]:
+    dev_forced = _sanitize_user_id(_env("RISKLENS_DEV_USER_ID", ""))
+    if dev_forced:
+        return {
+            "authenticated": True,
+            "user_id": dev_forced,
+            "sub": dev_forced,
+            "email": _env("RISKLENS_DEV_USER_EMAIL", "").strip(),
+            "name": _env("RISKLENS_DEV_USER_NAME", "").strip() or dev_forced,
+            "source": "env:RISKLENS_DEV_USER_ID",
+        }
+
+    def _h(name: str) -> str:
+        try:
+            return str(headers.get(name, "") or "").strip()
+        except Exception:
+            return ""
+
+    # Prefer trusted upstream identity headers (if gateway sets them).
+    direct_user = (
+        _h("X-RiskLens-User-Id")
+        or _h("X-User-Id")
+        or _h("x-amzn-oidc-identity")
+        or _h("x-forwarded-user")
+    )
+    direct_email = (
+        _h("X-RiskLens-User-Email")
+        or _h("X-User-Email")
+        or _h("cf-access-authenticated-user-email")
+    )
+    direct_name = _h("X-RiskLens-User-Name") or _h("X-User-Name")
+    if direct_user or direct_email:
+        user_id = _sanitize_user_id(direct_user or direct_email)
+        if user_id:
+            return {
+                "authenticated": True,
+                "user_id": user_id,
+                "sub": direct_user or user_id,
+                "email": direct_email,
+                "name": direct_name or direct_email or user_id,
+                "source": "trusted_header",
+            }
+
+    auth = _h("Authorization")
+    if auth.lower().startswith("bearer "):
+        token = auth.split(" ", 1)[-1].strip()
+        claims = _decode_jwt_payload_unsafe(token)
+        sub = str(claims.get("sub", "") or "").strip()
+        email = str(claims.get("email", "") or claims.get("cognito:username", "") or "").strip()
+        name = str(claims.get("name", "") or claims.get("preferred_username", "") or "").strip()
+        user_id = _sanitize_user_id(sub or email)
+        if user_id:
+            return {
+                "authenticated": True,
+                "user_id": user_id,
+                "sub": sub or user_id,
+                "email": email,
+                "name": name or email or user_id,
+                "source": "authorization_bearer_unverified_claims",
+            }
+
+    return None
 
 
 def _env(name: str, default: str = "") -> str:
@@ -423,59 +587,15 @@ def _s3_client():
 
 
 def _invalidate_runtime_caches(storage_key: str = "") -> None:
+    _INDEX_CACHE_BY_NS.clear()
+    _TICKER_MAP_CACHE_BY_NS.clear()
+    _RECORDS_LIST_CACHE.clear()
+    _RESULT_CACHE.clear()
+    _DASHBOARD_SUMMARY_CACHE_BY_NS.clear()
+
     key = str(storage_key or "").strip()
-    now = 0.0
-    if not key:
-        _INDEX_CACHE["ts"] = now
-        _TICKER_MAP_CACHE["ts"] = now
-        _AGENT_REPORTS_CACHE["ts"] = now
-        _DASHBOARD_SUMMARY_CACHE["ts"] = now
-        _RECORDS_LIST_CACHE.clear()
-        _RESULT_CACHE.clear()
-        return
-
-    if key == INDEX_KEY:
-        _INDEX_CACHE["ts"] = now
-        _RECORDS_LIST_CACHE.clear()
-        _DASHBOARD_SUMMARY_CACHE["ts"] = now
-        return
-
-    if key == TICKER_MAP_KEY:
-        _TICKER_MAP_CACHE["ts"] = now
-        _RECORDS_LIST_CACHE.clear()
-        _DASHBOARD_SUMMARY_CACHE["ts"] = now
-        return
-
-    if key.startswith(f"{RESULTS_PREFIX}/"):
-        rid = key.rsplit("/", 1)[-1].replace(".json", "")
-        if rid:
-            _RESULT_CACHE.pop(rid, None)
-        _RECORDS_LIST_CACHE.clear()
-        _DASHBOARD_SUMMARY_CACHE["ts"] = now
-        return
-
     if key.startswith(f"{AGENT_PREFIX}/"):
-        _AGENT_REPORTS_CACHE["ts"] = now
-        _DASHBOARD_SUMMARY_CACHE["ts"] = now
-        return
-
-    if key == NEW_INDEX_KEY:
-        _INDEX_CACHE["ts"] = now
-        _TICKER_MAP_CACHE["ts"] = now
-        _RECORDS_LIST_CACHE.clear()
-        _DASHBOARD_SUMMARY_CACHE["ts"] = now
-        return
-
-    if key.startswith(f"{NEW_FILINGS_PREFIX}/") or key.startswith(f"{NEW_10Q_FILINGS_PREFIX}/"):
-        # Any write under 10k_filings/... or 10Q_fillings/...
-        # invalidates the per-record cache + the dashboard summary cache.
-        # We don't try to derive the synthetic record_id from the key
-        # (it would require re-reading the index); clearing the whole
-        # _RESULT_CACHE is cheap and safe.
-        _RESULT_CACHE.clear()
-        _RECORDS_LIST_CACHE.clear()
-        _DASHBOARD_SUMMARY_CACHE["ts"] = now
-        return
+        _AGENT_REPORTS_CACHE.clear()
 
 
 def _read_s3_bytes(key: str) -> Optional[bytes]:
@@ -577,59 +697,71 @@ def _new_layout_keys_for_record_id(rid: str) -> Optional[tuple[str, str, str, in
     filing_type = "10-Q" if m.group("form") == "10Q" else "10-K"
     filing_quarter = int(m.group("quarter")) if m.group("quarter") else 0
 
-    new_index = _load_new_layout_10q_index_doc() if filing_type == "10-Q" else _load_new_layout_index_doc()
-    industries = new_index.get("industries", {}) if isinstance(new_index, dict) else {}
-    for ind_dir, companies in (industries or {}).items():
-        if not isinstance(companies, dict):
-            continue
-        block = companies.get(company_dir)
-        if not isinstance(block, dict):
-            continue
-        filings = block.get("filings", [])
-        if isinstance(filings, list):
-            for filing in filings:
-                if not isinstance(filing, dict):
-                    continue
-                try:
-                    f_year = int(filing.get("year") or 0)
-                except Exception:
-                    continue
-                f_type = _canonical_filing_type(filing.get("filing_type"))
-                f_quarter = _coerce_filing_quarter(filing.get("filing_quarter"), f_type)
-                quarter_match = True
-                if f_type == "10-Q" and filing_quarter > 0:
-                    quarter_match = f_quarter == filing_quarter
-                if f_year == year and f_type == filing_type and quarter_match:
-                    json_key = str(filing.get("json_key", "") or "").strip()
-                    if json_key:
-                        return ind_dir, company_dir, json_key, year, filing_type, f_quarter
-        # Backward-compatible fallback for legacy 10-K / 10-Q path shapes.
-        if filing_type == "10-K":
-            json_key = f"{NEW_FILINGS_PREFIX}/{ind_dir}/{company_dir}/{year}_10K_risks.json"
-            return ind_dir, company_dir, json_key, year, filing_type, 0
-        if filing_type == "10-Q":
-            q_suffix = f"_Q{filing_quarter}" if filing_quarter > 0 else ""
-            json_key = f"{NEW_10Q_FILINGS_PREFIX}/{ind_dir}/{company_dir}/{year}_10Q{q_suffix}_risks.json"
-            return ind_dir, company_dir, json_key, year, filing_type, filing_quarter
+    prefixes: List[str] = []
+    user_prefix = _request_user_prefix()
+    if user_prefix:
+        prefixes.append(user_prefix)
+    prefixes.append("")
+
+    for prefix in prefixes:
+        new_index = _load_new_layout_10q_index_doc(prefix=prefix) if filing_type == "10-Q" else _load_new_layout_index_doc(prefix=prefix)
+        industries = new_index.get("industries", {}) if isinstance(new_index, dict) else {}
+        for ind_dir, companies in (industries or {}).items():
+            if not isinstance(companies, dict):
+                continue
+            block = companies.get(company_dir)
+            if not isinstance(block, dict):
+                continue
+            filings = block.get("filings", [])
+            if isinstance(filings, list):
+                for filing in filings:
+                    if not isinstance(filing, dict):
+                        continue
+                    try:
+                        f_year = int(filing.get("year") or 0)
+                    except Exception:
+                        continue
+                    f_type = _canonical_filing_type(filing.get("filing_type"))
+                    f_quarter = _coerce_filing_quarter(filing.get("filing_quarter"), f_type)
+                    quarter_match = True
+                    if f_type == "10-Q" and filing_quarter > 0:
+                        quarter_match = f_quarter == filing_quarter
+                    if f_year == year and f_type == filing_type and quarter_match:
+                        json_key = str(filing.get("json_key", "") or "").strip()
+                        if json_key:
+                            return ind_dir, company_dir, json_key, year, filing_type, f_quarter
+            # Backward-compatible fallback for legacy 10-K / 10-Q path shapes.
+            if filing_type == "10-K":
+                json_key = _scoped_storage_key(f"{NEW_FILINGS_PREFIX}/{ind_dir}/{company_dir}/{year}_10K_risks.json", prefix=prefix)
+                return ind_dir, company_dir, json_key, year, filing_type, 0
+            if filing_type == "10-Q":
+                q_suffix = f"_Q{filing_quarter}" if filing_quarter > 0 else ""
+                json_key = _scoped_storage_key(
+                    f"{NEW_10Q_FILINGS_PREFIX}/{ind_dir}/{company_dir}/{year}_10Q{q_suffix}_risks.json",
+                    prefix=prefix,
+                )
+                return ind_dir, company_dir, json_key, year, filing_type, filing_quarter
     return None
 
 
-def _load_new_layout_index_doc() -> dict:
+def _load_new_layout_index_doc(*, prefix: str = "") -> dict:
     """Read the dict-shaped index.json under 10k_filings/. Distinct from
     `_load_index()` (which returns a flat list of records). Cached via
     the same `_INDEX_CACHE` slot using the dict shape.
     """
-    raw = _json_from_bytes(_read_s3_bytes(NEW_INDEX_KEY), {})
+    key = _scoped_storage_key(NEW_INDEX_KEY, prefix=prefix)
+    raw = _json_from_bytes(_read_s3_bytes(key), {})
     return raw if isinstance(raw, dict) else {}
 
 
-def _load_new_layout_10q_index_doc() -> dict:
+def _load_new_layout_10q_index_doc(*, prefix: str = "") -> dict:
     """Read the dict-shaped index.json under 10Q_fillings/."""
-    raw = _json_from_bytes(_read_s3_bytes(NEW_10Q_INDEX_KEY), {})
+    key = _scoped_storage_key(NEW_10Q_INDEX_KEY, prefix=prefix)
+    raw = _json_from_bytes(_read_s3_bytes(key), {})
     return raw if isinstance(raw, dict) else {}
 
 
-def _flatten_new_layout_index(doc: dict) -> List[dict]:
+def _flatten_new_layout_index(doc: dict, *, source_scope: str = "global") -> List[dict]:
     """Convert the dict-shaped 10k_filings/index.json into the flat
     record list the rest of the runtime expects. Each filing becomes one
     record with synthetic `record_id = <company_dir>_<year>_<form>`.
@@ -672,22 +804,56 @@ def _flatten_new_layout_index(doc: dict) -> List[dict]:
                     "has_ai_summary": False,
                     "created_at": str(f.get("extracted_at", "") or ""),
                     "_source_layout": "new",
+                    "_source_scope": source_scope,
                 })
     return out
 
 
-def _load_index() -> List[dict]:
+def _load_legacy_index_for_prefix(prefix: str = "") -> List[dict]:
+    key = _scoped_storage_key(INDEX_KEY, prefix=prefix)
+    raw = _json_from_bytes(_read_s3_bytes(key), [])
+    if isinstance(raw, list):
+        return [r for r in raw if isinstance(r, dict)]
+    if isinstance(raw, dict):
+        candidates = raw.get("items")
+        if isinstance(candidates, list):
+            return [r for r in candidates if isinstance(r, dict)]
+    return []
+
+
+def _load_index(*, mode: str = "merged") -> List[dict]:
+    mode_txt = str(mode or "merged").strip().lower()
+    if mode_txt not in {"merged", "current_only", "global_only"}:
+        mode_txt = "merged"
+
+    ns = f"{_cache_namespace()}::{mode_txt}"
     now = time.time()
-    cached_ts = float(_INDEX_CACHE.get("ts", 0.0) or 0.0)
-    cached_data = _INDEX_CACHE.get("data", [])
+    cached_entry = _INDEX_CACHE_BY_NS.get(ns, {})
+    cached_ts = float(cached_entry.get("ts", 0.0) or 0.0)
+    cached_data = cached_entry.get("data", [])
     if (now - cached_ts) <= _INDEX_CACHE_TTL_SECONDS and isinstance(cached_data, list):
         return [r for r in cached_data if isinstance(r, dict)]
 
+    user_prefix = _request_user_prefix()
+    include_global = mode_txt in {"merged", "global_only"}
+    include_user = bool(user_prefix) and mode_txt in {"merged", "current_only"}
+
     out: List[dict] = []
+
+    def _scope_pairs() -> List[tuple[str, str]]:
+        pairs: List[tuple[str, str]] = []
+        if include_global:
+            pairs.append(("", "global"))
+        if include_user:
+            pairs.append((user_prefix, "user"))
+        return pairs
+
     if USE_NEW_LAYOUT:
-        new_doc_10k = _load_new_layout_index_doc()
-        new_doc_10q = _load_new_layout_10q_index_doc()
-        out = _flatten_new_layout_index(new_doc_10k) + _flatten_new_layout_index(new_doc_10q)
+        for prefix, scope_name in _scope_pairs():
+            new_doc_10k = _load_new_layout_index_doc(prefix=prefix)
+            new_doc_10q = _load_new_layout_10q_index_doc(prefix=prefix)
+            out.extend(_flatten_new_layout_index(new_doc_10k, source_scope=scope_name))
+            out.extend(_flatten_new_layout_index(new_doc_10q, source_scope=scope_name))
         # De-dupe by record_id in case of accidental overlap during migration.
         deduped: Dict[str, dict] = {}
         for rec in out:
@@ -698,6 +864,12 @@ def _load_index() -> List[dict]:
             if not isinstance(prev, dict):
                 deduped[rid] = rec
                 continue
+            prev_scope = str(prev.get("_source_scope", "global") or "global")
+            curr_scope = str(rec.get("_source_scope", "global") or "global")
+            if prev_scope != curr_scope:
+                if curr_scope == "user":
+                    deduped[rid] = rec
+                continue
             prev_ts = str(prev.get("created_at", "") or "")
             curr_ts = str(rec.get("created_at", "") or "")
             if curr_ts > prev_ts:
@@ -707,24 +879,21 @@ def _load_index() -> List[dict]:
             # Soft fallback — if the new index hasn't been published yet
             # we still want the API to surface the legacy data instead
             # of an empty list.
-            raw = _json_from_bytes(_read_s3_bytes(INDEX_KEY), [])
-            if isinstance(raw, list):
-                out = [r for r in raw if isinstance(r, dict)]
-            elif isinstance(raw, dict):
-                candidates = raw.get("items")
-                if isinstance(candidates, list):
-                    out = [r for r in candidates if isinstance(r, dict)]
+            for prefix, scope_name in _scope_pairs():
+                rows = _load_legacy_index_for_prefix(prefix)
+                for row in rows:
+                    row_copy = dict(row)
+                    row_copy.setdefault("_source_scope", scope_name)
+                    out.append(row_copy)
     else:
-        raw = _json_from_bytes(_read_s3_bytes(INDEX_KEY), [])
-        if isinstance(raw, list):
-            out = [r for r in raw if isinstance(r, dict)]
-        elif isinstance(raw, dict):
-            candidates = raw.get("items")
-            if isinstance(candidates, list):
-                out = [r for r in candidates if isinstance(r, dict)]
+        for prefix, scope_name in _scope_pairs():
+            rows = _load_legacy_index_for_prefix(prefix)
+            for row in rows:
+                row_copy = dict(row)
+                row_copy.setdefault("_source_scope", scope_name)
+                out.append(row_copy)
 
-    _INDEX_CACHE["ts"] = now
-    _INDEX_CACHE["data"] = out
+    _INDEX_CACHE_BY_NS[ns] = {"ts": now, "data": out}
     return out
 
 
@@ -732,7 +901,8 @@ def _load_result(record_id: str) -> Optional[dict]:
     rid = str(record_id or "").strip()
     if not rid:
         return None
-    cached = _RESULT_CACHE.get(rid)
+    cache_key = _namespaced_result_cache_key(rid)
+    cached = _RESULT_CACHE.get(cache_key)
     now = time.time()
     if isinstance(cached, dict):
         ts = float(cached.get("ts", 0.0) or 0.0)
@@ -757,10 +927,13 @@ def _load_result(record_id: str) -> Optional[dict]:
         payload = _json_from_bytes(_read_s3_bytes(json_key), None)
 
     if not isinstance(payload, dict):
-        payload = _json_from_bytes(_read_s3_bytes(f"{RESULTS_PREFIX}/{rid}.json"), None)
+        for key in _read_scope_keys_for(f"{RESULTS_PREFIX}/{rid}.json", prefer_user=True):
+            payload = _json_from_bytes(_read_s3_bytes(key), None)
+            if isinstance(payload, dict):
+                break
 
     if isinstance(payload, dict):
-        _RESULT_CACHE[rid] = {"ts": now, "data": payload}
+        _RESULT_CACHE[cache_key] = {"ts": now, "data": payload}
         if len(_RESULT_CACHE) > _RESULT_CACHE_MAX_ENTRIES:
             oldest_key = min(_RESULT_CACHE.items(), key=lambda kv: float(kv[1].get("ts", 0.0) or 0.0))[0]
             _RESULT_CACHE.pop(oldest_key, None)
@@ -768,19 +941,20 @@ def _load_result(record_id: str) -> Optional[dict]:
 
 
 def _load_company_ticker_map() -> Dict[str, str]:
+    ns = _cache_namespace()
     now = time.time()
-    cached_ts = float(_TICKER_MAP_CACHE.get("ts", 0.0) or 0.0)
-    cached_data = _TICKER_MAP_CACHE.get("data", {})
+    cached_entry = _TICKER_MAP_CACHE_BY_NS.get(ns, {})
+    cached_ts = float(cached_entry.get("ts", 0.0) or 0.0)
+    cached_data = cached_entry.get("data", {})
     if (now - cached_ts) <= _TICKER_MAP_CACHE_TTL_SECONDS and isinstance(cached_data, dict):
         return {str(k): str(v) for k, v in cached_data.items()}
 
     out: Dict[str, str] = {}
+    user_prefix = _request_user_prefix()
 
-    # In the new layout the ticker map is implicit in 10k_filings/index.json
-    # (each company block carries `company` + `ticker`). Use it as the
-    # primary source so we don't need to maintain a parallel JSON file.
-    if USE_NEW_LAYOUT:
-        new_doc = _load_new_layout_index_doc()
+    def _merge_from_new_index(prefix: str = "") -> None:
+        nonlocal out
+        new_doc = _load_new_layout_index_doc(prefix=prefix)
         for ind in (new_doc.get("industries", {}) or {}).values():
             if not isinstance(ind, dict):
                 continue
@@ -792,8 +966,16 @@ def _load_company_ticker_map() -> Dict[str, str]:
                 if c and t:
                     out[c] = t
 
-    if not out:
-        raw = _json_from_bytes(_read_s3_bytes(TICKER_MAP_KEY), {})
+    # In the new layout the ticker map is implicit in 10k_filings/index.json
+    # (each company block carries `company` + `ticker`). Use it as the
+    # primary source so we don't need to maintain a parallel JSON file.
+    if USE_NEW_LAYOUT:
+        _merge_from_new_index("")
+        if user_prefix:
+            _merge_from_new_index(user_prefix)
+
+    for key in _read_scope_keys_for(TICKER_MAP_KEY):
+        raw = _json_from_bytes(_read_s3_bytes(key), {})
         if isinstance(raw, dict):
             for company, ticker in raw.items():
                 c = str(company or "").strip()
@@ -801,8 +983,7 @@ def _load_company_ticker_map() -> Dict[str, str]:
                 if c and t:
                     out[c] = t
 
-    _TICKER_MAP_CACHE["ts"] = now
-    _TICKER_MAP_CACHE["data"] = out
+    _TICKER_MAP_CACHE_BY_NS[ns] = {"ts": now, "data": out}
     return out
 
 
@@ -1043,12 +1224,27 @@ def _resolve_ticker_for_company(company: str, ticker_hint: str = "") -> dict:
 
 def _save_index(index: List[dict]) -> None:
     payload = json.dumps(index, indent=2, default=str, ensure_ascii=False).encode("utf-8")
-    _write_s3_bytes(INDEX_KEY, payload)
+    key = _scoped_storage_key(INDEX_KEY, prefix=_request_user_prefix())
+    _write_s3_bytes(key, payload)
 
 
 def _save_company_ticker_map(mapping: Dict[str, str]) -> None:
     payload = json.dumps(mapping, indent=2, ensure_ascii=False).encode("utf-8")
-    _write_s3_bytes(TICKER_MAP_KEY, payload)
+    key = _scoped_storage_key(TICKER_MAP_KEY, prefix=_request_user_prefix())
+    _write_s3_bytes(key, payload)
+
+
+def _load_company_ticker_map_current_only() -> Dict[str, str]:
+    key = _scoped_storage_key(TICKER_MAP_KEY, prefix=_request_user_prefix())
+    raw = _json_from_bytes(_read_s3_bytes(key), {})
+    out: Dict[str, str] = {}
+    if isinstance(raw, dict):
+        for company, ticker in raw.items():
+            c = str(company or "").strip()
+            t = str(ticker or "").strip().upper()
+            if c and t:
+                out[c] = t
+    return out
 
 
 def _upsert_company_ticker(company: str, ticker: str) -> None:
@@ -1056,7 +1252,7 @@ def _upsert_company_ticker(company: str, ticker: str) -> None:
     t = str(ticker or "").strip().upper()
     if not c or not t:
         return
-    mapping = _load_company_ticker_map()
+    mapping = _load_company_ticker_map_current_only()
     mapping[c] = t
     _save_company_ticker_map(mapping)
 
@@ -1134,10 +1330,11 @@ def _classified_to_csv(data: dict) -> str:
 
 def _save_table_result(company: str, year: int, filing_type: str, table_json: dict, csv_string: str = "") -> str:
     token = _table_record_token(company, year, filing_type)
-    _delete_s3_prefix(f"{TABLES_PREFIX}/{token}_")
+    user_prefix = _request_user_prefix()
+    _delete_s3_prefix(_scoped_storage_key(f"{TABLES_PREFIX}/{token}_", prefix=user_prefix))
 
     sid = uuid.uuid4().hex[:4]
-    base = f"{TABLES_PREFIX}/{token}_{sid}"
+    base = _scoped_storage_key(f"{TABLES_PREFIX}/{token}_{sid}", prefix=user_prefix)
     _write_s3_bytes(
         f"{base}_tables.json",
         json.dumps(table_json, indent=2, default=str, ensure_ascii=False).encode("utf-8"),
@@ -1149,19 +1346,28 @@ def _save_table_result(company: str, year: int, filing_type: str, table_json: di
 
 def _load_table_result(company: str, year: int, filing_type: str = "10-K") -> Optional[dict]:
     token = _table_record_token(company, year, filing_type)
-    prefix = f"{TABLES_PREFIX}/{token}_"
-    keys = [k for k in _list_s3_keys(prefix) if k.endswith("_tables.json")]
-    if not keys:
-        return None
-    keys.sort(reverse=True)
-    data = _read_s3_bytes(keys[0])
-    if not data:
-        return None
-    try:
-        payload = json.loads(data.decode("utf-8"))
-        return payload if isinstance(payload, dict) else None
-    except Exception:
-        return None
+    prefixes: List[str] = []
+    user_prefix = _request_user_prefix()
+    if user_prefix:
+        prefixes.append(user_prefix)
+    prefixes.append("")
+
+    for px in prefixes:
+        prefix = _scoped_storage_key(f"{TABLES_PREFIX}/{token}_", prefix=px)
+        keys = [k for k in _list_s3_keys(prefix) if k.endswith("_tables.json")]
+        if not keys:
+            continue
+        keys.sort(reverse=True)
+        data = _read_s3_bytes(keys[0])
+        if not data:
+            continue
+        try:
+            payload = json.loads(data.decode("utf-8"))
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            continue
+    return None
 
 
 def _extract_tables_for_pdf(
@@ -1223,7 +1429,8 @@ def _add_record(
     year = int(year or 0)
     ext = "pdf" if str(file_ext or "").strip().lower() == "pdf" else "html"
 
-    index = _load_index()
+    user_prefix = _request_user_prefix()
+    index = _load_index(mode="current_only")
     dupes = [
         r
         for r in index
@@ -1239,17 +1446,20 @@ def _add_record(
         old_id = str(d.get("record_id", "") or "")
         if not old_id:
             continue
+        old_file_key = str(d.get("file_key", "") or "").strip()
+        if old_file_key:
+            _delete_s3_key(old_file_key)
         old_ext = "pdf" if str(d.get("file_ext", "html")).lower() == "pdf" else "html"
-        if old_ext == "pdf":
-            _delete_s3_key(f"{PDF_PREFIX}/{old_id}.{old_ext}")
-        else:
+        if (not old_file_key) and old_ext == "pdf":
+            _delete_s3_key(_scoped_storage_key(f"{PDF_PREFIX}/{old_id}.{old_ext}", prefix=user_prefix))
+        elif not old_file_key:
             old_ft = str(d.get("filing_type", "") or filing_type)
             for key in _legacy_html_keys_for_record(old_id, old_ft):
-                _delete_s3_key(key)
+                _delete_s3_key(_scoped_storage_key(key, prefix=user_prefix))
         old_result_key = str(d.get("result_key", "") or "").strip()
         if old_result_key:
             _delete_s3_key(old_result_key)
-        _delete_s3_key(f"{RESULTS_PREFIX}/{old_id}.json")
+        _delete_s3_key(_scoped_storage_key(f"{RESULTS_PREFIX}/{old_id}.json", prefix=user_prefix))
 
     index = [
         r
@@ -1293,9 +1503,18 @@ def _add_record(
             ft_token = _filing_type_token(filing_type)
             quarter_suffix = f"_Q{filing_quarter}" if filing_type == "10-Q" and filing_quarter > 0 else ""
             base_prefix = NEW_10Q_FILINGS_PREFIX if filing_type == "10-Q" else NEW_FILINGS_PREFIX
-            index_key = NEW_10Q_INDEX_KEY if filing_type == "10-Q" else NEW_INDEX_KEY
-            html_key = f"{base_prefix}/{industry}/{company_dir}/{year}_{ft_token}{quarter_suffix}.html"
-            json_key = f"{base_prefix}/{industry}/{company_dir}/{year}_{ft_token}{quarter_suffix}_risks.json"
+            index_key = _scoped_storage_key(
+                NEW_10Q_INDEX_KEY if filing_type == "10-Q" else NEW_INDEX_KEY,
+                prefix=user_prefix,
+            )
+            html_key = _scoped_storage_key(
+                f"{base_prefix}/{industry}/{company_dir}/{year}_{ft_token}{quarter_suffix}.html",
+                prefix=user_prefix,
+            )
+            json_key = _scoped_storage_key(
+                f"{base_prefix}/{industry}/{company_dir}/{year}_{ft_token}{quarter_suffix}_risks.json",
+                prefix=user_prefix,
+            )
             _write_s3_bytes(html_key, file_bytes)
             _write_s3_bytes(
                 json_key,
@@ -1303,7 +1522,11 @@ def _add_record(
             )
 
             rid = _new_layout_record_id(company_dir, year, filing_type, filing_quarter)
-            new_index_doc = _load_new_layout_10q_index_doc() if filing_type == "10-Q" else _load_new_layout_index_doc()
+            new_index_doc = (
+                _load_new_layout_10q_index_doc(prefix=user_prefix)
+                if filing_type == "10-Q"
+                else _load_new_layout_index_doc(prefix=user_prefix)
+            )
             if not isinstance(new_index_doc, dict) or not new_index_doc:
                 new_index_doc = {
                     "version": 1,
@@ -1346,26 +1569,35 @@ def _add_record(
     quarter_token = f"_Q{filing_quarter}" if filing_type == "10-Q" and filing_quarter > 0 else ""
     rid = f"{safe}_{year}_{_sanitize_filing_type(filing_type)}{quarter_token}_{sid}"
     if ext == "pdf":
-        data_key = f"{PDF_PREFIX}/{rid}.{ext}"
-        result_key = f"{RESULTS_PREFIX}/{rid}.json"
+        data_key = _scoped_storage_key(f"{PDF_PREFIX}/{rid}.{ext}", prefix=user_prefix)
+        result_key = _scoped_storage_key(f"{RESULTS_PREFIX}/{rid}.json", prefix=user_prefix)
     else:
         if filing_type == "10-Q":
             company_dir = _new_layout_company_dir(company, ticker) or _sanitize_company(company)
-            data_key = _legacy_10q_html_key(
-                industry=industry,
-                company_dir=company_dir,
-                year=year,
-                filing_quarter=filing_quarter,
+            data_key = _scoped_storage_key(
+                _legacy_10q_html_key(
+                    industry=industry,
+                    company_dir=company_dir,
+                    year=year,
+                    filing_quarter=filing_quarter,
+                ),
+                prefix=user_prefix,
             )
-            result_key = _legacy_10q_result_key(
-                industry=industry,
-                company_dir=company_dir,
-                year=year,
-                filing_quarter=filing_quarter,
+            result_key = _scoped_storage_key(
+                _legacy_10q_result_key(
+                    industry=industry,
+                    company_dir=company_dir,
+                    year=year,
+                    filing_quarter=filing_quarter,
+                ),
+                prefix=user_prefix,
             )
         else:
-            data_key = f"{_legacy_html_prefix_for_filing_type(filing_type)}/{rid}.{ext}"
-            result_key = f"{RESULTS_PREFIX}/{rid}.json"
+            data_key = _scoped_storage_key(
+                f"{_legacy_html_prefix_for_filing_type(filing_type)}/{rid}.{ext}",
+                prefix=user_prefix,
+            )
+            result_key = _scoped_storage_key(f"{RESULTS_PREFIX}/{rid}.json", prefix=user_prefix)
 
     _write_s3_bytes(data_key, file_bytes)
     _write_s3_bytes(
@@ -1403,9 +1635,16 @@ def _new_layout_company_dir(company: str, ticker: str) -> str:
     ticker = _normalize_ticker(ticker)
     if not company:
         return ""
-    new_doc = _load_new_layout_index_doc()
-    industries = new_doc.get("industries", {}) if isinstance(new_doc, dict) else {}
-    if isinstance(industries, dict):
+    prefixes: List[str] = []
+    user_prefix = _request_user_prefix()
+    if user_prefix:
+        prefixes.append(user_prefix)
+    prefixes.append("")
+    for px in prefixes:
+        new_doc = _load_new_layout_index_doc(prefix=px)
+        industries = new_doc.get("industries", {}) if isinstance(new_doc, dict) else {}
+        if not isinstance(industries, dict):
+            continue
         for ind in industries.values():
             if not isinstance(ind, dict):
                 continue
@@ -1487,24 +1726,34 @@ def _upsert_new_layout_index(
 
 
 def _load_agent_reports() -> List[dict]:
+    ns = _cache_namespace()
     now = time.time()
-    cached_ts = float(_AGENT_REPORTS_CACHE.get("ts", 0.0) or 0.0)
-    cached_data = _AGENT_REPORTS_CACHE.get("data", [])
+    cached_key = f"{ns}::data"
+    cached_ts = float(_AGENT_REPORTS_CACHE.get(f"{ns}::ts", 0.0) or 0.0)
+    cached_data = _AGENT_REPORTS_CACHE.get(cached_key, [])
     if (now - cached_ts) <= _AGENT_REPORTS_CACHE_TTL_SECONDS and isinstance(cached_data, list):
         return [r for r in cached_data if isinstance(r, dict)]
 
     reports: List[dict] = []
     try:
-        for key in _list_s3_keys(f"{AGENT_PREFIX}/"):
-            if not key.endswith(".json"):
-                continue
-            payload = _json_from_bytes(_read_s3_bytes(key), None)
-            if isinstance(payload, dict):
-                reports.append(payload)
+        prefixes: List[str] = []
+        user_prefix = _request_user_prefix()
+        if user_prefix:
+            prefixes.append(user_prefix)
+        prefixes.append("")
+        seen_keys: Set[str] = set()
+        for px in prefixes:
+            for key in _list_s3_keys(_scoped_storage_key(f"{AGENT_PREFIX}/", prefix=px)):
+                if key in seen_keys or not key.endswith(".json"):
+                    continue
+                seen_keys.add(key)
+                payload = _json_from_bytes(_read_s3_bytes(key), None)
+                if isinstance(payload, dict):
+                    reports.append(payload)
     except Exception:
         return []
-    _AGENT_REPORTS_CACHE["ts"] = now
-    _AGENT_REPORTS_CACHE["data"] = reports
+    _AGENT_REPORTS_CACHE[f"{ns}::ts"] = now
+    _AGENT_REPORTS_CACHE[cached_key] = reports
     return reports
 
 
@@ -2005,9 +2254,12 @@ def _append_agent_report_file(record: dict, report: dict) -> None:
         "record_id": record_id,
         "saved_at": datetime.now(timezone.utc).isoformat(),
     }
-    key = (
-        f"{AGENT_PREFIX}/"
-        f"{_sanitize_company(company)}_{year}_{_sanitize_filing_type(filing_type)}_{record_id}_{uuid.uuid4().hex[:6]}.json"
+    key = _scoped_storage_key(
+        (
+            f"{AGENT_PREFIX}/"
+            f"{_sanitize_company(company)}_{year}_{_sanitize_filing_type(filing_type)}_{record_id}_{uuid.uuid4().hex[:6]}.json"
+        ),
+        prefix=_request_user_prefix(),
     )
     _write_s3_bytes(key, json.dumps(payload, indent=2, default=str, ensure_ascii=False).encode("utf-8"))
 
@@ -2801,14 +3053,15 @@ def _dashboard_summary() -> dict:
 
 
 def _dashboard_summary_cached(force: bool = False) -> dict:
+    ns = _cache_namespace()
     now = time.time()
-    cached_ts = float(_DASHBOARD_SUMMARY_CACHE.get("ts", 0.0) or 0.0)
-    cached_data = _DASHBOARD_SUMMARY_CACHE.get("data")
+    cached_entry = _DASHBOARD_SUMMARY_CACHE_BY_NS.get(ns, {})
+    cached_ts = float(cached_entry.get("ts", 0.0) or 0.0)
+    cached_data = cached_entry.get("data")
     if (not force) and isinstance(cached_data, dict) and (now - cached_ts) <= _DASHBOARD_SUMMARY_CACHE_TTL_SECONDS:
         return cached_data
     fresh = _dashboard_summary()
-    _DASHBOARD_SUMMARY_CACHE["ts"] = now
-    _DASHBOARD_SUMMARY_CACHE["data"] = fresh
+    _DASHBOARD_SUMMARY_CACHE_BY_NS[ns] = {"ts": now, "data": fresh}
     return fresh
 
 
@@ -2820,8 +3073,10 @@ def _records_list_cache_key(
     year: str,
     include_result: bool,
 ) -> str:
+    ns = _cache_namespace()
     return "|".join(
         [
+            ns,
             str(company or "").strip().lower(),
             str(industry or "").strip().lower(),
             str(filing_type or "").strip().lower(),
@@ -5430,6 +5685,22 @@ def handler(event, context=None):
 
 
 class _RequestHandler(BaseHTTPRequestHandler):
+    def _resolve_request_user(self) -> Optional[dict]:
+        user = _request_user_from_headers(self.headers)
+        if not isinstance(user, dict):
+            return None
+        user_id = _sanitize_user_id(user.get("user_id") or user.get("sub") or user.get("email"))
+        if not user_id:
+            return None
+        return {
+            "authenticated": True,
+            "user_id": user_id,
+            "sub": str(user.get("sub", "") or user_id).strip(),
+            "email": str(user.get("email", "") or "").strip(),
+            "name": str(user.get("name", "") or user.get("email", "") or user_id).strip(),
+            "source": str(user.get("source", "") or "").strip(),
+        }
+
     def _send_json(self, status_code: int, payload: dict):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status_code)
@@ -5476,6 +5747,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query or "")
+        _set_request_user(self._resolve_request_user())
 
         try:
             if path in {"/", "/health", "/ping"}:
@@ -5498,6 +5770,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                         "version": "v1",
                         "endpoints": [
                             "/api/meta",
+                            "/api/me",
                             "/api/records",
                             "/api/records/{record_id}",
                             "/api/dashboard/summary",
@@ -5515,6 +5788,23 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "/api/compare (POST)",
                             "/invocations (POST)",
                         ],
+                    },
+                )
+                return
+
+            if path == "/api/me":
+                user = _get_request_user()
+                user_prefix = _request_user_prefix()
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "authenticated": bool(user),
+                        "user": user if isinstance(user, dict) else None,
+                        "storage": {
+                            "mode": "global_plus_user" if user_prefix else "global_only",
+                            "user_prefix": user_prefix,
+                        },
                     },
                 )
                 return
@@ -5664,10 +5954,13 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     "traceback": traceback.format_exc(),
                 },
             )
+        finally:
+            _clear_request_user()
 
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        _set_request_user(self._resolve_request_user())
 
         try:
             if path == "/invocations":
@@ -5964,6 +6257,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
             }
             print("[runtime] invocation failed", json.dumps(err, ensure_ascii=False))
             self._send_json(500, err)
+        finally:
+            _clear_request_user()
 
     def log_message(self, format, *args):
         return

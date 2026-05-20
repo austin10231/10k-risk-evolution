@@ -4,6 +4,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
 import { stashPendingChat } from '../lib/pendingChat'
+import { get } from '../lib/api'
 import brandIcon from '../assets/logo-icon.svg'
 
 const WORKSPACE_TABS = [
@@ -247,6 +248,7 @@ export default function AppShell({ children }) {
   const [dockInlineStyle, setDockInlineStyle] = useState(null)
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [attachError, setAttachError] = useState('')
+  const [viewer, setViewer] = useState({ loading: true, authenticated: false, user: null })
   const fileInputRef = useRef(null)
   const attachMenuRef = useRef(null)
   const attachBtnRef = useRef(null)
@@ -408,6 +410,26 @@ export default function AppShell({ children }) {
       document.body.classList.toggle('rl-dark-mode', uiTheme === 'dark')
     } catch {}
   }, [uiTheme])
+
+  useEffect(() => {
+    let alive = true
+    get('/api/me', { timeoutMs: 9000 })
+      .then((res) => {
+        if (!alive) return
+        setViewer({
+          loading: false,
+          authenticated: Boolean(res?.authenticated),
+          user: res?.user && typeof res.user === 'object' ? res.user : null,
+        })
+      })
+      .catch(() => {
+        if (!alive) return
+        setViewer({ loading: false, authenticated: false, user: null })
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -690,6 +712,20 @@ export default function AppShell({ children }) {
     window.location.assign('https://risklens.pages.dev/')
   }
 
+  const viewerDisplay = useMemo(() => {
+    if (viewer.loading) return { name: 'Loading...', detail: '', initials: '…' }
+    if (!viewer.authenticated || !viewer.user) return { name: 'Guest', detail: 'No auth identity', initials: 'G' }
+    const name = String(viewer.user.name || viewer.user.email || viewer.user.user_id || 'User').trim() || 'User'
+    const detail = String(viewer.user.email || viewer.user.user_id || '').trim()
+    const initials = name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() || '')
+      .join('') || 'U'
+    return { name, detail, initials }
+  }, [viewer])
+
   const SidebarContent = () => (
     <>
       <div className="rl-sidebar-scroll">
@@ -809,9 +845,18 @@ export default function AppShell({ children }) {
       </div>
 
       <div className="rl-sidebar-footer">
-        <div className="rl-sidebar-footer-copy">
-          <div className="dot" />
-          <p>© 2026 SCU · AWS Team 1</p>
+        <div className="rl-sidebar-footer-left">
+          <div className="rl-sidebar-footer-copy">
+            <div className="dot" />
+            <p>© 2026 SCU · AWS Team 1</p>
+          </div>
+          <div className="rl-sidebar-user" title={viewerDisplay.detail || viewerDisplay.name}>
+            <span className="rl-sidebar-user-avatar">{viewerDisplay.initials}</span>
+            <div className="rl-sidebar-user-copy">
+              <strong>{viewerDisplay.name}</strong>
+              {viewerDisplay.detail ? <small>{viewerDisplay.detail}</small> : null}
+            </div>
+          </div>
         </div>
         <button
           className="rl-footer-landing-btn"

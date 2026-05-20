@@ -547,6 +547,10 @@ select.input {
   backdrop-filter: blur(6px);
 }
 
+.rl-sidebar-footer-left {
+  @apply min-w-0 flex flex-col gap-2;
+}
+
 .rl-sidebar-footer-copy {
   @apply flex items-center gap-2 min-w-0;
 }
@@ -557,6 +561,26 @@ select.input {
 
 .rl-sidebar-footer p {
   @apply m-0 text-[0.7rem] text-slate-300;
+}
+
+.rl-sidebar-user {
+  @apply flex min-w-0 items-center gap-2;
+}
+
+.rl-sidebar-user-avatar {
+  @apply inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border border-slate-300/35 bg-slate-800/45 text-[0.62rem] font-semibold text-slate-100;
+}
+
+.rl-sidebar-user-copy {
+  @apply min-w-0 flex flex-col leading-tight;
+}
+
+.rl-sidebar-user-copy strong {
+  @apply truncate text-[0.68rem] font-semibold text-slate-100;
+}
+
+.rl-sidebar-user-copy small {
+  @apply truncate text-[0.62rem] text-slate-300/80;
 }
 
 .rl-footer-landing-btn {
@@ -586,7 +610,8 @@ select.input {
 .rl-sidebar.collapsed .rl-chat-nav-block,
 .rl-sidebar.collapsed .rl-nav-group-label,
 .rl-sidebar.collapsed .rl-nav-label,
-.rl-sidebar.collapsed .rl-sidebar-footer p {
+.rl-sidebar.collapsed .rl-sidebar-footer p,
+.rl-sidebar.collapsed .rl-sidebar-user-copy {
   display: none;
 }
 

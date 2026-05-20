@@ -1,5 +1,33 @@
 const rawBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
 export const API_BASE_URL = rawBase.replace(/\/$/, '')
+const AUTH_TOKEN_KEYS = ['risklens_id_token', 'id_token', 'access_token', 'token']
+
+function captureAuthTokenFromLocation() {
+  if (typeof window === 'undefined') return
+  try {
+    const hash = String(window.location.hash || '')
+    const rawQuery = hash.startsWith('#') ? hash.slice(1) : ''
+    if (!rawQuery.includes('=')) return
+    const params = new URLSearchParams(rawQuery)
+    const idToken = String(params.get('id_token') || '').trim()
+    const accessToken = String(params.get('access_token') || '').trim()
+    const token = idToken || accessToken
+    if (!token) return
+    window.localStorage.setItem('risklens_id_token', token)
+  } catch {}
+}
+
+function resolveAuthToken() {
+  if (typeof window === 'undefined') return ''
+  captureAuthTokenFromLocation()
+  for (const key of AUTH_TOKEN_KEYS) {
+    const val = String(window.localStorage.getItem(key) || '').trim()
+    if (val) return val
+    const sessionVal = String(window.sessionStorage.getItem(key) || '').trim()
+    if (sessionVal) return sessionVal
+  }
+  return ''
+}
 
 async function request(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase()
@@ -10,6 +38,10 @@ async function request(path, options = {}) {
   const baseHeaders = { ...(options.headers || {}) }
   if (method !== 'GET' && method !== 'HEAD') {
     baseHeaders['Content-Type'] = baseHeaders['Content-Type'] || 'application/json'
+  }
+  const token = resolveAuthToken()
+  if (token && !baseHeaders.Authorization) {
+    baseHeaders.Authorization = `Bearer ${token}`
   }
 
   const controller = timeoutMs > 0 ? new AbortController() : null
