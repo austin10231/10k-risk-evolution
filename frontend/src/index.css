@@ -572,16 +572,20 @@ select.input {
 }
 
 .rl-sidebar-user-trigger {
-  @apply rounded-md border border-transparent px-0 py-0 text-left transition-colors;
+  @apply rounded-md border border-transparent px-1.5 py-1 text-left transition-colors;
   background: transparent;
 }
 
 .rl-sidebar-user-trigger:hover {
-  @apply border-cyan-200/40;
+  background: rgba(8, 47, 73, 0.28);
+}
+
+.rl-sidebar-user-trigger:focus-visible {
+  @apply outline-none ring-1 ring-cyan-200/45;
 }
 
 .rl-sidebar-user-avatar {
-  @apply inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border border-slate-300/35 bg-slate-800/45 text-[0.62rem] font-semibold text-slate-100;
+  @apply inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-slate-300/35 bg-slate-800/45 text-[0.66rem] font-semibold text-slate-100;
 }
 
 .rl-sidebar-user-copy {
@@ -589,7 +593,7 @@ select.input {
 }
 
 .rl-sidebar-user-copy strong {
-  @apply truncate text-[0.68rem] font-semibold text-slate-100;
+  @apply truncate text-[0.78rem] font-semibold text-slate-100;
 }
 
 .rl-sidebar-user-copy small {
@@ -605,12 +609,12 @@ select.input {
 }
 
 .rl-auth-menu {
-  @apply absolute left-0 z-30 mt-2 w-28 rounded-md border border-slate-300/25 bg-slate-900/95 p-1 shadow-lg;
+  @apply absolute left-0 z-30 mt-2 w-36 rounded-md border border-slate-300/25 bg-slate-900/95 p-1.5 shadow-lg;
   bottom: calc(100% + 8px);
 }
 
 .rl-auth-menu-btn {
-  @apply inline-flex w-full items-center justify-center rounded-md border border-transparent px-2 py-1.5 text-[0.67rem] font-semibold text-slate-100 transition-all;
+  @apply inline-flex w-full items-center justify-center rounded-md border border-transparent px-3 py-2 text-[0.78rem] font-semibold text-slate-100 transition-all;
   background: transparent;
 }
 

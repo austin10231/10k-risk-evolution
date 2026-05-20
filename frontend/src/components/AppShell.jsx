@@ -905,7 +905,6 @@ export default function AppShell({ children }) {
             <button
               className="rl-sidebar-user rl-sidebar-user-trigger"
               onClick={() => setAuthMenuOpen((open) => !open)}
-              title={viewerDisplay.name}
               aria-label={i18n.authMenu}
             >
               <span className="rl-sidebar-user-avatar">{viewerDisplay.initials}</span>
