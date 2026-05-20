@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import ssl
 import sys
 import time
@@ -14,6 +17,7 @@ import traceback
 import uuid
 import binascii
 from datetime import datetime, timedelta, timezone
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, List, Optional, Set
 from urllib.error import HTTPError, URLError
@@ -130,6 +134,7 @@ _FORCED_INDUSTRY_BY_TICKER: Dict[str, str] = {
     "AAPL": "Technology",
 }
 _REQUEST_CONTEXT = threading.local()
+_RUNTIME_SESSION_SECRET = base64.urlsafe_b64encode(os.urandom(32)).decode("ascii")
 
 
 def _set_request_user(user: Optional[dict]) -> None:
@@ -318,6 +323,407 @@ def _request_user_from_headers(headers) -> Optional[dict]:
 
 def _env(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or default)
+
+
+def _parse_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _normalize_url_base(raw: str) -> str:
+    txt = str(raw or "").strip()
+    if not txt:
+        return ""
+    if not txt.startswith("http://") and not txt.startswith("https://"):
+        txt = f"https://{txt}"
+    return txt.rstrip("/")
+
+
+def _infer_request_base_url(request_headers) -> str:
+    host_raw = ""
+    try:
+        host_raw = str(request_headers.get("x-forwarded-host", "") or request_headers.get("host", "") or "")
+    except Exception:
+        host_raw = ""
+    host = host_raw.split(",", 1)[0].strip()
+    if not host:
+        return ""
+    proto_raw = ""
+    try:
+        proto_raw = str(request_headers.get("x-forwarded-proto", "") or "").strip().lower()
+    except Exception:
+        proto_raw = ""
+    proto = proto_raw.split(",", 1)[0].strip() if proto_raw else ""
+    if proto not in {"http", "https"}:
+        proto = "https"
+    return f"{proto}://{host}"
+
+
+def _auth_app_base_url() -> str:
+    return _normalize_url_base(_env("APP_BASE_URL", "https://app.risklensai.org"))
+
+
+def _auth_api_base_url(request_headers) -> str:
+    explicit = _normalize_url_base(_env("PUBLIC_API_BASE_URL", ""))
+    if explicit:
+        return explicit
+    inferred = _normalize_url_base(_infer_request_base_url(request_headers))
+    return inferred
+
+
+def _auth_cognito_domain() -> str:
+    return _normalize_url_base(_env("COGNITO_DOMAIN", ""))
+
+
+def _auth_client_id() -> str:
+    return str(_env("COGNITO_CLIENT_ID", "") or "").strip()
+
+
+def _auth_client_secret() -> str:
+    return str(_env("COGNITO_CLIENT_SECRET", "") or "").strip()
+
+
+def _auth_scope() -> str:
+    scope = str(_env("COGNITO_SCOPE", "openid email profile") or "").strip()
+    return scope or "openid email profile"
+
+
+def _auth_redirect_uri(request_headers) -> str:
+    explicit = _normalize_url_base(_env("COGNITO_REDIRECT_URI", ""))
+    if explicit:
+        return explicit
+    api_base = _auth_api_base_url(request_headers)
+    if not api_base:
+        return ""
+    return f"{api_base}/api/auth/callback"
+
+
+def _auth_logout_uri(request_headers, return_to: str = "") -> str:
+    txt = str(return_to or "").strip()
+    if txt:
+        return txt
+    explicit = _normalize_url_base(_env("COGNITO_LOGOUT_REDIRECT_URI", ""))
+    if explicit:
+        return explicit
+    return f"{_auth_app_base_url()}/dashboard"
+
+
+def _auth_config(request_headers) -> dict:
+    domain = _auth_cognito_domain()
+    client_id = _auth_client_id()
+    redirect_uri = _auth_redirect_uri(request_headers)
+    return {
+        "enabled": bool(domain and client_id and redirect_uri),
+        "domain": domain,
+        "client_id": client_id,
+        "client_secret": _auth_client_secret(),
+        "redirect_uri": redirect_uri,
+        "scope": _auth_scope(),
+    }
+
+
+def _auth_signing_secret_bytes() -> bytes:
+    configured = str(_env("RISKLENS_SESSION_SECRET", "") or "").strip()
+    if configured:
+        return configured.encode("utf-8")
+    return _RUNTIME_SESSION_SECRET.encode("utf-8")
+
+
+def _auth_b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _auth_b64url_decode(raw: str) -> bytes:
+    txt = str(raw or "").strip()
+    if not txt:
+        return b""
+    padding = "=" * (-len(txt) % 4)
+    return base64.urlsafe_b64decode((txt + padding).encode("ascii"))
+
+
+def _auth_sign_text(payload_b64: str) -> str:
+    digest = hmac.new(
+        _auth_signing_secret_bytes(),
+        str(payload_b64 or "").encode("ascii", errors="ignore"),
+        hashlib.sha256,
+    ).digest()
+    return _auth_b64url_encode(digest)
+
+
+def _auth_encode_signed_payload(payload: dict) -> str:
+    safe = payload if isinstance(payload, dict) else {}
+    raw = json.dumps(safe, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    body_b64 = _auth_b64url_encode(raw)
+    sig = _auth_sign_text(body_b64)
+    return f"{body_b64}.{sig}"
+
+
+def _auth_decode_signed_payload(token: str) -> Optional[dict]:
+    txt = str(token or "").strip()
+    if "." not in txt:
+        return None
+    body_b64, sig = txt.split(".", 1)
+    expected = _auth_sign_text(body_b64)
+    if not hmac.compare_digest(expected, sig):
+        return None
+    try:
+        raw = _auth_b64url_decode(body_b64)
+        obj = json.loads(raw.decode("utf-8", errors="ignore"))
+    except Exception:
+        return None
+    if isinstance(obj, dict):
+        return obj
+    return None
+
+
+def _auth_cookie_secure() -> bool:
+    raw = str(_env("AUTH_COOKIE_SECURE", "1") or "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _auth_cookie_samesite() -> str:
+    raw = str(_env("AUTH_COOKIE_SAMESITE", "None") or "None").strip().lower()
+    if raw in {"lax", "strict", "none"}:
+        return raw.capitalize()
+    return "None"
+
+
+def _auth_cookie_domain() -> str:
+    return str(_env("AUTH_COOKIE_DOMAIN", "") or "").strip()
+
+
+def _auth_session_cookie_name() -> str:
+    return str(_env("AUTH_SESSION_COOKIE_NAME", "risklens_session") or "risklens_session").strip() or "risklens_session"
+
+
+def _auth_flow_cookie_name() -> str:
+    return str(_env("AUTH_FLOW_COOKIE_NAME", "risklens_auth_flow") or "risklens_auth_flow").strip() or "risklens_auth_flow"
+
+
+def _auth_flow_ttl_seconds() -> int:
+    return max(120, min(1800, _parse_int(_env("AUTH_FLOW_TTL_SECONDS", "900"), 900)))
+
+
+def _auth_session_ttl_seconds() -> int:
+    return max(900, min(60 * 60 * 24 * 14, _parse_int(_env("AUTH_SESSION_TTL_SECONDS", "28800"), 28800)))
+
+
+def _parse_cookies_from_headers(request_headers) -> Dict[str, str]:
+    raw = ""
+    try:
+        raw = str(request_headers.get("Cookie", "") or "")
+    except Exception:
+        raw = ""
+    if not raw:
+        return {}
+    cookie = SimpleCookie()
+    try:
+        cookie.load(raw)
+    except Exception:
+        return {}
+    out: Dict[str, str] = {}
+    for key, morsel in cookie.items():
+        try:
+            out[str(key)] = str(morsel.value or "")
+        except Exception:
+            continue
+    return out
+
+
+def _build_set_cookie_header(
+    name: str,
+    value: str,
+    *,
+    path: str = "/",
+    max_age: Optional[int] = None,
+    http_only: bool = True,
+) -> str:
+    cookie = SimpleCookie()
+    cookie[name] = str(value or "")
+    morsel = cookie[name]
+    morsel["path"] = path or "/"
+    if max_age is not None:
+        ttl = max(0, int(max_age))
+        morsel["max-age"] = str(ttl)
+        if ttl == 0:
+            morsel["expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
+    domain = _auth_cookie_domain()
+    if domain:
+        morsel["domain"] = domain
+    secure = _auth_cookie_secure()
+    same_site = _auth_cookie_samesite()
+    if same_site == "None" and not secure:
+        secure = True
+    if secure:
+        morsel["secure"] = True
+    if http_only:
+        morsel["httponly"] = True
+    morsel["samesite"] = same_site
+    return morsel.OutputString()
+
+
+def _sanitize_return_to_url(raw: str, request_headers) -> str:
+    default_url = f"{_auth_app_base_url()}/dashboard"
+    txt = str(raw or "").strip()
+    if not txt:
+        return default_url
+    if txt.startswith("/"):
+        return f"{_auth_app_base_url()}{txt}"
+    parsed = urlparse(txt)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return default_url
+
+    allowlist_raw = str(_env("AUTH_RETURN_TO_ALLOWLIST", "") or "").strip()
+    allowed_hosts: Set[str] = set()
+    for entry in (_auth_app_base_url(), _auth_api_base_url(request_headers)):
+        parsed_entry = urlparse(entry)
+        if parsed_entry.netloc:
+            allowed_hosts.add(parsed_entry.netloc.lower())
+    if allowlist_raw:
+        for part in allowlist_raw.split(","):
+            v = _normalize_url_base(part)
+            parsed_v = urlparse(v)
+            if parsed_v.netloc:
+                allowed_hosts.add(parsed_v.netloc.lower())
+    if parsed.netloc.lower() in allowed_hosts:
+        return txt
+    return default_url
+
+
+def _append_url_query(url: str, **params: str) -> str:
+    base = str(url or "").strip()
+    if not base:
+        return ""
+    parsed = urlparse(base)
+    current = parse_qs(parsed.query or "", keep_blank_values=True)
+    for key, value in params.items():
+        if value is None:
+            continue
+        current[str(key)] = [str(value)]
+    new_query = urlencode([(k, v) for k, vals in current.items() for v in vals])
+    return parsed._replace(query=new_query).geturl()
+
+
+def _pkce_code_verifier() -> str:
+    # RFC 7636: between 43 and 128 chars from unreserved set.
+    return _auth_b64url_encode(os.urandom(64))
+
+
+def _pkce_code_challenge(code_verifier: str) -> str:
+    digest = hashlib.sha256(str(code_verifier or "").encode("ascii", errors="ignore")).digest()
+    return _auth_b64url_encode(digest)
+
+
+def _http_json_request(
+    *,
+    url: str,
+    method: str,
+    headers: Optional[Dict[str, str]] = None,
+    body: Optional[bytes] = None,
+    timeout: int = 20,
+) -> tuple[Optional[dict], str]:
+    req = Request(
+        str(url or "").strip(),
+        data=body,
+        headers={
+            "User-Agent": "RiskLens/1.0",
+            "Accept": "application/json",
+            **(headers or {}),
+        },
+        method=str(method or "GET").upper(),
+    )
+    try:
+        with _urlopen_with_tls_fallback(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+        data = json.loads(raw) if raw else {}
+        return (data if isinstance(data, dict) else {"raw": data}, "")
+    except HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="ignore")
+        except Exception:
+            detail = ""
+        return None, f"HTTP {exc.code}: {detail or exc.reason}"
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def _cognito_exchange_code(
+    *,
+    code: str,
+    verifier: str,
+    redirect_uri: str,
+    client_id: str,
+    client_secret: str,
+    domain: str,
+) -> tuple[Optional[dict], str]:
+    form = {
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "code_verifier": verifier,
+    }
+    if client_secret:
+        form["client_secret"] = client_secret
+    body = urlencode(form).encode("utf-8")
+    payload, err = _http_json_request(
+        url=f"{domain}/oauth2/token",
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        body=body,
+        timeout=25,
+    )
+    if err:
+        return None, err
+    if not isinstance(payload, dict):
+        return None, "Token exchange returned invalid payload."
+    if payload.get("error"):
+        return None, str(payload.get("error_description") or payload.get("error") or "Token exchange failed.")
+    return payload, ""
+
+
+def _cognito_fetch_userinfo(*, access_token: str, domain: str) -> tuple[Optional[dict], str]:
+    if not access_token:
+        return None, "missing_access_token"
+    payload, err = _http_json_request(
+        url=f"{domain}/oauth2/userInfo",
+        method="GET",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=20,
+    )
+    if err:
+        return None, err
+    if isinstance(payload, dict):
+        return payload, ""
+    return None, "userinfo_invalid_payload"
+
+
+def _request_user_from_session_cookie(headers) -> Optional[dict]:
+    cookies = _parse_cookies_from_headers(headers)
+    token = str(cookies.get(_auth_session_cookie_name(), "") or "").strip()
+    if not token:
+        return None
+    payload = _auth_decode_signed_payload(token)
+    if not isinstance(payload, dict):
+        return None
+    exp_ts = _parse_int(payload.get("exp", 0), 0)
+    now_ts = int(time.time())
+    if exp_ts > 0 and now_ts >= exp_ts:
+        return None
+    user_id = _sanitize_user_id(payload.get("uid") or payload.get("sub") or payload.get("email"))
+    if not user_id:
+        return None
+    return {
+        "authenticated": True,
+        "user_id": user_id,
+        "sub": str(payload.get("sub", "") or user_id).strip(),
+        "email": str(payload.get("email", "") or "").strip(),
+        "name": str(payload.get("name", "") or payload.get("email", "") or user_id).strip(),
+        "source": str(payload.get("source", "") or "session_cookie").strip(),
+    }
 
 
 def _canonical_filing_type(value: Any) -> str:
@@ -5063,7 +5469,10 @@ def _cors_origin_for_request(request_headers) -> Optional[str]:
 
     allowed = _allowed_origins()
     if "*" in allowed:
-        return "*"
+        # Cookie-based auth needs a concrete origin (wildcard + credentials
+        # is rejected by browsers), so echo the caller origin when wildcard
+        # mode is enabled.
+        return origin
     if origin in allowed:
         return origin
     return None
@@ -5708,7 +6117,9 @@ def handler(event, context=None):
 
 class _RequestHandler(BaseHTTPRequestHandler):
     def _resolve_request_user(self) -> Optional[dict]:
-        user = _request_user_from_headers(self.headers)
+        user = _request_user_from_session_cookie(self.headers)
+        if not isinstance(user, dict):
+            user = _request_user_from_headers(self.headers)
         if not isinstance(user, dict):
             return None
         user_id = _sanitize_user_id(user.get("user_id") or user.get("sub") or user.get("email"))
@@ -5732,11 +6143,21 @@ class _RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_redirect(self, location: str, *, cookies: Optional[List[str]] = None):
+        self.send_response(302)
+        self._set_cors_headers()
+        for cookie_header in (cookies or []):
+            if cookie_header:
+                self.send_header("Set-Cookie", str(cookie_header))
+        self.send_header("Location", str(location or "/"))
+        self.end_headers()
+
     def _set_cors_headers(self):
         allow_origin = _cors_origin_for_request(self.headers)
         if allow_origin:
             self.send_header("Access-Control-Allow-Origin", allow_origin)
             self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Credentials", "true")
             self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type,Authorization")
             self.send_header("Access-Control-Max-Age", "86400")
@@ -5783,6 +6204,218 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if path == "/api/auth/login":
+                cfg = _auth_config(self.headers)
+                if not cfg.get("enabled"):
+                    self._send_json(
+                        503,
+                        {
+                            "ok": False,
+                            "error": "Cognito auth is not configured. Set COGNITO_DOMAIN, COGNITO_CLIENT_ID, and COGNITO_REDIRECT_URI or PUBLIC_API_BASE_URL.",
+                        },
+                    )
+                    return
+                return_to_raw = str((query.get("return_to", [""]) or [""])[0]).strip()
+                return_to = _sanitize_return_to_url(return_to_raw, self.headers)
+                state = secrets.token_urlsafe(24)
+                code_verifier = _pkce_code_verifier()
+                code_challenge = _pkce_code_challenge(code_verifier)
+                now_ts = int(time.time())
+                ttl = _auth_flow_ttl_seconds()
+                flow_payload = {
+                    "state": state,
+                    "verifier": code_verifier,
+                    "return_to": return_to,
+                    "iat": now_ts,
+                    "exp": now_ts + ttl,
+                }
+                flow_cookie = _build_set_cookie_header(
+                    _auth_flow_cookie_name(),
+                    _auth_encode_signed_payload(flow_payload),
+                    path="/api/auth",
+                    max_age=ttl,
+                )
+                auth_params = {
+                    "response_type": "code",
+                    "client_id": cfg.get("client_id", ""),
+                    "redirect_uri": cfg.get("redirect_uri", ""),
+                    "scope": cfg.get("scope", "openid email profile"),
+                    "state": state,
+                    "code_challenge_method": "S256",
+                    "code_challenge": code_challenge,
+                }
+                auth_url = f"{cfg.get('domain', '')}/oauth2/authorize?{urlencode(auth_params)}"
+                self._send_redirect(auth_url, cookies=[flow_cookie])
+                return
+
+            if path == "/api/auth/callback":
+                cfg = _auth_config(self.headers)
+                fallback_return = _sanitize_return_to_url(
+                    str((query.get("return_to", [""]) or [""])[0]).strip(),
+                    self.headers,
+                )
+                clear_flow_cookie = _build_set_cookie_header(
+                    _auth_flow_cookie_name(),
+                    "",
+                    path="/api/auth",
+                    max_age=0,
+                )
+                if not cfg.get("enabled"):
+                    self._send_redirect(
+                        _append_url_query(fallback_return, auth="error", reason="auth_not_configured"),
+                        cookies=[clear_flow_cookie],
+                    )
+                    return
+
+                cookies = _parse_cookies_from_headers(self.headers)
+                flow_token = str(cookies.get(_auth_flow_cookie_name(), "") or "").strip()
+                flow_payload = _auth_decode_signed_payload(flow_token) if flow_token else None
+                return_to = fallback_return
+                if isinstance(flow_payload, dict):
+                    return_to = _sanitize_return_to_url(flow_payload.get("return_to", ""), self.headers)
+
+                oauth_error = str((query.get("error", [""]) or [""])[0]).strip()
+                if oauth_error:
+                    reason = str((query.get("error_description", [""]) or [""])[0]).strip() or oauth_error
+                    self._send_redirect(
+                        _append_url_query(return_to, auth="error", reason=reason[:240]),
+                        cookies=[clear_flow_cookie],
+                    )
+                    return
+
+                code = str((query.get("code", [""]) or [""])[0]).strip()
+                state = str((query.get("state", [""]) or [""])[0]).strip()
+                if not code or not state:
+                    self._send_redirect(
+                        _append_url_query(return_to, auth="error", reason="missing_code_or_state"),
+                        cookies=[clear_flow_cookie],
+                    )
+                    return
+                if not isinstance(flow_payload, dict):
+                    self._send_redirect(
+                        _append_url_query(return_to, auth="error", reason="missing_flow_cookie"),
+                        cookies=[clear_flow_cookie],
+                    )
+                    return
+                expected_state = str(flow_payload.get("state", "") or "").strip()
+                if not expected_state or expected_state != state:
+                    self._send_redirect(
+                        _append_url_query(return_to, auth="error", reason="state_mismatch"),
+                        cookies=[clear_flow_cookie],
+                    )
+                    return
+                exp_ts = _parse_int(flow_payload.get("exp", 0), 0)
+                if exp_ts > 0 and int(time.time()) >= exp_ts:
+                    self._send_redirect(
+                        _append_url_query(return_to, auth="error", reason="flow_expired"),
+                        cookies=[clear_flow_cookie],
+                    )
+                    return
+                verifier = str(flow_payload.get("verifier", "") or "").strip()
+                if not verifier:
+                    self._send_redirect(
+                        _append_url_query(return_to, auth="error", reason="missing_verifier"),
+                        cookies=[clear_flow_cookie],
+                    )
+                    return
+
+                tokens, token_err = _cognito_exchange_code(
+                    code=code,
+                    verifier=verifier,
+                    redirect_uri=str(cfg.get("redirect_uri", "") or "").strip(),
+                    client_id=str(cfg.get("client_id", "") or "").strip(),
+                    client_secret=str(cfg.get("client_secret", "") or "").strip(),
+                    domain=str(cfg.get("domain", "") or "").strip(),
+                )
+                if token_err or not isinstance(tokens, dict):
+                    self._send_redirect(
+                        _append_url_query(return_to, auth="error", reason=f"token_exchange_failed:{token_err or 'unknown'}"),
+                        cookies=[clear_flow_cookie],
+                    )
+                    return
+
+                access_token = str(tokens.get("access_token", "") or "").strip()
+                id_token = str(tokens.get("id_token", "") or "").strip()
+                userinfo, _ = _cognito_fetch_userinfo(access_token=access_token, domain=str(cfg.get("domain", "") or "").strip())
+                claims = _decode_jwt_payload_unsafe(id_token) if id_token else {}
+                sub = ""
+                email = ""
+                name = ""
+                if isinstance(userinfo, dict):
+                    sub = str(userinfo.get("sub", "") or "").strip()
+                    email = str(userinfo.get("email", "") or "").strip()
+                    name = str(
+                        userinfo.get("name", "")
+                        or userinfo.get("preferred_username", "")
+                        or userinfo.get("username", "")
+                        or ""
+                    ).strip()
+                if not sub:
+                    sub = str(claims.get("sub", "") or "").strip()
+                if not email:
+                    email = str(claims.get("email", "") or claims.get("cognito:username", "") or "").strip()
+                if not name:
+                    name = str(claims.get("name", "") or claims.get("preferred_username", "") or email or sub).strip()
+                user_id = _sanitize_user_id(sub or email)
+                if not user_id:
+                    self._send_redirect(
+                        _append_url_query(return_to, auth="error", reason="missing_user_identity"),
+                        cookies=[clear_flow_cookie],
+                    )
+                    return
+
+                now_ts = int(time.time())
+                session_ttl = _auth_session_ttl_seconds()
+                session_payload = {
+                    "uid": user_id,
+                    "sub": sub or user_id,
+                    "email": email,
+                    "name": name or email or user_id,
+                    "source": "cognito_session_cookie",
+                    "iat": now_ts,
+                    "exp": now_ts + session_ttl,
+                }
+                session_cookie = _build_set_cookie_header(
+                    _auth_session_cookie_name(),
+                    _auth_encode_signed_payload(session_payload),
+                    path="/",
+                    max_age=session_ttl,
+                )
+                self._send_redirect(
+                    _append_url_query(return_to, auth="ok"),
+                    cookies=[clear_flow_cookie, session_cookie],
+                )
+                return
+
+            if path == "/api/auth/logout":
+                return_to = _sanitize_return_to_url(
+                    str((query.get("return_to", [""]) or [""])[0]).strip(),
+                    self.headers,
+                )
+                clear_session_cookie = _build_set_cookie_header(
+                    _auth_session_cookie_name(),
+                    "",
+                    path="/",
+                    max_age=0,
+                )
+                clear_flow_cookie = _build_set_cookie_header(
+                    _auth_flow_cookie_name(),
+                    "",
+                    path="/api/auth",
+                    max_age=0,
+                )
+                cfg = _auth_config(self.headers)
+                if cfg.get("enabled"):
+                    logout_params = {
+                        "client_id": cfg.get("client_id", ""),
+                        "logout_uri": _auth_logout_uri(self.headers, return_to),
+                    }
+                    logout_url = f"{cfg.get('domain', '')}/logout?{urlencode(logout_params)}"
+                    self._send_redirect(logout_url, cookies=[clear_session_cookie, clear_flow_cookie])
+                    return
+                self._send_redirect(return_to, cookies=[clear_session_cookie, clear_flow_cookie])
+                return
+
             if path == "/api/meta":
                 self._send_json(
                     200,
@@ -5793,6 +6426,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
                         "endpoints": [
                             "/api/meta",
                             "/api/me",
+                            "/api/auth/login",
+                            "/api/auth/callback",
+                            "/api/auth/logout",
                             "/api/records",
                             "/api/records/{record_id}",
                             "/api/dashboard/summary",

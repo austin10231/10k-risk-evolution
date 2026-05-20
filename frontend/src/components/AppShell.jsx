@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
 import { stashPendingChat } from '../lib/pendingChat'
-import { get } from '../lib/api'
+import { get, startAuthLogin, startAuthLogout } from '../lib/api'
 import brandIcon from '../assets/logo-icon.svg'
 
 const WORKSPACE_TABS = [
@@ -285,6 +285,8 @@ export default function AppShell({ children }) {
       topExpandSidebar: '展开侧栏',
       topCollapseSidebar: '收起侧栏',
       topStartNewChat: '新建聊天',
+      authSignIn: '登录',
+      authSignOut: '退出',
       askLanding: '可问公司、filing、对比、股票或新闻信号…',
       quickPromptsLabel: '快捷问题建议',
       quickPrompts: LANDING_QUICK_PROMPTS.zh,
@@ -305,6 +307,8 @@ export default function AppShell({ children }) {
       topExpandSidebar: 'Expand sidebar',
       topCollapseSidebar: 'Collapse sidebar',
       topStartNewChat: 'Start new chat',
+      authSignIn: 'Sign in',
+      authSignOut: 'Sign out',
       askLanding: 'Ask about any company, filing, comparison, stock, or news signal…',
       quickPromptsLabel: 'Quick prompt suggestions',
       quickPrompts: LANDING_QUICK_PROMPTS.en,
@@ -411,8 +415,9 @@ export default function AppShell({ children }) {
     } catch {}
   }, [uiTheme])
 
-  useEffect(() => {
+  const refreshViewer = useCallback(() => {
     let alive = true
+    setViewer((prev) => ({ ...prev, loading: true }))
     get('/api/me', { timeoutMs: 9000 })
       .then((res) => {
         if (!alive) return
@@ -430,6 +435,22 @@ export default function AppShell({ children }) {
       alive = false
     }
   }, [])
+
+  useEffect(() => {
+    const cleanup = refreshViewer()
+    return cleanup
+  }, [refreshViewer, location.pathname, location.search])
+
+  useEffect(() => {
+    const authState = new URLSearchParams(location.search || '').get('auth')
+    if (!authState) return
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(location.search || '')
+    params.delete('auth')
+    params.delete('reason')
+    const next = `${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
+    window.history.replaceState({}, '', next)
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -712,6 +733,16 @@ export default function AppShell({ children }) {
     window.location.assign('https://risklens.pages.dev/')
   }
 
+  const handleAuthToggle = () => {
+    if (typeof window === 'undefined' || viewer.loading) return
+    const returnTo = `${window.location.origin}${location.pathname}${location.search}`
+    if (viewer.authenticated) {
+      startAuthLogout(returnTo)
+      return
+    }
+    startAuthLogin(returnTo)
+  }
+
   const viewerDisplay = useMemo(() => {
     if (viewer.loading) return { name: 'Loading...', detail: '', initials: '…' }
     if (!viewer.authenticated || !viewer.user) return { name: 'Guest', detail: 'No auth identity', initials: 'G' }
@@ -854,14 +885,25 @@ export default function AppShell({ children }) {
             </div>
           </div>
         </div>
-        <button
-          className="rl-footer-landing-btn"
-          onClick={openLandingPage}
-          aria-label="Back to landing page"
-          title="Back to landing page"
-        >
-          <NavIcon name="home" />
-        </button>
+        <div className="rl-sidebar-footer-right">
+          <button
+            className="rl-footer-auth-btn"
+            onClick={handleAuthToggle}
+            disabled={viewer.loading}
+            aria-label={viewer.authenticated ? i18n.authSignOut : i18n.authSignIn}
+            title={viewer.authenticated ? i18n.authSignOut : i18n.authSignIn}
+          >
+            {viewer.authenticated ? i18n.authSignOut : i18n.authSignIn}
+          </button>
+          <button
+            className="rl-footer-landing-btn"
+            onClick={openLandingPage}
+            aria-label="Back to landing page"
+            title="Back to landing page"
+          >
+            <NavIcon name="home" />
+          </button>
+        </div>
       </div>
     </>
   )

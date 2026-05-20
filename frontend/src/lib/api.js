@@ -58,6 +58,7 @@ async function request(path, options = {}) {
   const timeoutMs = Number(options.timeoutMs || 0)
   const init = { ...options }
   delete init.timeoutMs
+  delete init.headers
 
   const baseHeaders = { ...(options.headers || {}) }
   if (method !== 'GET' && method !== 'HEAD') {
@@ -81,6 +82,7 @@ async function request(path, options = {}) {
   try {
     res = await fetch(`${API_BASE_URL}${path}`, {
       headers: baseHeaders,
+      credentials: init.credentials || 'include',
       ...(controller ? { signal: controller.signal } : {}),
       ...init,
     })
@@ -115,4 +117,26 @@ export function get(path, options = {}) {
 
 export function post(path, body = {}, options = {}) {
   return request(path, { method: 'POST', body: JSON.stringify(body), ...options })
+}
+
+function currentReturnTo() {
+  if (typeof window === 'undefined') return ''
+  return `${window.location.origin}${window.location.pathname}${window.location.search}`
+}
+
+function buildAuthUrl(endpoint, returnTo = '') {
+  const url = new URL(`${API_BASE_URL}${endpoint}`)
+  const target = String(returnTo || currentReturnTo()).trim()
+  if (target) url.searchParams.set('return_to', target)
+  return url.toString()
+}
+
+export function startAuthLogin(returnTo = '') {
+  if (typeof window === 'undefined') return
+  window.location.assign(buildAuthUrl('/api/auth/login', returnTo))
+}
+
+export function startAuthLogout(returnTo = '') {
+  if (typeof window === 'undefined') return
+  window.location.assign(buildAuthUrl('/api/auth/logout', returnTo))
 }
