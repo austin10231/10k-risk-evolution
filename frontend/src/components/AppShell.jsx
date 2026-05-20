@@ -423,7 +423,7 @@ export default function AppShell({ children }) {
   const refreshViewer = useCallback(() => {
     let alive = true
     setViewer((prev) => ({ ...prev, loading: true }))
-    get('/api/me', { timeoutMs: 9000 })
+    get('/api/me', { timeoutMs: 9000, cache: 'no-store' })
       .then((res) => {
         if (!alive) return
         const authenticated = Boolean(res?.authenticated)
@@ -475,8 +475,22 @@ export default function AppShell({ children }) {
     params.delete('state')
     params.delete('scope')
     const cleanReturnTo = `${window.location.origin}${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
-    startAuthLogin(cleanReturnTo, { prompt: 'select_account' })
+    startAuthLogin(cleanReturnTo, { prompt: 'login select_account' })
   }, [location.pathname, location.search, viewer.loading, viewer.authenticated])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onFocusOrVisible = () => {
+      if (document.visibilityState && document.visibilityState !== 'visible') return
+      refreshViewer()
+    }
+    window.addEventListener('focus', onFocusOrVisible)
+    document.addEventListener('visibilitychange', onFocusOrVisible)
+    return () => {
+      window.removeEventListener('focus', onFocusOrVisible)
+      document.removeEventListener('visibilitychange', onFocusOrVisible)
+    }
+  }, [refreshViewer])
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -784,7 +798,7 @@ export default function AppShell({ children }) {
       startAuthLogout(returnTo)
       return
     }
-    startAuthLogin(returnTo, { prompt: 'select_account' })
+    startAuthLogin(returnTo, { prompt: 'login select_account' })
   }
 
   const viewerDisplay = useMemo(() => {

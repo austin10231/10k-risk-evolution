@@ -6188,12 +6188,15 @@ class _RequestHandler(BaseHTTPRequestHandler):
             "source": str(user.get("source", "") or "").strip(),
         }
 
-    def _send_json(self, status_code: int, payload: dict):
+    def _send_json(self, status_code: int, payload: dict, *, extra_headers: Optional[dict] = None):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status_code)
         self._set_cors_headers()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        for k, v in (extra_headers or {}).items():
+            if k and v is not None:
+                self.send_header(str(k), str(v))
         self.end_headers()
         self.wfile.write(data)
 
@@ -6536,6 +6539,11 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "mode": "global_plus_user" if user_prefix else "global_only",
                             "user_prefix": user_prefix,
                         },
+                    },
+                    extra_headers={
+                        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
                     },
                 )
                 return

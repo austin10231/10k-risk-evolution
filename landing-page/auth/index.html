@@ -136,14 +136,14 @@
 
     document.getElementById("google-btn").href = buildBackendLoginUrl({
       idp: "Google",
-      prompt: "select_account"
+      prompt: "login select_account"
     });
 
     document.getElementById("email-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const email = document.getElementById("email").value.trim();
       window.location.href = buildBackendLoginUrl({
-        prompt: mode === "signup" ? "login" : "login",
+        prompt: "login select_account",
         loginHint: email
       });
     });
