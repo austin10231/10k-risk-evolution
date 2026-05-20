@@ -718,8 +718,9 @@ def _cognito_exchange_code(
         "client_id": client_id,
         "code": code,
         "redirect_uri": redirect_uri,
-        "code_verifier": verifier,
     }
+    if verifier:
+        form["code_verifier"] = verifier
     if client_secret:
         form["client_secret"] = client_secret
     body = urlencode(form).encode("utf-8")
@@ -753,6 +754,112 @@ def _cognito_fetch_userinfo(*, access_token: str, domain: str) -> tuple[Optional
     if isinstance(payload, dict):
         return payload, ""
     return None, "userinfo_invalid_payload"
+
+
+def _auth_user_from_cognito_tokens(tokens: dict, *, domain: str) -> tuple[Optional[dict], str]:
+    if not isinstance(tokens, dict):
+        return None, "missing_tokens"
+    access_token = str(tokens.get("access_token", "") or "").strip()
+    id_token = str(tokens.get("id_token", "") or "").strip()
+    userinfo, _ = _cognito_fetch_userinfo(access_token=access_token, domain=domain)
+    claims = _decode_jwt_payload_unsafe(id_token) if id_token else {}
+    sub = ""
+    email = ""
+    name = ""
+    if isinstance(userinfo, dict):
+        sub = str(userinfo.get("sub", "") or "").strip()
+        email = str(userinfo.get("email", "") or "").strip()
+        name = str(
+            userinfo.get("name", "")
+            or userinfo.get("preferred_username", "")
+            or userinfo.get("username", "")
+            or ""
+        ).strip()
+    if not sub:
+        sub = str(claims.get("sub", "") or "").strip()
+    if not email:
+        email = str(claims.get("email", "") or claims.get("cognito:username", "") or "").strip()
+    if not name:
+        name = str(claims.get("name", "") or claims.get("preferred_username", "") or email or sub).strip()
+    user_id = _sanitize_user_id(sub or email)
+    if not user_id:
+        return None, "missing_user_identity"
+    return {
+        "authenticated": True,
+        "user_id": user_id,
+        "sub": sub or user_id,
+        "email": email,
+        "name": name or email or user_id,
+        "source": "cognito_session_cookie",
+    }, ""
+
+
+def _auth_session_cookie_for_user(user: dict, request_headers) -> str:
+    now_ts = int(time.time())
+    session_ttl = _auth_session_ttl_seconds()
+    user_id = _sanitize_user_id(user.get("user_id") or user.get("sub") or user.get("email"))
+    session_payload = {
+        "uid": user_id,
+        "sub": str(user.get("sub", "") or user_id).strip(),
+        "email": str(user.get("email", "") or "").strip(),
+        "name": str(user.get("name", "") or user.get("email", "") or user_id).strip(),
+        "source": "cognito_session_cookie",
+        "iat": now_ts,
+        "exp": now_ts + session_ttl,
+    }
+    return _build_set_cookie_header(
+        _auth_session_cookie_name(),
+        _auth_encode_signed_payload(session_payload),
+        path="/",
+        max_age=session_ttl,
+        request_headers=request_headers,
+    )
+
+
+def _auth_no_store_headers() -> dict:
+    return {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
+
+def _auth_allowed_legacy_callback_hosts(request_headers) -> Set[str]:
+    hosts: Set[str] = set()
+    for entry in (_auth_app_base_url(), _auth_api_base_url(request_headers)):
+        parsed_entry = urlparse(entry)
+        if parsed_entry.netloc:
+            hosts.add(parsed_entry.netloc.lower())
+    allowlist_raw = str(_env("AUTH_RETURN_TO_ALLOWLIST", "") or "").strip()
+    for part in allowlist_raw.split(","):
+        parsed_part = urlparse(_normalize_url_base(part))
+        if parsed_part.netloc:
+            hosts.add(parsed_part.netloc.lower())
+    legacy_raw = str(_env("AUTH_LEGACY_CALLBACK_URLS", "") or "").strip()
+    for part in legacy_raw.split(","):
+        parsed_part = urlparse(str(part or "").strip())
+        if parsed_part.netloc:
+            hosts.add(parsed_part.netloc.lower())
+    hosts.update(
+        {
+            "app.risklensai.org",
+            "risklens-ai.pages.dev",
+            "risklens.pages.dev",
+        }
+    )
+    return hosts
+
+
+def _sanitize_legacy_redirect_uri(raw: str, request_headers) -> str:
+    txt = str(raw or "").strip()
+    if not txt:
+        return ""
+    parsed = urlparse(txt)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.fragment:
+        return ""
+    if parsed.netloc.lower() not in _auth_allowed_legacy_callback_hosts(request_headers):
+        return ""
+    return parsed._replace(query="", fragment="").geturl()
 
 
 def _request_user_from_session_cookie(headers) -> Optional[dict]:
@@ -6188,7 +6295,14 @@ class _RequestHandler(BaseHTTPRequestHandler):
             "source": str(user.get("source", "") or "").strip(),
         }
 
-    def _send_json(self, status_code: int, payload: dict, *, extra_headers: Optional[dict] = None):
+    def _send_json(
+        self,
+        status_code: int,
+        payload: dict,
+        *,
+        extra_headers: Optional[dict] = None,
+        cookies: Optional[List[str]] = None,
+    ):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status_code)
         self._set_cors_headers()
@@ -6197,6 +6311,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
         for k, v in (extra_headers or {}).items():
             if k and v is not None:
                 self.send_header(str(k), str(v))
+        for cookie_header in (cookies or []):
+            if cookie_header:
+                self.send_header("Set-Cookie", str(cookie_header))
         self.end_headers()
         self.wfile.write(data)
 
@@ -6404,54 +6521,18 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     )
                     return
 
-                access_token = str(tokens.get("access_token", "") or "").strip()
-                id_token = str(tokens.get("id_token", "") or "").strip()
-                userinfo, _ = _cognito_fetch_userinfo(access_token=access_token, domain=str(cfg.get("domain", "") or "").strip())
-                claims = _decode_jwt_payload_unsafe(id_token) if id_token else {}
-                sub = ""
-                email = ""
-                name = ""
-                if isinstance(userinfo, dict):
-                    sub = str(userinfo.get("sub", "") or "").strip()
-                    email = str(userinfo.get("email", "") or "").strip()
-                    name = str(
-                        userinfo.get("name", "")
-                        or userinfo.get("preferred_username", "")
-                        or userinfo.get("username", "")
-                        or ""
-                    ).strip()
-                if not sub:
-                    sub = str(claims.get("sub", "") or "").strip()
-                if not email:
-                    email = str(claims.get("email", "") or claims.get("cognito:username", "") or "").strip()
-                if not name:
-                    name = str(claims.get("name", "") or claims.get("preferred_username", "") or email or sub).strip()
-                user_id = _sanitize_user_id(sub or email)
-                if not user_id:
+                user, user_err = _auth_user_from_cognito_tokens(
+                    tokens,
+                    domain=str(cfg.get("domain", "") or "").strip(),
+                )
+                if user_err or not isinstance(user, dict):
                     self._send_redirect(
-                        _append_url_query(return_to, auth="error", reason="missing_user_identity"),
+                        _append_url_query(return_to, auth="error", reason=user_err or "missing_user_identity"),
                         cookies=[clear_flow_cookie],
                     )
                     return
 
-                now_ts = int(time.time())
-                session_ttl = _auth_session_ttl_seconds()
-                session_payload = {
-                    "uid": user_id,
-                    "sub": sub or user_id,
-                    "email": email,
-                    "name": name or email or user_id,
-                    "source": "cognito_session_cookie",
-                    "iat": now_ts,
-                    "exp": now_ts + session_ttl,
-                }
-                session_cookie = _build_set_cookie_header(
-                    _auth_session_cookie_name(),
-                    _auth_encode_signed_payload(session_payload),
-                    path="/",
-                    max_age=session_ttl,
-                    request_headers=self.headers,
-                )
+                session_cookie = _auth_session_cookie_for_user(user, self.headers)
                 self._send_redirect(
                     _append_url_query(return_to, auth="ok"),
                     cookies=[clear_flow_cookie, session_cookie],
@@ -6504,6 +6585,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "/api/me",
                             "/api/auth/login",
                             "/api/auth/callback",
+                            "/api/auth/legacy-callback",
                             "/api/auth/logout",
                             "/api/records",
                             "/api/records/{record_id}",
@@ -6540,11 +6622,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "user_prefix": user_prefix,
                         },
                     },
-                    extra_headers={
-                        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                        "Pragma": "no-cache",
-                        "Expires": "0",
-                    },
+                    extra_headers=_auth_no_store_headers(),
                 )
                 return
 
@@ -6706,6 +6784,61 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 body = self._read_json_body()
                 result = _invoke_logic(body)
                 self._send_json(200, result if isinstance(result, dict) else {"result": result})
+                return
+
+            if path == "/api/auth/legacy-callback":
+                body = self._read_json_body()
+                cfg = _auth_config(self.headers)
+                if not cfg.get("enabled"):
+                    self._send_json(
+                        503,
+                        {"ok": False, "error": "auth_not_configured"},
+                        extra_headers=_auth_no_store_headers(),
+                    )
+                    return
+                code = str(body.get("code", "") or "").strip()
+                redirect_uri = _sanitize_legacy_redirect_uri(body.get("redirect_uri", ""), self.headers)
+                return_to = _sanitize_return_to_url(str(body.get("return_to", "") or "").strip(), self.headers)
+                if not code or not redirect_uri:
+                    self._send_json(
+                        400,
+                        {"ok": False, "error": "missing_code_or_redirect_uri"},
+                        extra_headers=_auth_no_store_headers(),
+                    )
+                    return
+                tokens, token_err = _cognito_exchange_code(
+                    code=code,
+                    verifier="",
+                    redirect_uri=redirect_uri,
+                    client_id=str(cfg.get("client_id", "") or "").strip(),
+                    client_secret=str(cfg.get("client_secret", "") or "").strip(),
+                    domain=str(cfg.get("domain", "") or "").strip(),
+                )
+                if token_err or not isinstance(tokens, dict):
+                    self._send_json(
+                        400,
+                        {"ok": False, "error": f"token_exchange_failed:{token_err or 'unknown'}"},
+                        extra_headers=_auth_no_store_headers(),
+                    )
+                    return
+                user, user_err = _auth_user_from_cognito_tokens(
+                    tokens,
+                    domain=str(cfg.get("domain", "") or "").strip(),
+                )
+                if user_err or not isinstance(user, dict):
+                    self._send_json(
+                        400,
+                        {"ok": False, "error": user_err or "missing_user_identity"},
+                        extra_headers=_auth_no_store_headers(),
+                    )
+                    return
+                session_cookie = _auth_session_cookie_for_user(user, self.headers)
+                self._send_json(
+                    200,
+                    {"ok": True, "authenticated": True, "user": user, "return_to": return_to},
+                    extra_headers=_auth_no_store_headers(),
+                    cookies=[session_cookie],
+                )
                 return
 
             if path == "/api/upload/manual":

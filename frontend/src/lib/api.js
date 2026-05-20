@@ -80,6 +80,19 @@ export function post(path, body = {}, options = {}) {
   return request(path, { method: 'POST', body: JSON.stringify(body), ...options })
 }
 
+export function exchangeLegacyAuthCode({ code = '', state = '', redirectUri = '', returnTo = '' } = {}) {
+  return post(
+    '/api/auth/legacy-callback',
+    {
+      code,
+      state,
+      redirect_uri: redirectUri,
+      return_to: returnTo,
+    },
+    { timeoutMs: 15000, cache: 'no-store' },
+  )
+}
+
 function currentReturnTo() {
   if (typeof window === 'undefined') return ''
   return `${window.location.origin}${window.location.pathname}${window.location.search}`

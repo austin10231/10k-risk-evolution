@@ -1,5 +1,5 @@
 import React from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import AppShell from './components/AppShell'
 import FloatingChatWidget from './components/FloatingChatWidget'
 import DashboardPage from './pages/DashboardPage'
@@ -15,6 +15,16 @@ import { GlobalConfigProvider } from './lib/globalConfig'
 import { ChatMemoryProvider } from './lib/chatMemory'
 import { WorkspaceChatProvider } from './lib/workspaceChat'
 
+function RedirectToAgent() {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search || '')
+  if (params.get('code') && !params.get('legacy_redirect_uri') && typeof window !== 'undefined') {
+    params.set('legacy_redirect_uri', `${window.location.origin}${location.pathname || '/'}`)
+  }
+  const search = params.toString()
+  return <Navigate to={{ pathname: '/agent', search: search ? `?${search}` : '' }} replace />
+}
+
 export default function App() {
   return (
     <GlobalConfigProvider>
@@ -22,8 +32,8 @@ export default function App() {
         <WorkspaceChatProvider>
           <AppShell>
             <Routes>
-              <Route path="/" element={<Navigate to="/agent" replace />} />
-              <Route path="/home" element={<Navigate to="/agent" replace />} />
+              <Route path="/" element={<RedirectToAgent />} />
+              <Route path="/home" element={<RedirectToAgent />} />
               <Route path="/upload" element={<UploadPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/library" element={<LibraryPage />} />

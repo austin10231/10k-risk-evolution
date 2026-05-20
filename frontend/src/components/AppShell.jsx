@@ -4,7 +4,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { setChatMemoryScope, useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
 import { stashPendingChat } from '../lib/pendingChat'
-import { get, startAuthLogin, startAuthLogout } from '../lib/api'
+import { exchangeLegacyAuthCode, get, startAuthLogin, startAuthLogout } from '../lib/api'
 import brandIcon from '../assets/logo-icon.svg'
 
 const WORKSPACE_TABS = [
@@ -467,16 +467,37 @@ export default function AppShell({ children }) {
     if (viewer.loading || viewer.authenticated) return
     if (legacyAuthBridgeTriedRef.current) return
     const params = new URLSearchParams(location.search || '')
-    const hasLegacyCode = Boolean(params.get('code'))
+    const code = String(params.get('code') || '').trim()
+    const state = String(params.get('state') || '').trim()
+    const legacyRedirectUri = String(params.get('legacy_redirect_uri') || '').trim()
+    const hasLegacyCode = Boolean(code)
     const hasAuthState = Boolean(params.get('auth'))
     if (!hasLegacyCode || hasAuthState) return
     legacyAuthBridgeTriedRef.current = true
     params.delete('code')
     params.delete('state')
     params.delete('scope')
+    params.delete('legacy_redirect_uri')
     const cleanReturnTo = `${window.location.origin}${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
-    startAuthLogin(cleanReturnTo, { prompt: 'login select_account' })
-  }, [location.pathname, location.search, viewer.loading, viewer.authenticated])
+    const cleanPath = `${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`
+    window.history.replaceState({}, '', cleanPath)
+    exchangeLegacyAuthCode({
+      code,
+      state,
+      redirectUri: legacyRedirectUri || `${window.location.origin}${location.pathname}`,
+      returnTo: cleanReturnTo,
+    })
+      .then((res) => {
+        if (res?.authenticated) {
+          refreshViewer()
+          return
+        }
+        startAuthLogin(cleanReturnTo, { prompt: 'login select_account' })
+      })
+      .catch(() => {
+        startAuthLogin(cleanReturnTo, { prompt: 'login select_account' })
+      })
+  }, [location.pathname, location.search, refreshViewer, viewer.loading, viewer.authenticated])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
