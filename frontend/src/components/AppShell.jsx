@@ -846,10 +846,6 @@ export default function AppShell({ children }) {
 
       <div className="rl-sidebar-footer">
         <div className="rl-sidebar-footer-left">
-          <div className="rl-sidebar-footer-copy">
-            <div className="dot" />
-            <p>© 2026 SCU · AWS Team 1</p>
-          </div>
           <div className="rl-sidebar-user" title={viewerDisplay.detail || viewerDisplay.name}>
             <span className="rl-sidebar-user-avatar">{viewerDisplay.initials}</span>
             <div className="rl-sidebar-user-copy">

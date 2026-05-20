@@ -548,7 +548,7 @@ select.input {
 }
 
 .rl-sidebar-footer-left {
-  @apply min-w-0 flex flex-col gap-2;
+  @apply min-w-0 flex flex-col;
 }
 
 .rl-sidebar-footer-copy {
