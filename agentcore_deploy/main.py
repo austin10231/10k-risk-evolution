@@ -623,6 +623,7 @@ def _build_set_cookie_header(
     max_age: Optional[int] = None,
     http_only: bool = True,
     request_headers=None,
+    use_configured_domain: bool = True,
 ) -> str:
     cookie = SimpleCookie()
     cookie[name] = str(value or "")
@@ -633,7 +634,7 @@ def _build_set_cookie_header(
         morsel["max-age"] = str(ttl)
         if ttl == 0:
             morsel["expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
-    domain = _auth_cookie_domain()
+    domain = _auth_cookie_domain() if use_configured_domain else ""
     if domain and request_headers is not None:
         try:
             host_raw = str(request_headers.get("x-forwarded-host", "") or request_headers.get("host", "") or "")
@@ -655,6 +656,32 @@ def _build_set_cookie_header(
         morsel["httponly"] = True
     morsel["samesite"] = same_site
     return morsel.OutputString()
+
+
+def _build_clear_auth_cookie_headers(name: str, *, path: str, request_headers=None) -> List[str]:
+    headers = [
+        _build_set_cookie_header(
+            name,
+            "",
+            path=path,
+            max_age=0,
+            request_headers=request_headers,
+            use_configured_domain=True,
+        ),
+        _build_set_cookie_header(
+            name,
+            "",
+            path=path,
+            max_age=0,
+            request_headers=request_headers,
+            use_configured_domain=False,
+        ),
+    ]
+    out: List[str] = []
+    for header in headers:
+        if header and header not in out:
+            out.append(header)
+    return out
 
 
 def _sanitize_return_to_url(raw: str, request_headers) -> str:
@@ -953,6 +980,17 @@ def _request_user_from_session_cookie(headers) -> Optional[dict]:
     cookies = _parse_cookies_from_headers(headers)
     token = str(cookies.get(_auth_session_cookie_name(), "") or "").strip()
     return _request_user_from_session_token(token, source="session_cookie")
+
+
+def _request_user_from_authorization_session(headers) -> Optional[dict]:
+    try:
+        auth = str(headers.get("Authorization", "") or headers.get("authorization", "") or "")
+    except Exception:
+        auth = ""
+    if not auth.lower().startswith("bearer "):
+        return None
+    token = auth.split(" ", 1)[-1].strip()
+    return _request_user_from_session_token(token, source="authorization_bearer_session")
 
 
 def _canonical_filing_type(value: Any) -> str:
@@ -6430,7 +6468,12 @@ def handler(event, context=None):
 
 class _RequestHandler(BaseHTTPRequestHandler):
     def _resolve_request_user(self) -> Optional[dict]:
-        user = _request_user_from_session_cookie(self.headers)
+        # The browser stores the latest successful login token on the app
+        # origin. Prefer it over cookies so stale cross-domain cookies cannot
+        # pull the UI back into a previous account after account switching.
+        user = _request_user_from_authorization_session(self.headers)
+        if not isinstance(user, dict):
+            user = _request_user_from_session_cookie(self.headers)
         if not isinstance(user, dict):
             user = _request_user_from_headers(self.headers)
         if not isinstance(user, dict):
@@ -6712,20 +6755,17 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     str((query.get("return_to", [""]) or [""])[0]).strip(),
                     self.headers,
                 )
-                clear_session_cookie = _build_set_cookie_header(
+                clear_session_cookies = _build_clear_auth_cookie_headers(
                     _auth_session_cookie_name(),
-                    "",
                     path="/",
-                    max_age=0,
                     request_headers=self.headers,
                 )
-                clear_flow_cookie = _build_set_cookie_header(
+                clear_flow_cookies = _build_clear_auth_cookie_headers(
                     _auth_flow_cookie_name(),
-                    "",
                     path="/api/auth",
-                    max_age=0,
                     request_headers=self.headers,
                 )
+                clear_cookies = [*clear_session_cookies, *clear_flow_cookies]
                 cfg = _auth_config(self.headers)
                 allowed_signout_urls = _auth_allowed_signout_urls()
                 configured_logout_uri = _normalize_url_base(_env("COGNITO_LOGOUT_REDIRECT_URI", ""))
@@ -6736,9 +6776,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
                         "logout_uri": _auth_logout_uri(self.headers, return_to),
                     }
                     logout_url = f"{cfg.get('domain', '')}/logout?{urlencode(logout_params)}"
-                    self._send_redirect(logout_url, cookies=[clear_session_cookie, clear_flow_cookie])
+                    self._send_redirect(logout_url, cookies=clear_cookies)
                     return
-                self._send_redirect(return_to, cookies=[clear_session_cookie, clear_flow_cookie])
+                self._send_redirect(return_to, cookies=clear_cookies)
                 return
 
             if path == "/api/meta":
