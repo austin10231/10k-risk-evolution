@@ -91,6 +91,9 @@ HTML_PREFIX = "10k_html_datasets"
 PDF_PREFIX = "10k_pdf_datasets"
 TABLES_PREFIX = "tables_extraction"
 LEGACY_10Q_FILINGS_PREFIX = "10Q_fillings"
+CHAT_HISTORY_KEY = "chat_threads.json"
+CHAT_HISTORY_MAX_THREADS = 120
+CHAT_HISTORY_MAX_MESSAGES_PER_THREAD = 120
 
 # ── New S3 layout (parallel 10-K / 10-Q folders) ─────────────────────
 # When USE_NEW_S3_LAYOUT=1:
@@ -1251,6 +1254,90 @@ def _json_from_bytes(data: Optional[bytes], fallback: Any):
         return json.loads(data.decode("utf-8"))
     except Exception:
         return fallback
+
+
+def _json_safe_clone(value: Any) -> Any:
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+    except Exception:
+        return None
+
+
+def _normalize_chat_message(raw: Any) -> dict:
+    base = raw if isinstance(raw, dict) else {}
+    role = str(base.get("role", "") or "").strip()
+    if role not in {"user", "assistant", "system", "tool"}:
+        role = "assistant"
+    text = str(base.get("text", "") or "")
+    out = {
+        "role": role,
+        "text": text[:120000],
+    }
+    report = _json_safe_clone(base.get("report"))
+    meta = _json_safe_clone(base.get("meta"))
+    if report is not None:
+        out["report"] = report
+    if isinstance(meta, dict):
+        out["meta"] = meta
+    return out
+
+
+def _normalize_chat_thread(raw: Any) -> Optional[dict]:
+    base = raw if isinstance(raw, dict) else {}
+    thread_id = str(base.get("id", "") or "").strip()[:160]
+    if not thread_id:
+        return None
+    context = base.get("context") if isinstance(base.get("context"), dict) else {}
+    record_ids = []
+    if isinstance(context, dict) and isinstance(context.get("recordIds"), list):
+        for value in context.get("recordIds", []):
+            rid = str(value or "").strip()
+            if rid and rid not in record_ids:
+                record_ids.append(rid[:220])
+    messages = [
+        _normalize_chat_message(m)
+        for m in (base.get("messages", []) if isinstance(base.get("messages"), list) else [])
+    ][-CHAT_HISTORY_MAX_MESSAGES_PER_THREAD:]
+    created_at = _parse_int(base.get("createdAt", 0), 0) or int(time.time() * 1000)
+    updated_at = _parse_int(base.get("updatedAt", 0), 0) or created_at
+    return {
+        "id": thread_id,
+        "title": str(base.get("title", "") or "New conversation").strip()[:240] or "New conversation",
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+        "messages": messages,
+        "context": {"recordIds": record_ids[:8]},
+    }
+
+
+def _normalize_chat_history_doc(raw: Any) -> dict:
+    base = raw if isinstance(raw, dict) else {}
+    raw_threads = base.get("threads", []) if isinstance(base.get("threads"), list) else []
+    seen: Set[str] = set()
+    threads: List[dict] = []
+    for item in raw_threads:
+        thread = _normalize_chat_thread(item)
+        if not thread:
+            continue
+        tid = str(thread.get("id", ""))
+        if tid in seen:
+            continue
+        seen.add(tid)
+        threads.append(thread)
+    threads.sort(key=lambda t: _parse_int(t.get("updatedAt", 0), 0), reverse=True)
+    threads = threads[:CHAT_HISTORY_MAX_THREADS]
+    current_thread_id = str(base.get("currentThreadId", "") or "").strip()
+    if current_thread_id and not any(str(t.get("id", "")) == current_thread_id for t in threads):
+        current_thread_id = ""
+    if not current_thread_id and threads:
+        current_thread_id = str(threads[0].get("id", "") or "")
+    saved_at = _parse_int(base.get("savedAt", 0), 0) or int(time.time() * 1000)
+    return {
+        "version": 1,
+        "savedAt": saved_at,
+        "currentThreadId": current_thread_id,
+        "threads": threads,
+    }
 
 
 def _new_layout_record_id(
@@ -6587,6 +6674,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "/api/auth/callback",
                             "/api/auth/legacy-callback",
                             "/api/auth/logout",
+                            "/api/chat/history",
                             "/api/records",
                             "/api/records/{record_id}",
                             "/api/dashboard/summary",
@@ -6620,6 +6708,32 @@ class _RequestHandler(BaseHTTPRequestHandler):
                         "storage": {
                             "mode": "global_plus_user" if user_prefix else "global_only",
                             "user_prefix": user_prefix,
+                        },
+                    },
+                    extra_headers=_auth_no_store_headers(),
+                )
+                return
+
+            if path == "/api/chat/history":
+                user_prefix = _request_user_prefix()
+                if not user_prefix:
+                    self._send_json(
+                        401,
+                        {"ok": False, "authenticated": False, "error": "Authentication required."},
+                        extra_headers=_auth_no_store_headers(),
+                    )
+                    return
+                key = _scoped_storage_key(CHAT_HISTORY_KEY, prefix=user_prefix)
+                doc = _normalize_chat_history_doc(_json_from_bytes(_read_s3_bytes(key), {}))
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "authenticated": True,
+                        **doc,
+                        "storage": {
+                            "user_prefix": user_prefix,
+                            "key": key,
                         },
                     },
                     extra_headers=_auth_no_store_headers(),
@@ -6838,6 +6952,38 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     {"ok": True, "authenticated": True, "user": user, "return_to": return_to},
                     extra_headers=_auth_no_store_headers(),
                     cookies=[session_cookie],
+                )
+                return
+
+            if path == "/api/chat/history":
+                user_prefix = _request_user_prefix()
+                if not user_prefix:
+                    self._send_json(
+                        401,
+                        {"ok": False, "authenticated": False, "error": "Authentication required."},
+                        extra_headers=_auth_no_store_headers(),
+                    )
+                    return
+                body = self._read_json_body()
+                doc = _normalize_chat_history_doc(body)
+                key = _scoped_storage_key(CHAT_HISTORY_KEY, prefix=user_prefix)
+                _write_s3_bytes(
+                    key,
+                    json.dumps(doc, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+                )
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "authenticated": True,
+                        "savedAt": doc.get("savedAt"),
+                        "threadCount": len(doc.get("threads", [])),
+                        "storage": {
+                            "user_prefix": user_prefix,
+                            "key": key,
+                        },
+                    },
+                    extra_headers=_auth_no_store_headers(),
                 )
                 return
 

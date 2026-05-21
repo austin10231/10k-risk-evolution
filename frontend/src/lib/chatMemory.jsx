@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { getChatHistory, saveChatHistory } from './api'
 
 const STORAGE_KEY = 'risklens_chat_threads_v1'
 const CURRENT_KEY = 'risklens_current_thread_id_v1'
@@ -92,6 +93,70 @@ function readCurrentThreadIdForScope(scope) {
   }
 }
 
+function isUserScope(scope) {
+  return normalizeScope(scope).startsWith('user:')
+}
+
+function isMeaningfulThread(thread) {
+  if (!thread || typeof thread !== 'object') return false
+  if (Array.isArray(thread.messages) && thread.messages.length > 0) return true
+  if (Array.isArray(thread.context?.recordIds) && thread.context.recordIds.length > 0) return true
+  return String(thread.title || '').trim() && String(thread.title || '').trim() !== 'New conversation'
+}
+
+function normalizeThreadList(rawThreads) {
+  const list = Array.isArray(rawThreads) ? rawThreads : []
+  const seen = new Set()
+  const out = []
+  for (const item of list) {
+    const thread = normalizeThread(item)
+    if (!thread.id || seen.has(thread.id)) continue
+    seen.add(thread.id)
+    out.push(thread)
+  }
+  return out
+}
+
+function mergeThreadLists(primaryThreads, secondaryThreads) {
+  const byId = new Map()
+  for (const thread of [...normalizeThreadList(primaryThreads), ...normalizeThreadList(secondaryThreads)]) {
+    const previous = byId.get(thread.id)
+    if (!previous || Number(thread.updatedAt || 0) >= Number(previous.updatedAt || 0)) {
+      byId.set(thread.id, thread)
+    }
+  }
+  let merged = Array.from(byId.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+  if (merged.some(isMeaningfulThread)) {
+    merged = merged.filter(isMeaningfulThread)
+  }
+  return merged.length ? merged.slice(0, 120) : [createSeedThread()]
+}
+
+function buildHistoryPayload(threads, currentThreadId) {
+  const normalizedThreads = normalizeThreadList(threads).slice(0, 120)
+  const validCurrent = normalizedThreads.some((thread) => thread.id === currentThreadId)
+    ? currentThreadId
+    : normalizedThreads[0]?.id || ''
+  return {
+    version: 1,
+    savedAt: Date.now(),
+    currentThreadId: validCurrent,
+    threads: normalizedThreads,
+  }
+}
+
+function historySignature(threads, currentThreadId) {
+  try {
+    const payload = buildHistoryPayload(threads, currentThreadId)
+    return JSON.stringify({
+      currentThreadId: payload.currentThreadId,
+      threads: payload.threads,
+    })
+  } catch {
+    return ''
+  }
+}
+
 export function setChatMemoryScope(scope) {
   if (typeof window === 'undefined') return
   const nextScope = normalizeScope(scope)
@@ -128,6 +193,14 @@ export function ChatMemoryProvider({ children }) {
   const [scope, setScope] = useState(initialScope)
   const [threads, setThreads] = useState(() => readThreadsForScope(initialScope))
   const [currentThreadId, setCurrentThreadId] = useState(() => readCurrentThreadIdForScope(initialScope))
+  const scopeRef = useRef(initialScope)
+  const cloudReadyScopeRef = useRef(isUserScope(initialScope) ? '' : initialScope)
+  const cloudLoadSeqRef = useRef(0)
+  const lastSavedCloudSignatureRef = useRef('')
+
+  useEffect(() => {
+    scopeRef.current = scope
+  }, [scope])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -149,14 +222,47 @@ export function ChatMemoryProvider({ children }) {
   }, [])
 
   useEffect(() => {
+    cloudReadyScopeRef.current = isUserScope(scope) ? '' : scope
+    lastSavedCloudSignatureRef.current = ''
     const nextThreads = readThreadsForScope(scope)
     const nextCurrentId = readCurrentThreadIdForScope(scope)
     setThreads(nextThreads)
     if (nextCurrentId && nextThreads.some((t) => t.id === nextCurrentId)) {
       setCurrentThreadId(nextCurrentId)
-      return
+    } else {
+      setCurrentThreadId(nextThreads[0]?.id || '')
     }
-    setCurrentThreadId(nextThreads[0]?.id || '')
+
+    if (!isUserScope(scope)) return undefined
+
+    const loadSeq = cloudLoadSeqRef.current + 1
+    cloudLoadSeqRef.current = loadSeq
+    let cancelled = false
+    getChatHistory()
+      .then((res) => {
+        if (cancelled || cloudLoadSeqRef.current !== loadSeq || scopeRef.current !== scope) return
+        const remoteThreads = normalizeThreadList(res?.threads)
+        const localThreads = readThreadsForScope(scope)
+        const mergedThreads = mergeThreadLists(remoteThreads, localThreads)
+        const remoteCurrent = String(res?.currentThreadId || '').trim()
+        const localCurrent = readCurrentThreadIdForScope(scope)
+        const nextCurrent =
+          (remoteCurrent && mergedThreads.some((t) => t.id === remoteCurrent) && remoteCurrent)
+          || (localCurrent && mergedThreads.some((t) => t.id === localCurrent) && localCurrent)
+          || mergedThreads[0]?.id
+          || ''
+        lastSavedCloudSignatureRef.current = historySignature(remoteThreads, remoteCurrent)
+        setThreads(mergedThreads)
+        setCurrentThreadId(nextCurrent)
+        cloudReadyScopeRef.current = scope
+      })
+      .catch(() => {
+        if (cancelled || cloudLoadSeqRef.current !== loadSeq || scopeRef.current !== scope) return
+        cloudReadyScopeRef.current = scope
+      })
+    return () => {
+      cancelled = true
+    }
   }, [scope])
 
   useEffect(() => {
@@ -181,6 +287,24 @@ export function ChatMemoryProvider({ children }) {
     if (!currentThreadId) return
     window.localStorage.setItem(scopeCurrentKey(scope), currentThreadId)
   }, [currentThreadId, scope])
+
+  useEffect(() => {
+    if (!isUserScope(scope)) return undefined
+    if (cloudReadyScopeRef.current !== scope) return undefined
+    const signature = historySignature(threads, currentThreadId)
+    if (!signature || signature === lastSavedCloudSignatureRef.current) return undefined
+    const timer = window.setTimeout(() => {
+      const payload = buildHistoryPayload(threads, currentThreadId)
+      saveChatHistory(payload)
+        .then(() => {
+          if (scopeRef.current === scope) {
+            lastSavedCloudSignatureRef.current = historySignature(payload.threads, payload.currentThreadId)
+          }
+        })
+        .catch(() => {})
+    }, 700)
+    return () => window.clearTimeout(timer)
+  }, [threads, currentThreadId, scope])
 
   const currentThread = useMemo(
     () => threads.find((t) => t.id === currentThreadId) || threads[0] || null,

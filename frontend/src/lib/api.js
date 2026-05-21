@@ -80,6 +80,14 @@ export function post(path, body = {}, options = {}) {
   return request(path, { method: 'POST', body: JSON.stringify(body), ...options })
 }
 
+export function getChatHistory(options = {}) {
+  return get('/api/chat/history', { timeoutMs: 12000, cache: 'no-store', ...options })
+}
+
+export function saveChatHistory(payload = {}, options = {}) {
+  return post('/api/chat/history', payload, { timeoutMs: 12000, cache: 'no-store', ...options })
+}
+
 export function exchangeLegacyAuthCode({ code = '', state = '', redirectUri = '', returnTo = '' } = {}) {
   return post(
     '/api/auth/legacy-callback',
