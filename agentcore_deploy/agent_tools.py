@@ -1,9 +1,10 @@
 """ReAct tool registry for the chat agent.
 
-Six tools exposed to the LLM via Bedrock Converse ``toolConfig`` (see
+Seven tools exposed to the LLM via Bedrock Converse ``toolConfig`` (see
 AGENT_UPGRADE_PLAN.md §2 for the full schema rationale):
 
     - load_company_risks       — fetch one filing's top risk factors
+    - load_financial_tables    — load/extract core financial statement tables
     - compare_risks            — diff two filings' risk factor sets
     - stock_quote              — latest price/change/volume for a ticker
     - fetch_news               — recent headlines for a company/ticker
@@ -32,6 +33,7 @@ truncation rarely chops mid-record.
 
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import re
 from typing import Any, Callable, Dict, List, Optional
@@ -42,6 +44,42 @@ DEFAULT_NEWS_LIMIT = 6
 DEFAULT_NEWS_DAYS = 30
 DEFAULT_LIST_LIMIT = 80
 DEFAULT_SEARCH_LIMIT = 12
+DEFAULT_TABLE_ROWS_CAP = 8
+
+TABLE_SECTION_KEYS = [
+    "income_statement",
+    "comprehensive_income",
+    "balance_sheet",
+    "shareholders_equity",
+    "cash_flow",
+]
+
+TABLE_ROW_PRIORITY_TERMS = (
+    "net sales",
+    "revenue",
+    "total revenue",
+    "operating income",
+    "income from operations",
+    "net income",
+    "earnings per share",
+    "basic",
+    "diluted",
+    "total assets",
+    "current assets",
+    "cash and cash equivalents",
+    "marketable securities",
+    "total liabilities",
+    "current liabilities",
+    "shareholders' equity",
+    "stockholders' equity",
+    "retained earnings",
+    "operating activities",
+    "investing activities",
+    "financing activities",
+    "capital expenditures",
+    "free cash flow",
+    "cash flows",
+)
 
 APPLE_CONTAMINATION_TERMS = (
     "hotel",
@@ -314,6 +352,58 @@ TOOL_SPECS: Dict[str, dict] = {
             },
         }
     },
+    "load_financial_tables": {
+        "toolSpec": {
+            "name": "load_financial_tables",
+            "description": (
+                "Load core financial statement tables for a company-year filing, including "
+                "income statement, comprehensive income, balance sheet, shareholders' equity, "
+                "and cash flow. Use this whenever the user asks to extract financial tables, "
+                "financial statements, key filing numbers, revenue, net income, total assets, "
+                "or cash flow from a 10-K/10-Q. If `year` is omitted, the backend resolves the "
+                "latest available filing year for that company from the system index. If a 10-K "
+                "table result is missing and `auto_extract` is true, the backend attempts SEC "
+                "EDGAR PDF auto-fetch plus table extraction before returning. If unavailable, "
+                "the response carries an `error` field."
+            ),
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "company": {
+                            "type": "string",
+                            "description": "Company display name (e.g. 'Apple') or ticker (e.g. 'AAPL'). Case-insensitive.",
+                        },
+                        "year": {
+                            "type": "integer",
+                            "minimum": 1995,
+                            "maximum": 2030,
+                            "description": "Optional filing year. Omit for latest indexed filing year.",
+                        },
+                        "filing_type": {
+                            "type": "string",
+                            "enum": ["10-K", "10-Q"],
+                            "default": "10-K",
+                            "description": "Filing type selector. Auto SEC PDF extraction currently works best for 10-K.",
+                        },
+                        "auto_extract": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "When true, attempt SEC PDF auto-fetch/extraction if no saved table result exists.",
+                        },
+                        "max_rows_per_table": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 15,
+                            "default": DEFAULT_TABLE_ROWS_CAP,
+                            "description": "Cap on selected rows returned per table. Important financial rows are prioritized.",
+                        },
+                    },
+                    "required": ["company"],
+                }
+            },
+        }
+    },
     "compare_risks": {
         "toolSpec": {
             "name": "compare_risks",
@@ -484,6 +574,21 @@ def _coerce_int(v: Any, default: int = 0) -> int:
         return default
 
 
+def _coerce_bool(v: Any, default: bool = False) -> bool:
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return default
+    if isinstance(v, (int, float)):
+        return bool(v)
+    txt = _coerce_str(v).lower()
+    if txt in {"1", "true", "yes", "y", "on"}:
+        return True
+    if txt in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 def _coerce_filing_type(value: Any) -> str:
     txt = _coerce_str(value).upper()
     if txt in {"10Q", "10-Q"}:
@@ -595,6 +700,125 @@ def _years_for_company(backend, company_or_ticker: str) -> List[int]:
         except Exception:
             continue
     return sorted({y for y in out if y > 0})
+
+
+def _matching_records_for_company(backend, company_or_ticker: str, filing_type: str = "") -> List[dict]:
+    raw = _coerce_str(company_or_ticker).strip()
+    if not raw:
+        return []
+    canonical = _resolve_company_alias(raw)
+    ft = _coerce_filing_type(filing_type) if _coerce_str(filing_type) else ""
+    company_needles = {raw.lower(), canonical.lower()}
+    ticker_needle = raw.upper() if _is_ticker_like(raw.upper()) else ""
+    ticker_hint = _resolve_ticker_from_company_backend(backend, raw)
+    if ticker_hint:
+        ticker_needle = ticker_hint
+
+    try:
+        records = backend._load_index()
+    except Exception:
+        return []
+    try:
+        ticker_lookup = backend._build_ticker_lookup()
+    except Exception:
+        ticker_lookup = (None, None)
+
+    matches: List[dict] = []
+    for rec in records or []:
+        if not isinstance(rec, dict):
+            continue
+        try:
+            if ft and _coerce_filing_type(rec.get("filing_type")) != ft:
+                continue
+            rec_name = _coerce_str(rec.get("company")).lower()
+            if rec_name in company_needles:
+                matches.append(rec)
+                continue
+            if ticker_needle:
+                rec_ticker = _coerce_str(
+                    backend._resolve_record_ticker(rec, ticker_lookup=ticker_lookup)
+                ).upper()
+                if rec_ticker == ticker_needle:
+                    matches.append(rec)
+        except Exception:
+            continue
+
+    matches.sort(
+        key=lambda r: (_coerce_int(r.get("year"), 0), _coerce_str(r.get("created_at"))),
+        reverse=True,
+    )
+    return matches
+
+
+def _selected_financial_rows(rows: Any, cap: int) -> List[list]:
+    if not isinstance(rows, list):
+        return []
+    safe_rows = [row for row in rows if isinstance(row, list)]
+    if not safe_rows:
+        return []
+
+    selected: List[list] = []
+    seen = set()
+
+    def _add(row: list) -> None:
+        key = json.dumps(row, ensure_ascii=False, default=str)
+        if key in seen:
+            return
+        seen.add(key)
+        selected.append(row)
+
+    for row in safe_rows:
+        label = " ".join(_coerce_str(cell).lower() for cell in row[:3])
+        if any(term in label for term in TABLE_ROW_PRIORITY_TERMS):
+            _add(row)
+        if len(selected) >= cap:
+            return selected[:cap]
+
+    for row in safe_rows:
+        _add(row)
+        if len(selected) >= cap:
+            break
+    return selected[:cap]
+
+
+def _compact_financial_tables_payload(payload: dict, max_rows_per_table: int) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    cap = max(1, min(15, _coerce_int(max_rows_per_table, DEFAULT_TABLE_ROWS_CAP)))
+    sections: List[dict] = []
+    found_count = 0
+    for key in TABLE_SECTION_KEYS:
+        block = payload.get(key, {}) if isinstance(payload.get(key), dict) else {}
+        found = bool(block.get("found"))
+        if found:
+            found_count += 1
+        headers = block.get("headers", []) if isinstance(block.get("headers"), list) else []
+        rows = block.get("rows", []) if isinstance(block.get("rows"), list) else []
+        sections.append(
+            {
+                "key": key,
+                "display_name": _coerce_str(block.get("display_name")) or key.replace("_", " ").title(),
+                "found": found,
+                "unit": _coerce_str(block.get("unit")),
+                "headers": headers[:12],
+                "row_count": len(rows),
+                "selected_rows": _selected_financial_rows(rows, cap) if found else [],
+            }
+        )
+    return {
+        "company": _coerce_str(payload.get("company")),
+        "year": _coerce_int(payload.get("year"), 0),
+        "filing_type": _coerce_str(payload.get("filing_type")) or "10-K",
+        "industry": _coerce_str(payload.get("industry")),
+        "tables_found": _coerce_int(payload.get("tables_found"), found_count) or found_count,
+        "source": _coerce_str(payload.get("source")),
+        "sections": sections,
+    }
+
+
+def _recent_candidate_years() -> List[int]:
+    current_year = datetime.utcnow().year
+    return [current_year - offset for offset in range(0, 4)]
 
 
 def _flatten_risks_for_listing(risks_blocks: list, cap: int) -> List[dict]:
@@ -816,6 +1040,173 @@ def _make_load_company_risks(backend) -> Callable[..., dict]:
             "auto_fetch_attempt": auto_fetch_attempt,
             "retrieval_mode": retrieval_mode,
             **(integrity_note if isinstance(integrity_note, dict) else {}),
+        }
+
+    return _handler
+
+
+def _make_load_financial_tables(backend) -> Callable[..., dict]:
+    def _handler(**kwargs) -> dict:
+        company_raw = _coerce_str(kwargs.get("company"))
+        company = _resolve_company_alias(company_raw)
+        year = _coerce_int(kwargs.get("year"), 0)
+        filing_type = _coerce_filing_type(kwargs.get("filing_type", "10-K"))
+        auto_extract = _coerce_bool(kwargs.get("auto_extract"), True)
+        max_rows = _coerce_int(kwargs.get("max_rows_per_table"), DEFAULT_TABLE_ROWS_CAP)
+        max_rows = max(1, min(15, max_rows))
+        if not company:
+            return {"error": "missing_params: company is required"}
+
+        matching_records = _matching_records_for_company(backend, company, filing_type)
+        rec = None
+        if year > 0:
+            rec = _resolve_record(backend, company, year, filing_type)
+        elif matching_records:
+            rec = matching_records[0]
+            year = _coerce_int(rec.get("year"), 0)
+
+        resolved_company = _coerce_str(rec.get("company")) if isinstance(rec, dict) else company
+        if not resolved_company:
+            resolved_company = company
+        industry = _coerce_str(rec.get("industry")) if isinstance(rec, dict) else "Other"
+        ticker = _coerce_str(rec.get("ticker")).upper() if isinstance(rec, dict) else ""
+        if not ticker:
+            ticker = _resolve_ticker_from_company_backend(backend, resolved_company or company)
+
+        load_table_result = getattr(backend, "_load_table_result", None)
+        if not callable(load_table_result):
+            return {"error": "financial_tables_loader_unavailable"}
+
+        candidate_companies: List[str] = []
+        for name in (resolved_company, company, company_raw):
+            name = _coerce_str(name)
+            if name and name not in candidate_companies:
+                candidate_companies.append(name)
+
+        payload = None
+        table_load_company = resolved_company
+        if year > 0:
+            for candidate in candidate_companies:
+                try:
+                    payload = load_table_result(candidate, year, filing_type)
+                except Exception:
+                    payload = None
+                if isinstance(payload, dict):
+                    table_load_company = candidate
+                    break
+
+        retrieval_mode = "existing_tables" if isinstance(payload, dict) else "missing_tables"
+        skipped: List[dict] = []
+        attempted_years: List[int] = []
+
+        if not isinstance(payload, dict) and auto_extract:
+            if filing_type != "10-K":
+                skipped.append(
+                    {
+                        "reason": "SEC PDF auto-extraction is currently enabled for 10-K table workflows only.",
+                        "filing_type": filing_type,
+                    }
+                )
+            else:
+                downloader = getattr(backend, "download_10k_pdf_for_company_year", None)
+                extractor = getattr(backend, "_extract_tables_for_pdf", None)
+                build_url = getattr(backend, "build_filing_html_url", None)
+                if not callable(downloader) or not callable(extractor):
+                    skipped.append({"reason": "SEC PDF table auto-fetch is unavailable in runtime."})
+                else:
+                    candidate_years = [year] if year > 0 else _recent_candidate_years()
+                    for yy in candidate_years:
+                        if yy <= 0:
+                            continue
+                        attempted_years.append(int(yy))
+                        try:
+                            pdf_bytes, meta, sec_err = downloader(
+                                company_name=resolved_company or company,
+                                year=int(yy),
+                                ticker=ticker,
+                            )
+                        except Exception as exc:
+                            skipped.append(
+                                {
+                                    "year": int(yy),
+                                    "reason": f"SEC request failed: {type(exc).__name__}: {exc}",
+                                }
+                            )
+                            continue
+
+                        if not pdf_bytes:
+                            filing_url = build_url(meta) if callable(build_url) and isinstance(meta, dict) else ""
+                            skipped.append(
+                                {
+                                    "year": int(yy),
+                                    "reason": sec_err or "Could not auto-download 10-K PDF from SEC EDGAR.",
+                                    "filing_url": filing_url,
+                                }
+                            )
+                            continue
+
+                        try:
+                            result, table_key, err = extractor(
+                                pdf_bytes=pdf_bytes,
+                                company=resolved_company or company,
+                                industry=industry or "Other",
+                                year=int(yy),
+                                filing_type=filing_type,
+                                source="agent_tables_auto_sec_pdf",
+                            )
+                        except Exception as exc:
+                            result, table_key, err = None, "", f"{type(exc).__name__}: {exc}"
+                        if not isinstance(result, dict):
+                            skipped.append(
+                                {
+                                    "year": int(yy),
+                                    "reason": err or "Tables extraction failed.",
+                                }
+                            )
+                            continue
+
+                        payload = result
+                        year = int(yy)
+                        table_load_company = resolved_company or company
+                        retrieval_mode = "sec_auto_extract"
+                        break
+
+        if not isinstance(payload, dict):
+            available_years = sorted(
+                {
+                    _coerce_int(r.get("year"), 0)
+                    for r in matching_records
+                    if isinstance(r, dict) and _coerce_int(r.get("year"), 0) > 0
+                }
+            )
+            return {
+                "error": "no_financial_tables_available",
+                "requested": {
+                    "company": resolved_company or company,
+                    "year": year if year > 0 else None,
+                    "filing_type": filing_type,
+                },
+                "available_years_for_company": available_years,
+                "auto_extract": auto_extract,
+                "attempted_years": attempted_years,
+                "skipped": skipped[:4],
+                "retrieval_mode": retrieval_mode,
+            }
+
+        compact = _compact_financial_tables_payload(payload, max_rows)
+        return {
+            "company": compact.get("company") or table_load_company,
+            "year": compact.get("year") or year,
+            "filing_type": compact.get("filing_type") or filing_type,
+            "industry": compact.get("industry") or industry,
+            "ticker": ticker,
+            "tables_found": compact.get("tables_found", 0),
+            "source": compact.get("source"),
+            "retrieval_mode": retrieval_mode,
+            "auto_extract": auto_extract,
+            "attempted_years": attempted_years,
+            "skipped": skipped[:4],
+            "sections": compact.get("sections", []),
         }
 
     return _handler
@@ -1178,6 +1569,7 @@ def build_tool_handlers(*, backend_module=None) -> Dict[str, Callable[..., dict]
 
     return {
         "load_company_risks":       _make_load_company_risks(backend),
+        "load_financial_tables":    _make_load_financial_tables(backend),
         "compare_risks":            _make_compare_risks(backend),
         "stock_quote":              _make_stock_quote(backend),
         "fetch_news":               _make_fetch_news(backend),

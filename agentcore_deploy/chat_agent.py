@@ -372,7 +372,7 @@ def _build_react_system_prompt(
     has_compare = bool(ctx.get("has_compare_data"))
 
     lines = [
-        "You are RiskLens AI, a multi-step research assistant for SEC 10-K / 10-Q risk factor analysis.",
+        "You are RiskLens AI, a multi-step research assistant for SEC 10-K / 10-Q risk factor analysis and financial table extraction.",
         f"You can call up to {MAX_ITER} tool calls before producing a final answer.",
         "",
         "== USER CONTEXT ==",
@@ -397,10 +397,12 @@ def _build_react_system_prompt(
         "6. For stock market / price / trading questions, call stock_quote first before answering. Do not claim market features are unavailable unless stock_quote explicitly returns an error.",
         "7. For headline / media / breaking-news questions, call fetch_news first before answering. Do not claim news features are unavailable unless fetch_news explicitly returns an error.",
         "8. For metadata questions (industry, ticker, record_id, available years), call load_company_risks or list_available_companies and answer from tool output. Do not say 'cannot query' if tools are available.",
-        "9. Never fabricate sample JSON/tool outputs. If user asks for fields like auto_fetch_attempt, only show fields observed in actual tool results from this conversation.",
-        "10. For capability questions like '会不会自动去SEC拉取', answer policy first from tool contract: missing company/year triggers SEC auto-fetch attempt. Then clarify whether the specific example was already in local index (retrieval_mode=existing_index) or fetched now (retrieval_mode=sec_auto_fetch).",
-        f"11. Respond in {lang_label} only. If the user wrote in Chinese, answer in Chinese; otherwise English.",
-        "12. The dashboard's Risk Priority Index (RPI, 0-100) is weighted from three per-risk dimensions (Financial Impact, Likelihood, Urgency) into High/Medium/Low buckets. Mention this only if the user asks how scoring works.",
+        "9. For financial table / statement questions (income statement, balance sheet, cash flow, revenue, net income, assets, liabilities, EPS), call load_financial_tables first. Do not say financial tables are unsupported unless that tool returns an error.",
+        "10. When load_financial_tables returns sections, summarize from `selected_rows`, mention year/filing_type/source, and be honest about tables marked `found=false`.",
+        "11. Never fabricate sample JSON/tool outputs. If user asks for fields like auto_fetch_attempt, only show fields observed in actual tool results from this conversation.",
+        "12. For capability questions like '会不会自动去SEC拉取', answer policy first from tool contract: missing company/year triggers SEC auto-fetch attempt. Then clarify whether the specific example was already in local index (retrieval_mode=existing_index) or fetched now (retrieval_mode=sec_auto_fetch).",
+        f"13. Respond in {lang_label} only. If the user wrote in Chinese, answer in Chinese; otherwise English.",
+        "14. The dashboard's Risk Priority Index (RPI, 0-100) is weighted from three per-risk dimensions (Financial Impact, Likelihood, Urgency) into High/Medium/Low buckets. Mention this only if the user asks how scoring works.",
         "",
         "When you have enough information, write a final natural-language answer (no JSON, no tool_use blocks). Final answer should be 3-7 sentences plus optional bullet evidence.",
     ]
