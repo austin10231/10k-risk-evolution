@@ -829,6 +829,8 @@ export default function AppShell({ children }) {
     setAuthMenuOpen(false)
     const returnTo = `${window.location.origin}/agent`
     if (viewer.authenticated) {
+      setChatMemoryScope('guest')
+      setViewer({ loading: false, authenticated: false, user: null })
       startAuthLogout(returnTo)
       return
     }

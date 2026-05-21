@@ -178,12 +178,12 @@ function buildAuthUrl(endpoint, returnTo = '', options = {}) {
 
 export function startAuthLogin(returnTo = '', options = {}) {
   if (typeof window === 'undefined') return
-  clearLegacyAuthTokens()
+  clearClientAuthState()
   window.location.assign(buildAuthUrl('/api/auth/login', returnTo, options))
 }
 
 export function startAuthLogout(returnTo = '') {
   if (typeof window === 'undefined') return
-  clearLegacyAuthTokens()
+  clearClientAuthState()
   window.location.assign(buildAuthUrl('/api/auth/logout', returnTo))
 }
