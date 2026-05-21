@@ -4,7 +4,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { setChatMemoryScope, useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
 import { stashPendingChat } from '../lib/pendingChat'
-import { exchangeLegacyAuthCode, get, startAuthLogin, startAuthLogout } from '../lib/api'
+import { consumeSessionTokenFromUrl, exchangeLegacyAuthCode, get, startAuthLogin, startAuthLogout, storeSessionToken } from '../lib/api'
 import brandIcon from '../assets/logo-icon.svg'
 
 const WORKSPACE_TABS = [
@@ -423,6 +423,9 @@ export default function AppShell({ children }) {
   const refreshViewer = useCallback(() => {
     let alive = true
     if (typeof window !== 'undefined') {
+      consumeSessionTokenFromUrl()
+    }
+    if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search || '')
       if (params.get('code') && !params.get('auth') && !legacyAuthBridgeTriedRef.current) {
         setViewer((prev) => ({ ...prev, loading: true }))
@@ -498,6 +501,7 @@ export default function AppShell({ children }) {
     })
       .then((res) => {
         if (res?.authenticated) {
+          if (res?.session_token) storeSessionToken(res.session_token)
           refreshViewer()
           return
         }

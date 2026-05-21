@@ -306,6 +306,9 @@ def _request_user_from_headers(headers) -> Optional[dict]:
     auth = _h("Authorization")
     if auth.lower().startswith("bearer "):
         token = auth.split(" ", 1)[-1].strip()
+        session_user = _request_user_from_session_token(token, source="authorization_bearer_session")
+        if isinstance(session_user, dict):
+            return session_user
         claims = _decode_jwt_payload_unsafe(token)
         sub = str(claims.get("sub", "") or "").strip()
         email = str(claims.get("email", "") or claims.get("cognito:username", "") or "").strip()
@@ -696,6 +699,20 @@ def _append_url_query(url: str, **params: str) -> str:
     return parsed._replace(query=new_query).geturl()
 
 
+def _append_url_fragment_query(url: str, **params: str) -> str:
+    base = str(url or "").strip()
+    if not base:
+        return ""
+    parsed = urlparse(base)
+    current = parse_qs(parsed.fragment or "", keep_blank_values=True)
+    for key, value in params.items():
+        if value is None:
+            continue
+        current[str(key)] = [str(value)]
+    new_fragment = urlencode([(k, v) for k, vals in current.items() for v in vals])
+    return parsed._replace(fragment=new_fragment).geturl()
+
+
 def _pkce_code_verifier() -> str:
     # RFC 7636: between 43 and 128 chars from unreserved set.
     return _auth_b64url_encode(os.urandom(64))
@@ -830,7 +847,7 @@ def _auth_user_from_cognito_tokens(tokens: dict, *, domain: str) -> tuple[Option
     }, ""
 
 
-def _auth_session_cookie_for_user(user: dict, request_headers) -> str:
+def _auth_session_payload_for_user(user: dict) -> tuple[dict, int]:
     now_ts = int(time.time())
     session_ttl = _auth_session_ttl_seconds()
     user_id = _sanitize_user_id(user.get("user_id") or user.get("sub") or user.get("email"))
@@ -843,9 +860,19 @@ def _auth_session_cookie_for_user(user: dict, request_headers) -> str:
         "iat": now_ts,
         "exp": now_ts + session_ttl,
     }
+    return session_payload, session_ttl
+
+
+def _auth_session_token_for_user(user: dict) -> tuple[str, int]:
+    session_payload, session_ttl = _auth_session_payload_for_user(user)
+    return _auth_encode_signed_payload(session_payload), session_ttl
+
+
+def _auth_session_cookie_for_user(user: dict, request_headers) -> str:
+    session_token, session_ttl = _auth_session_token_for_user(user)
     return _build_set_cookie_header(
         _auth_session_cookie_name(),
-        _auth_encode_signed_payload(session_payload),
+        session_token,
         path="/",
         max_age=session_ttl,
         request_headers=request_headers,
@@ -898,9 +925,8 @@ def _sanitize_legacy_redirect_uri(raw: str, request_headers) -> str:
     return parsed._replace(query="", fragment="").geturl()
 
 
-def _request_user_from_session_cookie(headers) -> Optional[dict]:
-    cookies = _parse_cookies_from_headers(headers)
-    token = str(cookies.get(_auth_session_cookie_name(), "") or "").strip()
+def _request_user_from_session_token(token: str, *, source: str = "session_cookie") -> Optional[dict]:
+    token = str(token or "").strip()
     if not token:
         return None
     payload = _auth_decode_signed_payload(token)
@@ -919,8 +945,14 @@ def _request_user_from_session_cookie(headers) -> Optional[dict]:
         "sub": str(payload.get("sub", "") or user_id).strip(),
         "email": str(payload.get("email", "") or "").strip(),
         "name": str(payload.get("name", "") or payload.get("email", "") or user_id).strip(),
-        "source": str(payload.get("source", "") or "session_cookie").strip(),
+        "source": source or str(payload.get("source", "") or "session_cookie").strip(),
     }
+
+
+def _request_user_from_session_cookie(headers) -> Optional[dict]:
+    cookies = _parse_cookies_from_headers(headers)
+    token = str(cookies.get(_auth_session_cookie_name(), "") or "").strip()
+    return _request_user_from_session_token(token, source="session_cookie")
 
 
 def _canonical_filing_type(value: Any) -> str:
@@ -6661,9 +6693,16 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     )
                     return
 
-                session_cookie = _auth_session_cookie_for_user(user, self.headers)
+                session_token, session_ttl = _auth_session_token_for_user(user)
+                session_cookie = _build_set_cookie_header(
+                    _auth_session_cookie_name(),
+                    session_token,
+                    path="/",
+                    max_age=session_ttl,
+                    request_headers=self.headers,
+                )
                 self._send_redirect(
-                    _append_url_query(return_to, auth="ok"),
+                    _append_url_fragment_query(_append_url_query(return_to, auth="ok"), rl_session=session_token),
                     cookies=[clear_flow_cookie, session_cookie],
                 )
                 return
@@ -6988,10 +7027,17 @@ class _RequestHandler(BaseHTTPRequestHandler):
                         extra_headers=_auth_no_store_headers(),
                     )
                     return
-                session_cookie = _auth_session_cookie_for_user(user, self.headers)
+                session_token, session_ttl = _auth_session_token_for_user(user)
+                session_cookie = _build_set_cookie_header(
+                    _auth_session_cookie_name(),
+                    session_token,
+                    path="/",
+                    max_age=session_ttl,
+                    request_headers=self.headers,
+                )
                 self._send_json(
                     200,
-                    {"ok": True, "authenticated": True, "user": user, "return_to": return_to},
+                    {"ok": True, "authenticated": True, "user": user, "return_to": return_to, "session_token": session_token},
                     extra_headers=_auth_no_store_headers(),
                     cookies=[session_cookie],
                 )
