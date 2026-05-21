@@ -14,9 +14,14 @@ import uuid
 import re
 import io
 import os
+import warnings
 import boto3
 from PyPDF2 import PdfReader, PdfWriter
 from bs4 import BeautifulSoup
+try:
+    from bs4 import XMLParsedAsHTMLWarning
+except Exception:  # Older bs4 versions do not expose the warning class.
+    XMLParsedAsHTMLWarning = Warning
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -128,6 +133,27 @@ TABLE_CATEGORIES = {
 }
 
 MIN_SCORE = 4.0
+
+AS_FILED_TAGS = {
+    "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
+    "colgroup", "col", "span", "div", "p", "br", "b", "strong", "em",
+    "i", "u", "sup", "sub", "font",
+}
+
+AS_FILED_STRUCTURAL_ATTRS = {
+    "colspan", "rowspan", "scope", "align", "valign", "width", "height",
+    "border", "cellpadding", "cellspacing", "bgcolor",
+}
+
+AS_FILED_CSS_PROPS = {
+    "background", "background-color", "border", "border-bottom", "border-collapse",
+    "border-left", "border-right", "border-spacing", "border-top", "color",
+    "font-family", "font-size", "font-style", "font-weight", "height",
+    "line-height", "margin", "margin-bottom", "margin-left", "margin-right",
+    "margin-top", "max-width", "min-width", "padding", "padding-bottom",
+    "padding-left", "padding-right", "padding-top", "text-align",
+    "text-decoration", "vertical-align", "white-space", "width",
+}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -324,7 +350,9 @@ def extract_tables_from_html(html_bytes: bytes) -> dict:
         except Exception:
             return _empty_result()
 
-    soup = BeautifulSoup(html_text, "lxml")
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+        soup = BeautifulSoup(html_text, "lxml")
     for tag in soup(["script", "style", "noscript"]):
         tag.extract()
 
@@ -357,6 +385,7 @@ def extract_tables_from_html(html_bytes: bytes) -> dict:
                 "rows": rows,
                 "all_text": all_text,
                 "nearby_text": nearby_text,
+                "as_filed_html": _sanitize_as_filed_table_html(tbl),
             }
         )
 
@@ -370,6 +399,89 @@ def _empty_result():
         cat: {"found": False, "display_name": info["display_name"], "page": None, "unit": "", "headers": [], "rows": []}
         for cat, info in TABLE_CATEGORIES.items()
     }
+
+
+def _sanitize_css_style(style_value):
+    raw = str(style_value or "")
+    if not raw:
+        return ""
+    safe_parts = []
+    for part in raw.split(";"):
+        if ":" not in part:
+            continue
+        prop, value = part.split(":", 1)
+        prop = prop.strip().lower()
+        value = " ".join(str(value or "").strip().split())
+        value_low = value.lower()
+        if prop not in AS_FILED_CSS_PROPS:
+            continue
+        if any(bad in value_low for bad in ("expression", "javascript:", "vbscript:", "url(", "@import", "behavior:")):
+            continue
+        if len(value) > 180:
+            continue
+        safe_parts.append(f"{prop}: {value}")
+    return "; ".join(safe_parts)
+
+
+def _sanitize_as_filed_attr(attr, value):
+    name = str(attr or "").strip().lower()
+    if not name or name.startswith("on"):
+        return None
+    if name == "style":
+        cleaned = _sanitize_css_style(value)
+        return cleaned or None
+    if name in {"colspan", "rowspan"}:
+        try:
+            n = max(1, min(200, int(str(value or "1").strip())))
+            return str(n)
+        except Exception:
+            return None
+    if name in AS_FILED_STRUCTURAL_ATTRS:
+        if isinstance(value, (list, tuple)):
+            value = " ".join(str(v) for v in value)
+        cleaned = str(value or "").strip()
+        if not cleaned or len(cleaned) > 120:
+            return None
+        if any(bad in cleaned.lower() for bad in ("javascript:", "vbscript:", "data:")):
+            return None
+        if not re.fullmatch(r"[#%.,:;()A-Za-z0-9_/\\\-\s]+", cleaned):
+            return None
+        return cleaned
+    return None
+
+
+def _sanitize_as_filed_table_html(table_tag):
+    """Return safe, browser-renderable HTML for the SEC table itself.
+
+    This preserves the filing's original table structure (including row/col
+    spans and common inline table styling) without carrying executable markup.
+    The product should display this when exact as-filed presentation matters,
+    and fall back to normalized rows/columns only when this field is absent.
+    """
+    try:
+        wrapper = BeautifulSoup(str(table_tag), "lxml")
+        table = wrapper.find("table")
+        if table is None:
+            return ""
+
+        nodes = [table] + list(table.find_all(True))
+        for tag in nodes:
+            name = str(tag.name or "").lower()
+            if name not in AS_FILED_TAGS:
+                tag.unwrap()
+                continue
+            original_attrs = dict(tag.attrs or {})
+            tag.attrs = {}
+            for attr, value in original_attrs.items():
+                clean_value = _sanitize_as_filed_attr(attr, value)
+                if clean_value is not None:
+                    tag.attrs[str(attr).lower()] = clean_value
+
+        if "style" not in table.attrs:
+            table.attrs["style"] = "border-collapse: collapse; width: 100%"
+        return str(table)
+    except Exception:
+        return ""
 
 
 def _rows_from_html_table(table_tag):
@@ -447,6 +559,9 @@ def _classify_raw_tables(raw_tables):
                 "unit": unit,
                 "headers": headers,
                 "rows": data_rows,
+                "as_filed_html": best_table.get("as_filed_html", ""),
+                "render_mode": "as_filed_html" if best_table.get("as_filed_html") else "extracted_grid",
+                "confidence_score": round(float(best_score), 2),
             }
     return result
 

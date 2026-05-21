@@ -71,8 +71,9 @@ except Exception:
     download_10k_pdf_for_company_year = None
 
 try:
-    from core.table_extractor import extract_tables_from_pdf
+    from core.table_extractor import extract_tables_from_html, extract_tables_from_pdf
 except Exception:
+    extract_tables_from_html = None
     extract_tables_from_pdf = None
 
 _RUN_AGENT = None
@@ -2176,6 +2177,7 @@ def _extract_tables_for_pdf(
         "filing_type": str(filing_type or "10-K").strip() or "10-K",
         "tables_found": found_count,
         "source": source or "tables_manual_pdf",
+        "source_format": "pdf",
         **(classified if isinstance(classified, dict) else {}),
     }
     key = _save_table_result(
@@ -2186,6 +2188,144 @@ def _extract_tables_for_pdf(
         csv_string=_classified_to_csv(classified),
     )
     return result, key, ""
+
+
+def _extract_tables_for_html(
+    *,
+    html_bytes: bytes,
+    company: str,
+    industry: str,
+    year: int,
+    filing_type: str,
+    source: str,
+    filing_url: str = "",
+) -> tuple[Optional[dict], str, str]:
+    if extract_tables_from_html is None:
+        return None, "", "HTML table extraction pipeline is unavailable in runtime."
+    try:
+        classified = extract_tables_from_html(html_bytes)
+    except Exception as exc:
+        return None, "", f"HTML table extraction failed: {type(exc).__name__}: {exc}"
+
+    found_count = _count_found_tables(classified)
+    if found_count <= 0:
+        return None, "", "No core financial tables could be safely identified in this filing HTML."
+
+    result = {
+        "company": str(company or "").strip(),
+        "industry": str(industry or "Other").strip() or "Other",
+        "year": int(year),
+        "filing_type": str(filing_type or "10-K").strip() or "10-K",
+        "tables_found": found_count,
+        "source": source or "tables_auto_sec_html",
+        "source_format": "html",
+        "filing_url": str(filing_url or "").strip(),
+        **(classified if isinstance(classified, dict) else {}),
+    }
+    key = _save_table_result(
+        company=result["company"],
+        year=result["year"],
+        filing_type=result["filing_type"],
+        table_json=result,
+        csv_string=_classified_to_csv(classified),
+    )
+    return result, key, ""
+
+
+def _auto_fetch_tables_for_year(
+    *,
+    company: str,
+    ticker: str,
+    industry: str,
+    filing_type: str,
+    year: int,
+) -> tuple[Optional[dict], str, str, List[dict]]:
+    """Fetch one filing and save tables.
+
+    Preferred order:
+      1. 10-K PDF + Textract when a PDF main document exists.
+      2. SEC HTML/iXBRL as-filed table preservation.
+
+    HTML is the product-grade fallback for modern SEC filings that publish
+    the primary document as HTML only. It preserves sanitized original table
+    markup in `as_filed_html` so the UI can render the official table shape
+    instead of reconstructing it from OCR cells.
+    """
+    company = str(company or "").strip()
+    ticker = str(ticker or "").strip().upper()
+    industry = str(industry or "Other").strip() or "Other"
+    filing_type = _canonical_filing_type(filing_type)
+    year = int(year)
+    attempts: List[dict] = []
+
+    if filing_type == "10-K" and download_10k_pdf_for_company_year is not None:
+        try:
+            pdf_bytes, meta, sec_err = download_10k_pdf_for_company_year(
+                company_name=company,
+                year=year,
+                ticker=ticker,
+            )
+        except Exception as exc:
+            attempts.append({"format": "pdf", "reason": f"SEC PDF request failed: {type(exc).__name__}: {exc}"})
+            pdf_bytes, meta, sec_err = None, {}, ""
+
+        if pdf_bytes:
+            result, table_key, err = _extract_tables_for_pdf(
+                pdf_bytes=pdf_bytes,
+                company=company,
+                industry=industry,
+                year=year,
+                filing_type=filing_type,
+                source="tables_auto_sec_pdf",
+            )
+            if result:
+                attempts.append({"format": "pdf", "ok": True, "source": "tables_auto_sec_pdf"})
+                return result, table_key, "", attempts
+            attempts.append({"format": "pdf", "reason": err or "Tables extraction failed."})
+        else:
+            filing_url = build_filing_html_url(meta) if build_filing_html_url and isinstance(meta, dict) else ""
+            attempts.append(
+                {
+                    "format": "pdf",
+                    "reason": sec_err or "Could not auto-download 10-K PDF from SEC EDGAR.",
+                    "filing_url": filing_url,
+                }
+            )
+
+    html_downloader = download_10k_html_for_company_year if filing_type == "10-K" else download_10q_html_for_company_year
+    if html_downloader is None:
+        attempts.append({"format": "html", "reason": f"SEC {filing_type} HTML auto-fetch is unavailable in runtime."})
+    else:
+        try:
+            html_bytes, meta, sec_err = html_downloader(
+                company_name=company,
+                year=year,
+                ticker=ticker,
+            )
+        except Exception as exc:
+            attempts.append({"format": "html", "reason": f"SEC HTML request failed: {type(exc).__name__}: {exc}"})
+            html_bytes, meta, sec_err = None, {}, ""
+
+        filing_url = build_filing_html_url(meta) if build_filing_html_url and isinstance(meta, dict) else ""
+        if html_bytes:
+            result, table_key, err = _extract_tables_for_html(
+                html_bytes=html_bytes,
+                company=company,
+                industry=industry,
+                year=year,
+                filing_type=filing_type,
+                source="tables_auto_sec_html",
+                filing_url=filing_url,
+            )
+            if result:
+                attempts.append({"format": "html", "ok": True, "source": "tables_auto_sec_html", "filing_url": filing_url})
+                return result, table_key, "", attempts
+            attempts.append({"format": "html", "reason": err or "HTML table extraction failed.", "filing_url": filing_url})
+        else:
+            attempts.append({"format": "html", "reason": sec_err or "Could not auto-download filing HTML from SEC EDGAR.", "filing_url": filing_url})
+
+    reason = "; ".join(str(a.get("reason", "")) for a in attempts if a.get("reason")) or "Tables auto-fetch failed."
+    return None, "", reason, attempts
 
 
 def _add_record(
@@ -7229,7 +7369,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 company = str(body.get("company", "") or "").strip()
                 ticker = str(body.get("ticker", "") or "").strip().upper()
                 industry = str(body.get("industry", "Other") or "Other").strip() or "Other"
-                filing_type = str(body.get("filing_type", "10-K") or "10-K").strip() or "10-K"
+                filing_type = _canonical_filing_type(body.get("filing_type", "10-K"))
                 year = _to_int(body.get("year", 0), 0)
                 file_name = str(body.get("file_name", "") or "").strip() or "filing.pdf"
                 file_b64 = str(body.get("file_b64", "") or body.get("file_content_base64", "") or "").strip()
@@ -7243,8 +7383,11 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 if not file_b64:
                     self._send_json(400, {"ok": False, "error": "file payload is required."})
                     return
-                if not file_name.lower().endswith(".pdf"):
-                    self._send_json(400, {"ok": False, "error": "Tables extraction only supports PDF files."})
+                lower_name = file_name.lower()
+                is_pdf = lower_name.endswith(".pdf")
+                is_html = lower_name.endswith(".html") or lower_name.endswith(".htm")
+                if not (is_pdf or is_html):
+                    self._send_json(400, {"ok": False, "error": "Tables extraction supports PDF or SEC HTML files."})
                     return
 
                 if "," in file_b64 and "base64" in file_b64[:80]:
@@ -7255,14 +7398,24 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"ok": False, "error": "Invalid base64 file payload."})
                     return
 
-                result, table_key, err = _extract_tables_for_pdf(
-                    pdf_bytes=file_bytes,
-                    company=company,
-                    industry=industry,
-                    year=year,
-                    filing_type=filing_type,
-                    source="tables_manual_pdf",
-                )
+                if is_html:
+                    result, table_key, err = _extract_tables_for_html(
+                        html_bytes=file_bytes,
+                        company=company,
+                        industry=industry,
+                        year=year,
+                        filing_type=filing_type,
+                        source="tables_manual_html",
+                    )
+                else:
+                    result, table_key, err = _extract_tables_for_pdf(
+                        pdf_bytes=file_bytes,
+                        company=company,
+                        industry=industry,
+                        year=year,
+                        filing_type=filing_type,
+                        source="tables_manual_pdf",
+                    )
                 if not result:
                     self._send_json(400, {"ok": False, "error": err or "Tables extraction failed."})
                     return
@@ -7285,7 +7438,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 company = str(body.get("company", "") or "").strip()
                 ticker = str(body.get("ticker", "") or "").strip().upper()
                 industry = str(body.get("industry", "Other") or "Other").strip() or "Other"
-                filing_type = str(body.get("filing_type", "10-K") or "10-K").strip() or "10-K"
+                filing_type = _canonical_filing_type(body.get("filing_type", "10-K"))
                 start_year = _to_int(body.get("start_year", 0), 0)
                 end_year = _to_int(body.get("end_year", 0), 0)
                 if not company:
@@ -7294,45 +7447,30 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 if start_year <= 0 or end_year <= 0 or start_year > end_year:
                     self._send_json(400, {"ok": False, "error": "Invalid year range."})
                     return
-                if download_10k_pdf_for_company_year is None:
-                    self._send_json(400, {"ok": False, "error": "SEC PDF auto-fetch is unavailable in runtime."})
+                if (
+                    filing_type == "10-K"
+                    and download_10k_pdf_for_company_year is None
+                    and download_10k_html_for_company_year is None
+                ):
+                    self._send_json(400, {"ok": False, "error": "SEC 10-K table auto-fetch is unavailable in runtime."})
+                    return
+                if filing_type == "10-Q" and download_10q_html_for_company_year is None:
+                    self._send_json(400, {"ok": False, "error": "SEC 10-Q HTML table auto-fetch is unavailable in runtime."})
                     return
 
                 successes: List[dict] = []
                 skipped: List[dict] = []
 
                 for yy in range(start_year, end_year + 1):
-                    try:
-                        pdf_bytes, meta, sec_err = download_10k_pdf_for_company_year(
-                            company_name=company,
-                            year=int(yy),
-                            ticker=ticker,
-                        )
-                    except Exception as exc:
-                        skipped.append({"year": yy, "reason": f"SEC request failed: {type(exc).__name__}: {exc}"})
-                        continue
-
-                    if not pdf_bytes:
-                        filing_url = build_filing_html_url(meta) if build_filing_html_url and isinstance(meta, dict) else ""
-                        skipped.append(
-                            {
-                                "year": yy,
-                                "reason": sec_err or "Could not auto-download 10-K PDF from SEC EDGAR.",
-                                "filing_url": filing_url,
-                            }
-                        )
-                        continue
-
-                    result, table_key, err = _extract_tables_for_pdf(
-                        pdf_bytes=pdf_bytes,
+                    result, table_key, err, attempts = _auto_fetch_tables_for_year(
                         company=company,
+                        ticker=ticker,
                         industry=industry,
                         year=int(yy),
                         filing_type=filing_type,
-                        source="tables_auto_sec_pdf",
                     )
                     if not result:
-                        skipped.append({"year": yy, "reason": err or "Tables extraction failed."})
+                        skipped.append({"year": yy, "reason": err or "Tables extraction failed.", "attempts": attempts})
                         continue
 
                     if ticker:
@@ -7342,6 +7480,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                             "year": yy,
                             "result": result,
                             "table_key": table_key,
+                            "attempts": attempts,
                         }
                     )
 

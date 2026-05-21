@@ -361,10 +361,11 @@ TOOL_SPECS: Dict[str, dict] = {
                 "and cash flow. Use this whenever the user asks to extract financial tables, "
                 "financial statements, key filing numbers, revenue, net income, total assets, "
                 "or cash flow from a 10-K/10-Q. If `year` is omitted, the backend resolves the "
-                "latest available filing year for that company from the system index. If a 10-K "
+                "latest available filing year for that company from the system index. If a saved "
                 "table result is missing and `auto_extract` is true, the backend attempts SEC "
-                "EDGAR PDF auto-fetch plus table extraction before returning. If unavailable, "
-                "the response carries an `error` field."
+                "EDGAR auto-fetch before returning: PDF/Textract when available, then HTML/iXBRL "
+                "as-filed table extraction for modern HTML-only filings. If unavailable, the "
+                "response carries an `error` field."
             ),
             "inputSchema": {
                 "json": {
@@ -384,7 +385,7 @@ TOOL_SPECS: Dict[str, dict] = {
                             "type": "string",
                             "enum": ["10-K", "10-Q"],
                             "default": "10-K",
-                            "description": "Filing type selector. Auto SEC PDF extraction currently works best for 10-K.",
+                            "description": "Filing type selector. SEC auto-fetch supports 10-K HTML/PDF and 10-Q HTML when available.",
                         },
                         "auto_extract": {
                             "type": "boolean",
@@ -800,6 +801,8 @@ def _compact_financial_tables_payload(payload: dict, max_rows_per_table: int) ->
                 "display_name": _coerce_str(block.get("display_name")) or key.replace("_", " ").title(),
                 "found": found,
                 "unit": _coerce_str(block.get("unit")),
+                "render_mode": _coerce_str(block.get("render_mode")) or ("as_filed_html" if block.get("as_filed_html") else "extracted_grid"),
+                "as_filed_available": bool(_coerce_str(block.get("as_filed_html"))),
                 "headers": headers[:12],
                 "row_count": len(rows),
                 "selected_rows": _selected_financial_rows(rows, cap) if found else [],
@@ -1100,76 +1103,41 @@ def _make_load_financial_tables(backend) -> Callable[..., dict]:
         attempted_years: List[int] = []
 
         if not isinstance(payload, dict) and auto_extract:
-            if filing_type != "10-K":
-                skipped.append(
-                    {
-                        "reason": "SEC PDF auto-extraction is currently enabled for 10-K table workflows only.",
-                        "filing_type": filing_type,
-                    }
-                )
+            auto_fetch_tables = getattr(backend, "_auto_fetch_tables_for_year", None)
+            if not callable(auto_fetch_tables):
+                skipped.append({"reason": "SEC table auto-fetch is unavailable in runtime."})
             else:
-                downloader = getattr(backend, "download_10k_pdf_for_company_year", None)
-                extractor = getattr(backend, "_extract_tables_for_pdf", None)
-                build_url = getattr(backend, "build_filing_html_url", None)
-                if not callable(downloader) or not callable(extractor):
-                    skipped.append({"reason": "SEC PDF table auto-fetch is unavailable in runtime."})
-                else:
-                    candidate_years = [year] if year > 0 else _recent_candidate_years()
-                    for yy in candidate_years:
-                        if yy <= 0:
-                            continue
-                        attempted_years.append(int(yy))
-                        try:
-                            pdf_bytes, meta, sec_err = downloader(
-                                company_name=resolved_company or company,
-                                year=int(yy),
-                                ticker=ticker,
-                            )
-                        except Exception as exc:
-                            skipped.append(
-                                {
-                                    "year": int(yy),
-                                    "reason": f"SEC request failed: {type(exc).__name__}: {exc}",
-                                }
-                            )
-                            continue
+                candidate_years = [year] if year > 0 else _recent_candidate_years()
+                for yy in candidate_years:
+                    if yy <= 0:
+                        continue
+                    attempted_years.append(int(yy))
+                    try:
+                        result, table_key, err, attempts = auto_fetch_tables(
+                            company=resolved_company or company,
+                            ticker=ticker,
+                            industry=industry or "Other",
+                            year=int(yy),
+                            filing_type=filing_type,
+                        )
+                    except Exception as exc:
+                        result, table_key, err, attempts = None, "", f"{type(exc).__name__}: {exc}", []
+                    if not isinstance(result, dict):
+                        skipped.append(
+                            {
+                                "year": int(yy),
+                                "reason": err or "Tables extraction failed.",
+                                "attempts": attempts if isinstance(attempts, list) else [],
+                            }
+                        )
+                        continue
 
-                        if not pdf_bytes:
-                            filing_url = build_url(meta) if callable(build_url) and isinstance(meta, dict) else ""
-                            skipped.append(
-                                {
-                                    "year": int(yy),
-                                    "reason": sec_err or "Could not auto-download 10-K PDF from SEC EDGAR.",
-                                    "filing_url": filing_url,
-                                }
-                            )
-                            continue
-
-                        try:
-                            result, table_key, err = extractor(
-                                pdf_bytes=pdf_bytes,
-                                company=resolved_company or company,
-                                industry=industry or "Other",
-                                year=int(yy),
-                                filing_type=filing_type,
-                                source="agent_tables_auto_sec_pdf",
-                            )
-                        except Exception as exc:
-                            result, table_key, err = None, "", f"{type(exc).__name__}: {exc}"
-                        if not isinstance(result, dict):
-                            skipped.append(
-                                {
-                                    "year": int(yy),
-                                    "reason": err or "Tables extraction failed.",
-                                }
-                            )
-                            continue
-
-                        payload = result
-                        year = int(yy)
-                        table_load_company = resolved_company or company
-                        retrieval_mode = "sec_auto_extract"
-                        break
+                    payload = result
+                    year = int(yy)
+                    table_load_company = resolved_company or company
+                    source_format = _coerce_str(result.get("source_format")) or "unknown"
+                    retrieval_mode = f"sec_auto_extract_{source_format}"
+                    break
 
         if not isinstance(payload, dict):
             available_years = sorted(

@@ -27,6 +27,12 @@ const TABLE_SECTIONS = [
   { key: 'cash_flow', label: 'Cash Flow' },
 ]
 
+function AsFiledFinancialTable({ html }) {
+  const markup = String(html || '').trim()
+  if (!markup) return null
+  return <div className="rl-as-filed-table compact" dangerouslySetInnerHTML={{ __html: markup }} />
+}
+
 const STOCK_LAST_TICKER_KEY = 'rl_stock_last_ticker_v1'
 const STOCK_RECENT_TICKERS_KEY = 'rl_stock_recent_tickers_v1'
 const STOCK_STARRED_TICKERS_KEY = 'rl_stock_starred_tickers_v1'
@@ -2278,6 +2284,7 @@ export default function StockPage() {
   const activeTableBlock = activeTableResult && detailTableSection ? activeTableResult[detailTableSection] : null
   const activeTableHeaders = Array.isArray(activeTableBlock?.headers) ? activeTableBlock.headers : []
   const activeTableRows = Array.isArray(activeTableBlock?.rows) ? activeTableBlock.rows : []
+  const activeAsFiledHtml = String(activeTableBlock?.as_filed_html || '').trim()
   const detailPeers = useMemo(() => {
     const sameSector = loadedRows
       .filter((row) => row.ticker !== detailSymbol && row.industry === detailIndustry)
@@ -2986,27 +2993,31 @@ export default function StockPage() {
                 {!detailTableLoading && activeTableBlock?.found ? (
                   <>
                     {String(activeTableBlock?.unit || '').trim() ? <p className="rl-stock-fin-unit">Unit: {String(activeTableBlock.unit)}</p> : null}
-                    <div className="rl-stock-fin-table-wrap">
-                      <table className="rl-stock-fin-table">
-                        {activeTableHeaders.length ? (
-                          <thead>
-                            <tr>
-                              {activeTableHeaders.map((h, idx) => (
-                                <th key={`fin-head-${idx}`}>{/^col\s*\d+$/i.test(String(h || '')) ? '' : String(h || '')}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                        ) : null}
-                        <tbody>
-                          {activeTableRows.slice(0, 60).map((row, rIdx) => (
-                            <tr key={`fin-row-${rIdx}`}>
-                              {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
-                                <td key={`fin-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className={`rl-stock-fin-table-wrap ${activeAsFiledHtml ? 'as-filed' : ''}`}>
+                      {activeAsFiledHtml ? (
+                        <AsFiledFinancialTable html={activeAsFiledHtml} />
+                      ) : (
+                        <table className="rl-stock-fin-table">
+                          {activeTableHeaders.length ? (
+                            <thead>
+                              <tr>
+                                {activeTableHeaders.map((h, idx) => (
+                                  <th key={`fin-head-${idx}`}>{/^col\s*\d+$/i.test(String(h || '')) ? '' : String(h || '')}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                          ) : null}
+                          <tbody>
+                            {activeTableRows.slice(0, 60).map((row, rIdx) => (
+                              <tr key={`fin-row-${rIdx}`}>
+                                {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
+                                  <td key={`fin-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
                     </div>
                   </>
                 ) : null}

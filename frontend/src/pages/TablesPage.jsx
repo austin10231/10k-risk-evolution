@@ -91,6 +91,17 @@ function toBase64DataUrl(file) {
   })
 }
 
+function AsFiledTable({ html, compact = false }) {
+  const markup = String(html || '').trim()
+  if (!markup) return null
+  return (
+    <div
+      className={`rl-as-filed-table ${compact ? 'compact' : ''}`}
+      dangerouslySetInnerHTML={{ __html: markup }}
+    />
+  )
+}
+
 export default function TablesPage() {
   const location = useLocation()
   const { config } = useGlobalConfig()
@@ -185,10 +196,6 @@ export default function TablesPage() {
   useEffect(() => {
     let mounted = true
     if (!selected) return () => {}
-    if (String(selected?.file_ext || '').toLowerCase() !== 'pdf') {
-      setTableResult(null)
-      return () => {}
-    }
     const companyName = String(selected.company || '').trim()
     const selectedYear = Number(selected.year || 0)
     const selectedFilingType = String(selected.filing_type || '10-K').trim() || '10-K'
@@ -220,7 +227,7 @@ export default function TablesPage() {
       return
     }
     if (!uploadFile) {
-      setError('Please choose a PDF filing first.')
+      setError('Please choose a PDF or SEC HTML filing first.')
       return
     }
 
@@ -296,7 +303,7 @@ export default function TablesPage() {
             <span className="page-icon">📊</span>
             <div>
               <p className="page-title">Financial Tables</p>
-              <p className="page-subtitle">Extract key financial statements from 10-K filings via Textract pipeline</p>
+              <p className="page-subtitle">Extract and preserve as-filed financial statements from SEC HTML, with PDF/Textract fallback</p>
             </div>
           </div>
           <GlobalConfigInlineEditor />
@@ -309,7 +316,7 @@ export default function TablesPage() {
         <div className="rl-up-form rl-tables-form">
           <div className="rl-tabs rl-tab-motion" ref={modeTabsRef}>
             <button className={`rl-tab-btn ${ingestMode === 'manual' ? 'active' : ''}`} onClick={() => setIngestMode('manual')}>
-              📄 Manual PDF Upload
+              📄 Manual Filing Upload
             </button>
             <button className={`rl-tab-btn ${ingestMode === 'auto' ? 'active' : ''}`} onClick={() => setIngestMode('auto')}>
               🛰️ Auto Fetch from SEC EDGAR
@@ -319,13 +326,13 @@ export default function TablesPage() {
           {ingestMode === 'manual' ? (
             <div className="rl-up-form-fields">
               <div>
-                <label className="rl-field-label">Filing file (PDF)</label>
+                <label className="rl-field-label">Filing file (PDF or SEC HTML)</label>
                 <div className="rl-upload-btn-row">
                   <button className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
                     {uploadFile ? '↻ Change File' : '⤴ Upload'}
                   </button>
                   <span className={`rl-upload-file-text ${uploadFile ? 'has-file' : ''}`}>
-                    {uploadFile ? `${uploadFile.name} • ${formatBytes(uploadFile.size)}` : '200MB per file • PDF only'}
+                    {uploadFile ? `${uploadFile.name} • ${formatBytes(uploadFile.size)}` : '200MB per file • PDF / HTML'}
                   </span>
                   {uploadFile ? (
                     <button
@@ -341,7 +348,7 @@ export default function TablesPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,application/pdf"
+                    accept=".pdf,.html,.htm,application/pdf,text/html"
                     className="rl-hidden-file-input"
                     onChange={(e) => {
                       const f = e.target.files && e.target.files[0] ? e.target.files[0] : null
@@ -403,7 +410,7 @@ export default function TablesPage() {
               </div>
 
               <button className="btn-primary w-full rl-up-primary-btn" onClick={runManualExtract} disabled={tableBusy || autoBusy}>
-                {tableBusy ? 'Extracting…' : '🚀 Run Textract Extraction'}
+                {tableBusy ? 'Extracting…' : '🚀 Extract Tables'}
               </button>
             </div>
           ) : (
@@ -513,6 +520,7 @@ export default function TablesPage() {
               const rows = Array.isArray(block?.rows) ? block.rows : []
               const headers = Array.isArray(block?.headers) ? block.headers : []
               const unit = String(block?.unit || '')
+              const asFiledHtml = String(block?.as_filed_html || '').trim()
               return (
                 <details key={section.key} className={`rl-tables-accordion ${found ? 'found' : 'missing'}`}>
                   <summary>
@@ -524,27 +532,31 @@ export default function TablesPage() {
                   {found ? (
                     <div className="rl-tables-accordion-body">
                       {unit ? <p className="rl-tables-unit">Unit: {unit}</p> : null}
-                      <div className="rl-tables-table-scroll">
-                        <table className="rl-tables-table-grid">
-                          {headers.length ? (
-                            <thead>
-                              <tr>
-                                {headers.map((h, idx) => (
-                                  <th key={`${section.key}-head-${idx}`}>{String(h || `Col ${idx + 1}`)}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                          ) : null}
-                          <tbody>
-                            {rows.map((row, rIdx) => (
-                              <tr key={`${section.key}-row-${rIdx}`}>
-                                {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
-                                  <td key={`${section.key}-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      <div className={`rl-tables-table-scroll ${asFiledHtml ? 'as-filed' : ''}`}>
+                        {asFiledHtml ? (
+                          <AsFiledTable html={asFiledHtml} />
+                        ) : (
+                          <table className="rl-tables-table-grid">
+                            {headers.length ? (
+                              <thead>
+                                <tr>
+                                  {headers.map((h, idx) => (
+                                    <th key={`${section.key}-head-${idx}`}>{String(h || `Col ${idx + 1}`)}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                            ) : null}
+                            <tbody>
+                              {rows.map((row, rIdx) => (
+                                <tr key={`${section.key}-row-${rIdx}`}>
+                                  {(Array.isArray(row) ? row : [row]).map((cell, cIdx) => (
+                                    <td key={`${section.key}-cell-${rIdx}-${cIdx}`}>{String(cell ?? '')}</td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
                       </div>
                     </div>
                   ) : (

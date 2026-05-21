@@ -1625,6 +1625,26 @@ select.input {
   border-top-color: rgba(71, 85, 105, 0.52);
 }
 
+.rl-workspace-app.rl-theme-dark .rl-as-filed-table,
+.rl-workspace-app.rl-theme-dark .rl-as-filed-table caption,
+.rl-workspace-app.rl-theme-dark .rl-as-filed-table th,
+.rl-workspace-app.rl-theme-dark .rl-as-filed-table td {
+  color: #e2e8f0;
+}
+
+.rl-workspace-app.rl-theme-dark .rl-as-filed-table table {
+  background: rgba(15, 23, 42, 0.86);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-as-filed-table th,
+.rl-workspace-app.rl-theme-dark .rl-as-filed-table td {
+  border-color: rgba(71, 85, 105, 0.62);
+}
+
+.rl-workspace-app.rl-theme-dark .rl-as-filed-table th {
+  background: rgba(30, 41, 59, 0.94);
+}
+
 .rl-workspace-app.rl-theme-dark .rl-agent-msg.assistant .rl-agent-msg-body {
   border-color: rgba(71, 85, 105, 0.64);
   background: linear-gradient(180deg, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.84));
@@ -4630,6 +4650,11 @@ select.input {
   background: rgba(255, 255, 255, 0.68);
 }
 
+.rl-stock-fin-table-wrap.as-filed {
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.86);
+}
+
 .rl-stock-fin-table {
   width: 100%;
   border-collapse: collapse;
@@ -6036,6 +6061,50 @@ select.input {
   border-radius: 10px;
   border: 1px solid rgba(219, 228, 240, 0.95);
   background: rgba(255, 255, 255, 0.84);
+}
+
+.rl-tables-table-scroll.as-filed {
+  max-height: 620px;
+  overflow: auto;
+}
+
+.rl-as-filed-table {
+  min-width: 620px;
+  color: #0f172a;
+  font-size: 0.76rem;
+  line-height: 1.38;
+}
+
+.rl-as-filed-table.compact {
+  min-width: 760px;
+  font-size: 0.68rem;
+}
+
+.rl-as-filed-table table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #ffffff;
+}
+
+.rl-as-filed-table caption {
+  caption-side: top;
+  padding: 8px;
+  color: #0f172a;
+  font-weight: 800;
+  text-align: left;
+}
+
+.rl-as-filed-table th,
+.rl-as-filed-table td {
+  border: 1px solid rgba(203, 213, 225, 0.82);
+  padding: 5px 7px;
+  color: #0f172a;
+  vertical-align: top;
+}
+
+.rl-as-filed-table th {
+  background: rgba(241, 245, 249, 0.92);
+  font-weight: 800;
 }
 
 .rl-tables-table-grid {
