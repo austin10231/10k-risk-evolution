@@ -530,10 +530,32 @@ def _auth_cookie_secure() -> bool:
     return raw not in {"0", "false", "no", "off"}
 
 
-def _auth_cookie_samesite() -> str:
-    raw = str(_env("AUTH_COOKIE_SAMESITE", "None") or "None").strip().lower()
+def _auth_site_key(url: str) -> str:
+    parsed = urlparse(_normalize_url_base(url))
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return ""
+    if host == "localhost" or re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", host):
+        site = host
+    else:
+        labels = [part for part in host.split(".") if part]
+        site = ".".join(labels[-2:]) if len(labels) >= 2 else host
+    scheme = parsed.scheme if parsed.scheme in {"http", "https"} else "https"
+    return f"{scheme}://{site}"
+
+
+def _auth_app_and_api_same_site(request_headers) -> bool:
+    app_site = _auth_site_key(_auth_app_base_url())
+    api_site = _auth_site_key(_auth_api_base_url(request_headers))
+    return bool(app_site and api_site and app_site == api_site)
+
+
+def _auth_cookie_samesite(request_headers=None) -> str:
+    raw = str(_env("AUTH_COOKIE_SAMESITE", "auto") or "auto").strip().lower()
     if raw in {"lax", "strict", "none"}:
         return raw.capitalize()
+    if raw in {"auto", ""}:
+        return "Lax" if _auth_app_and_api_same_site(request_headers) else "None"
     return "None"
 
 
@@ -555,6 +577,17 @@ def _auth_flow_ttl_seconds() -> int:
 
 def _auth_session_ttl_seconds() -> int:
     return max(900, min(60 * 60 * 24 * 14, _parse_int(_env("AUTH_SESSION_TTL_SECONDS", "28800"), 28800)))
+
+
+def _auth_decode_flow_state(state: str) -> Optional[dict]:
+    payload = _auth_decode_signed_payload(state)
+    if not isinstance(payload, dict):
+        return None
+    if not str(payload.get("verifier", "") or "").strip():
+        return None
+    if not str(payload.get("return_to", "") or "").strip():
+        return None
+    return payload
 
 
 def _parse_cookies_from_headers(request_headers) -> Dict[str, str]:
@@ -610,7 +643,7 @@ def _build_set_cookie_header(
     if domain:
         morsel["domain"] = domain
     secure = _auth_cookie_secure()
-    same_site = _auth_cookie_samesite()
+    same_site = _auth_cookie_samesite(request_headers)
     if same_site == "None" and not secure:
         secure = True
     if secure:
@@ -6478,21 +6511,25 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     return
                 return_to_raw = str((query.get("return_to", [""]) or [""])[0]).strip()
                 return_to = _sanitize_return_to_url(return_to_raw, self.headers)
-                state = secrets.token_urlsafe(24)
                 code_verifier = _pkce_code_verifier()
                 code_challenge = _pkce_code_challenge(code_verifier)
                 now_ts = int(time.time())
                 ttl = _auth_flow_ttl_seconds()
                 flow_payload = {
-                    "state": state,
+                    "nonce": secrets.token_urlsafe(18),
                     "verifier": code_verifier,
                     "return_to": return_to,
                     "iat": now_ts,
                     "exp": now_ts + ttl,
                 }
+                state = _auth_encode_signed_payload(flow_payload)
+                cookie_flow_payload = {
+                    **flow_payload,
+                    "state": state,
+                }
                 flow_cookie = _build_set_cookie_header(
                     _auth_flow_cookie_name(),
-                    _auth_encode_signed_payload(flow_payload),
+                    _auth_encode_signed_payload(cookie_flow_payload),
                     path="/api/auth",
                     max_age=ttl,
                     request_headers=self.headers,
@@ -6543,10 +6580,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
                 cookies = _parse_cookies_from_headers(self.headers)
                 flow_token = str(cookies.get(_auth_flow_cookie_name(), "") or "").strip()
-                flow_payload = _auth_decode_signed_payload(flow_token) if flow_token else None
+                cookie_flow_payload = _auth_decode_signed_payload(flow_token) if flow_token else None
                 return_to = fallback_return
-                if isinstance(flow_payload, dict):
-                    return_to = _sanitize_return_to_url(flow_payload.get("return_to", ""), self.headers)
 
                 oauth_error = str((query.get("error", [""]) or [""])[0]).strip()
                 if oauth_error:
@@ -6565,19 +6600,26 @@ class _RequestHandler(BaseHTTPRequestHandler):
                         cookies=[clear_flow_cookie],
                     )
                     return
+                state_flow_payload = _auth_decode_flow_state(state)
+                flow_payload = None
+                if isinstance(cookie_flow_payload, dict) and str(cookie_flow_payload.get("state", "") or "").strip() == state:
+                    flow_payload = cookie_flow_payload
+                elif isinstance(state_flow_payload, dict):
+                    flow_payload = state_flow_payload
+
                 if not isinstance(flow_payload, dict):
                     self._send_redirect(
                         _append_url_query(return_to, auth="error", reason="missing_flow_cookie"),
                         cookies=[clear_flow_cookie],
                     )
                     return
-                expected_state = str(flow_payload.get("state", "") or "").strip()
-                if not expected_state or expected_state != state:
+                if isinstance(cookie_flow_payload, dict) and str(cookie_flow_payload.get("state", "") or "").strip() and str(cookie_flow_payload.get("state", "") or "").strip() != state and not isinstance(state_flow_payload, dict):
                     self._send_redirect(
                         _append_url_query(return_to, auth="error", reason="state_mismatch"),
                         cookies=[clear_flow_cookie],
                     )
                     return
+                return_to = _sanitize_return_to_url(flow_payload.get("return_to", ""), self.headers)
                 exp_ts = _parse_int(flow_payload.get("exp", 0), 0)
                 if exp_ts > 0 and int(time.time()) >= exp_ts:
                     self._send_redirect(

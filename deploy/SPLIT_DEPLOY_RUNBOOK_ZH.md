@@ -37,14 +37,26 @@
 - `AGENTCORE_REGION`
 - `MARKETAUX_API_TOKEN`
 - `COMPREHEND_REGION`（可选）
+- `APP_BASE_URL`
+- `PUBLIC_API_BASE_URL`
 - `CORS_ALLOW_ORIGINS`
+- `COGNITO_DOMAIN`
+- `COGNITO_CLIENT_ID`
+- `COGNITO_CLIENT_SECRET`（如果 Cognito App Client 有 secret）
+- `COGNITO_SCOPE`
+- `COGNITO_REDIRECT_URI`
+- `COGNITO_ALLOWED_CALLBACK_URLS`
+- `COGNITO_LOGOUT_REDIRECT_URI`
+- `COGNITO_ALLOWED_SIGNOUT_URLS`
+- `RISKLENS_SESSION_SECRET`
+- `AUTH_COOKIE_DOMAIN`
+- `AUTH_COOKIE_SAMESITE`
+- `AUTH_COOKIE_SECURE`
+- `AUTH_RETURN_TO_ALLOWLIST`
 
 放到 Cloudflare（前端公开可见）：
-- `PUBLIC_API_BASE_URL`
-- `PUBLIC_COGNITO_DOMAIN`
-- `PUBLIC_COGNITO_CLIENT_ID`
-- `PUBLIC_COGNITO_REDIRECT_URI`
-- `PUBLIC_COGNITO_SCOPE`
+- `VITE_API_BASE_URL`（产品前端 `frontend/`）
+- `PUBLIC_API_BASE_URL`（landing page 若需要展示/链接 API）
 
 绝对不要放到前端：
 - `COGNITO_CLIENT_SECRET`
@@ -58,12 +70,13 @@
 
 这是“允许访问后端 API 的前端域名白名单”，示例：
 
-`https://app.example.com,https://www.example.com,http://localhost:5173`
+`https://app.risklensai.org,https://risklens-ai.pages.dev,http://localhost:5173`
 
 说明：
 - 生产环境填你的真实 Cloudflare 域名
 - 本地联调可加 `http://localhost:5173`（或你本地端口）
 - 多个域名用英文逗号分隔
+- 使用 cookie 登录时不要依赖 `*`，浏览器会拒绝 wildcard + credentials 的组合
 
 ---
 
@@ -76,7 +89,7 @@
    - Start Command: `python main.py`
 3. 在 `Variables` 粘贴 `deploy/railway.env.example` 对应值
 4. 设置 Health Check 路径：`/health`
-5. 发布后拿到后端地址（后续填到前端 `PUBLIC_API_BASE_URL`）
+5. 发布后绑定自定义域名 `https://api.risklensai.org`（后续填到前端 `VITE_API_BASE_URL`）
 
 接口约定（当前后端）：
 - `GET /health`：健康检查
@@ -88,7 +101,7 @@
 
 1. Cloudflare Pages 创建项目 -> 连接前端仓库目录
 2. 配置构建命令与输出目录（按前端框架）
-3. 在 Environment Variables 填 `deploy/cloudflare-pages.env.example`
+3. 产品前端在 Environment Variables 填 `deploy/cloudflare-product-frontend.env.example`
 4. 部署后拿到前端域名
 5. 回填后端 CORS：把前端域名加入 `CORS_ALLOW_ORIGINS`
 
@@ -96,14 +109,18 @@
 
 ## 6) Cognito 迁移要点
 
-1. 建议新建一个前端公有 Client（PKCE）
-2. 回调地址（Callback URL）指向 Cloudflare 前端域名
-3. 前端只用：
-   - Domain
-   - Client ID
-   - Redirect URI
-   - Scope
-4. `Client Secret` 仅后端使用（如使用授权码交换）
+1. Hosted UI 仍然由 Cognito 承担，产品内的 `/auth` 只是品牌化入口页
+2. 回调地址（Callback URL）指向后端 API：
+   - `https://api.risklensai.org/api/auth/callback`
+3. Sign-out URL 指向产品页：
+   - `https://app.risklensai.org/agent`
+4. 前端只配置 `VITE_API_BASE_URL=https://api.risklensai.org`
+5. `COGNITO_CLIENT_SECRET` 仅放 Railway；如果 App Client 没有 secret 可以留空
+6. 为避免 Safari / 隐私浏览器阻止第三方 cookie，生产环境必须让 API 使用同站域名：
+   - `app.risklensai.org`
+   - `api.risklensai.org`
+   - `AUTH_COOKIE_DOMAIN=.risklensai.org`
+   - `AUTH_COOKIE_SAMESITE=Lax`
 
 ---
 

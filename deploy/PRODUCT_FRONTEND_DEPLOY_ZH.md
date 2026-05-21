@@ -15,7 +15,7 @@
 
 ## 3. 环境变量
 - 添加 `VITE_API_BASE_URL`：
-  - `https://10k-risk-evolution-production-982d.up.railway.app`
+  - `https://api.risklensai.org`
 - 可选：`VITE_APP_TITLE=RiskLens Product`
 
 参考模板：`deploy/cloudflare-product-frontend.env.example`
@@ -26,7 +26,9 @@
 - 打开 `/news` 页面，查询公司新闻（需后端已配置 `MARKETAUX_API_TOKEN`）。
 
 ## 5. 域名与 CORS
-- 若前端域名为 `https://app.xxx.com`：
-  - Railway 变量 `CORS_ALLOW_ORIGINS` 更新为：
-  - `https://app.xxx.com,https://risklens.pages.dev`
+- 生产环境建议使用同站 API 域名：
+  - 产品前端：`https://app.risklensai.org`
+  - 后端 API：`https://api.risklensai.org`
+- Railway 变量 `CORS_ALLOW_ORIGINS` 更新为：
+  - `https://app.risklensai.org,https://risklens-ai.pages.dev,http://localhost:5173`
 - 调试阶段可临时保留 `*`，上线前建议收紧白名单。
