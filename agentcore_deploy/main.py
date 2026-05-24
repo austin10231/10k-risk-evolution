@@ -3807,6 +3807,23 @@ def _dashboard_summary() -> dict:
         }
         return scoped[key]
 
+    def _should_replace_heat_cell(existing: Optional[dict], candidate: dict) -> bool:
+        """Pick the best representative when multiple filings share a company-year.
+
+        Quarterly filings are often ingested after annual 10-Ks. If an unscored
+        10-Q is newer, it should not hide an older 10-K that already has a valid
+        RPI. When both candidates have the same scoring availability, keep the
+        newest one by created_at.
+        """
+        if not isinstance(existing, dict):
+            return True
+
+        def rank(cell: dict) -> tuple[int, str]:
+            has_rpi = cell.get("rpi") is not None
+            return (1 if has_rpi else 0, str(cell.get("created_at", "") or ""))
+
+        return rank(candidate) > rank(existing)
+
     for rec in records:
         rid = str(rec.get("record_id", "") or "").strip()
         company = str(rec.get("company", "") or "").strip()
@@ -3860,28 +3877,29 @@ def _dashboard_summary() -> dict:
 
             if company and year > 0:
                 cell_key = f"{company}__{year}"
-                # records are sorted newest first; keep latest for a company-year cell.
-                if cell_key not in scope["heat_cells_map"]:
-                    ticker = _resolve_record_ticker(rec, ticker_lookup=ticker_lookup)
-                    scope["heat_cells_map"][cell_key] = {
-                        "record_id": rid,
-                        "company": company,
-                        "industry": industry,
-                        "ticker": ticker,
-                        "filing_type": str(rec.get("filing_type", "") or ""),
-                        "risk_items": int(risk_items),
-                        "year": year,
-                        "high": int(priority["high"]),
-                        "medium": int(priority["medium"]),
-                        "low": int(priority["low"]),
-                        "total": int(priority["total"]),
-                        # Keep None as null in JSON so the frontend can render
-                        # "—" for unscored vs green-0 for legitimate all-Low.
-                        "rpi": (None if rpi is None else float(rpi)),
-                        "scoring_status": priority.get("scoring_status", "missing"),
-                        "top_high": list(priority["top_high"])[:3],
-                        "created_at": created_at,
-                    }
+                ticker = _resolve_record_ticker(rec, ticker_lookup=ticker_lookup)
+                candidate_cell = {
+                    "record_id": rid,
+                    "company": company,
+                    "industry": industry,
+                    "ticker": ticker,
+                    "filing_type": str(rec.get("filing_type", "") or ""),
+                    "risk_items": int(risk_items),
+                    "year": year,
+                    "high": int(priority["high"]),
+                    "medium": int(priority["medium"]),
+                    "low": int(priority["low"]),
+                    "total": int(priority["total"]),
+                    # Keep None as null in JSON so the frontend can render
+                    # "—" for unscored vs green-0 for legitimate all-Low.
+                    "rpi": (None if rpi is None else float(rpi)),
+                    "scoring_status": priority.get("scoring_status", "missing"),
+                    "top_high": list(priority["top_high"])[:3],
+                    "created_at": created_at,
+                }
+                existing_cell = scope["heat_cells_map"].get(cell_key)
+                if _should_replace_heat_cell(existing_cell, candidate_cell):
+                    scope["heat_cells_map"][cell_key] = candidate_cell
 
     scopes_payload: Dict[str, dict] = {}
     for scope_key, scope in scoped.items():
