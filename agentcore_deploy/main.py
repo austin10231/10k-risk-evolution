@@ -3810,17 +3810,23 @@ def _dashboard_summary() -> dict:
     def _should_replace_heat_cell(existing: Optional[dict], candidate: dict) -> bool:
         """Pick the best representative when multiple filings share a company-year.
 
-        Quarterly filings are often ingested after annual 10-Ks. If an unscored
-        10-Q is newer, it should not hide an older 10-K that already has a valid
-        RPI. When both candidates have the same scoring availability, keep the
-        newest one by created_at.
+        The main dashboard is annual-risk-first, so a 10-K should represent the
+        company-year whenever it exists. Quarterly 10-Q records can be surfaced
+        later in a dedicated quarterly view without overriding the annual grid.
+        Within the same filing type, prefer scored records, then the newest one.
         """
         if not isinstance(existing, dict):
             return True
 
-        def rank(cell: dict) -> tuple[int, str]:
+        def rank(cell: dict) -> tuple[int, int, str]:
+            filing_type = str(cell.get("filing_type", "") or "").upper()
+            is_10k = filing_type == "10-K"
             has_rpi = cell.get("rpi") is not None
-            return (1 if has_rpi else 0, str(cell.get("created_at", "") or ""))
+            return (
+                1 if is_10k else 0,
+                1 if has_rpi else 0,
+                str(cell.get("created_at", "") or ""),
+            )
 
         return rank(candidate) > rank(existing)
 
