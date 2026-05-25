@@ -728,6 +728,30 @@ function buildFilingSummary(items) {
   }
 }
 
+function filingTypePriority(value) {
+  const normalized = String(value || '10-K').trim().toUpperCase()
+  if (normalized === '10-K') return 0
+  if (normalized === '10-Q') return 1
+  return 2
+}
+
+function filingQuarterValue(record) {
+  const raw = Number(record?.filing_quarter || record?.quarter || 0)
+  return Number.isFinite(raw) ? raw : 0
+}
+
+function sortFinancialTableRecords(records) {
+  return [...(Array.isArray(records) ? records : [])].sort((a, b) => {
+    const formDiff = filingTypePriority(a?.filing_type) - filingTypePriority(b?.filing_type)
+    if (formDiff !== 0) return formDiff
+    const yearDiff = Number(b?.year || 0) - Number(a?.year || 0)
+    if (yearDiff !== 0) return yearDiff
+    const quarterDiff = filingQuarterValue(b) - filingQuarterValue(a)
+    if (quarterDiff !== 0) return quarterDiff
+    return String(b?.created_at || '').localeCompare(String(a?.created_at || ''))
+  })
+}
+
 function initialsFor(name, ticker) {
   const words = String(name || '').trim().split(/\s+/).filter(Boolean)
   if (words.length >= 2) return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase()
@@ -2209,9 +2233,9 @@ export default function StockPage() {
     : Number(fullTimeEmployeesRaw)
   const detailRecords = useMemo(() => {
     const list = Array.isArray(filingRecordsMap[selectedCompanyQuery]) ? filingRecordsMap[selectedCompanyQuery] : []
-    return list
+    const eligible = list
       .filter((r) => Number.isFinite(Number(r?.year)) && String(r?.record_id || '').trim())
-      .slice(0, 6)
+    return sortFinancialTableRecords(eligible).slice(0, 12)
   }, [filingRecordsMap, selectedCompanyQuery])
 
   useEffect(() => {
@@ -2955,7 +2979,7 @@ export default function StockPage() {
                 </div>
 
                 <div className="rl-stock-fin-year-select-row">
-                  <label htmlFor="rl-stock-fin-year">Year</label>
+                  <label htmlFor="rl-stock-fin-year">Filing</label>
                   <select
                     id="rl-stock-fin-year"
                     className="rl-stock-fin-year-select"

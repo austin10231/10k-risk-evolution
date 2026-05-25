@@ -10,6 +10,7 @@ its environment.
 |---|---|---|
 | `migrate_s3_layout.py` | S3_PLAN.md Part 1 | Relocate the 42 legacy `10k_html_datasets/*.html` files into `10k_filings/<industry>/<company_dir>/<year>_10K.{html,json}` and re-extract risks via the current Bedrock pipeline. |
 | `bulk_ingest.py` | S3_PLAN.md Part 2 | Pull recent 10-Ks for ~80 SEC tickers from EDGAR, extract risks with the same pipeline, and write into the new layout. |
+| `backfill_10k_financial_tables.py` | — | Scan existing 10-K records and backfill saved financial statement table JSON/CSV. Dry-run by default; HTML/iXBRL extraction is preferred, PDF/Textract is fallback. |
 | `bulk_ingest_targets.py` | — | Hardcoded target list (ticker × industry) consumed by `bulk_ingest.py`. |
 | `industry_mapping.py` | — | Single source of truth for industry → company → S3-dir mappings shared by Part 1 and Part 2. |
 | `extraction_pipeline.py` | — | Thin reuse layer over `agentcore_deploy/main.py`'s extraction + priority helpers (`_manual_extract_result`, `_generate_agent_priority_report`). Guarantees migrated and ingested filings have the same JSON schema as runtime-uploaded ones. |
@@ -85,6 +86,39 @@ Configurable knobs:
 A local report lands at `scripts/bulk_ingest.report.json`. The same report
 is also uploaded to `s3://<bucket>/10k_filings/_ingest_reports/<ISO>.json`
 on real runs.
+
+### Backfill 10-K financial tables
+
+```bash
+# 1. Plan only. No S3 writes and no extraction jobs.
+python scripts/backfill_10k_financial_tables.py --limit 10
+
+# 2. Smoke-test one company/year. HTML/iXBRL is attempted first, then PDF/Textract.
+python scripts/backfill_10k_financial_tables.py --execute --ticker AAPL --year 2024
+
+# If your local shell cannot read the production records index, bypass it for
+# a one-company smoke test by calling the deployed API, which already has AWS env:
+python scripts/backfill_10k_financial_tables.py --execute --api-base https://api.risklensai.org --direct --ticker AAPL --year 2024 --company Apple
+
+# You can also use the deployed API to scan global records from your laptop:
+python scripts/backfill_10k_financial_tables.py --execute --api-base https://api.risklensai.org --limit 10
+
+# If a company has slow PDF/Textract filings, the API mode still defaults to
+# HTML-first by downloading SEC HTML locally and sending it to the deployed API:
+python scripts/backfill_10k_financial_tables.py --execute --api-base https://api.risklensai.org --ticker ADBE --year 2022
+
+# 3. Resume-safe full run. Existing table payloads are skipped.
+python scripts/backfill_10k_financial_tables.py --execute --sleep 0.5
+
+# 4. Replace existing table payloads if extraction logic changed.
+python scripts/backfill_10k_financial_tables.py --execute --force --ticker MSFT
+```
+
+The backfill writes table payloads under `tables_extraction/`. With
+`--api-base`, HTML-first extraction sends SEC HTML to
+`/api/tables/extract/manual` so local runs do not need AWS credentials and do
+not get stuck on slow PDF/Textract filings. A local report lands at
+`scripts/backfill_10k_financial_tables.report.json`.
 
 ## Backend dual-read
 
