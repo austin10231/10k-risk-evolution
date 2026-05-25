@@ -565,14 +565,22 @@ export default function ComparePage() {
   useEffect(() => {
     if (!companyYoy || !latestYear || !priorYear) return
     const latestRec = records
-      .filter((r) => String(r.company || '') === companyYoy && Number(r.year) === Number(latestYear))
+      .filter((r) => (
+        String(r.company || '') === companyYoy
+        && Number(r.year) === Number(latestYear)
+        && String(r.filing_type || '10-K') === ftYoy
+      ))
       .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]
     const priorRec = records
-      .filter((r) => String(r.company || '') === companyYoy && Number(r.year) === Number(priorYear))
+      .filter((r) => (
+        String(r.company || '') === companyYoy
+        && Number(r.year) === Number(priorYear)
+        && String(r.filing_type || '10-K') === ftYoy
+      ))
       .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0]
     if (latestRec?.record_id) setLatestId(latestRec.record_id)
     if (priorRec?.record_id) setPriorId(priorRec.record_id)
-  }, [companyYoy, latestYear, priorYear, records])
+  }, [companyYoy, ftYoy, latestYear, priorYear, records])
 
   const yearsForCompany = (name) =>
     Array.from(new Set(records.filter((r) => String(r.company || '') === name).map((r) => Number(r.year)).filter(Number.isFinite))).sort((a, b) => b - a)
