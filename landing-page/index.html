@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RiskLens AI | SEC 10-K Risk Intelligence</title>
-  <meta name="description" content="RiskLens AI helps teams turn SEC 10-K filings into structured risk intelligence with AI-powered extraction, comparison, and monitoring." />
+  <title>RiskLens AI | SEC 10-K/10-Q Risk Intelligence</title>
+  <meta name="description" content="RiskLens AI helps teams turn SEC 10-K and 10-Q filings into structured risk, financial table, market, and news intelligence with an AWS-powered agent workspace." />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -227,12 +227,12 @@
         <div class="hero-glow"></div>
         <div class="grid lg:grid-cols-[minmax(0,1.04fr)_minmax(390px,0.96fr)] gap-7 md:gap-9 items-start">
           <div>
-            <span class="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 text-brand-700 px-3 py-1 text-xs font-semibold">SEC 10-K Intelligence Platform</span>
+            <span class="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 text-brand-700 px-3 py-1 text-xs font-semibold">SEC 10-K/10-Q Intelligence Platform</span>
             <h1 class="font-display mt-6 text-3xl md:text-5xl leading-[1.12] md:leading-[1.16] font-bold text-slate-900 max-w-4xl tracking-[-0.01em]">
-              From complex filings to clear risk insights
+              From SEC filings to market-aware risk intelligence
             </h1>
             <p class="mt-8 text-slate-600 text-base md:text-[1.15rem] leading-9 max-w-3xl">
-              RiskLens AI is an end-to-end platform that transforms complex financial filings into actionable risk insights. It enables users to extract key signals, compare risks across time, and interact with data through intelligent, business-aware tools.
+              RiskLens AI turns 10-K and 10-Q filings into structured risk, financial table, and market-context intelligence. Users can upload or auto-fetch filings, compare risk evolution, ask the agent questions, and keep records separated by account.
             </p>
 
             <div class="mt-9 flex flex-wrap gap-2 text-xs">
@@ -240,6 +240,7 @@
               <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">AWS AgentCore</span>
               <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Amazon Textract</span>
               <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">S3 Persistence</span>
+              <span class="px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Cognito User Isolation</span>
               <span class="px-3 py-1 rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700 font-semibold">News + Market Linkage</span>
             </div>
 
@@ -266,7 +267,7 @@
         <div class="section-title-bar"></div>
         <div>
           <h2 class="font-display text-2xl font-bold text-slate-900">Core Features</h2>
-          <p class="text-slate-500 text-sm">Three production layers matching the current RiskLens workflow and agent behavior.</p>
+          <p class="text-slate-500 text-sm">Three connected layers covering filing ingestion, risk intelligence, and an agent-powered analyst workspace.</p>
         </div>
       </div>
 
@@ -275,14 +276,14 @@
           <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
               <p class="text-xs font-bold tracking-widest text-brand-700 uppercase">Layer 1 · Data Foundation</p>
-              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Ingestion & Structuring Pipeline</h3>
-              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Support manual/auto filing ingestion plus chat attachment flow, then persist normalized records for dashboard and history reuse.</p>
-              <p class="mt-2 text-xs font-semibold text-amber-700">Powered by AWS S3 + Amazon Textract</p>
+              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Filing Ingestion, Tables & User-Scoped Records</h3>
+              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Upload PDFs or HTML files, auto-fetch SEC filings, or attach a filing directly in chat. RiskLens extracts risk factors and financial tables, then persists normalized records in S3 under the signed-in user's scope.</p>
+              <p class="mt-2 text-xs font-semibold text-amber-700">Powered by AWS S3 + Amazon Textract + SEC ingestion</p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <span class="feature-icon px-3 py-1.5 rounded-full bg-brand-50 border border-brand-100 text-sm font-semibold text-brand-800">📤 Upload</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-brand-50 border border-brand-100 text-sm font-semibold text-brand-800">📤 10-K / 10-Q</span>
               <span class="feature-icon px-3 py-1.5 rounded-full bg-brand-50 border border-brand-100 text-sm font-semibold text-brand-800">📊 Tables</span>
-              <span class="feature-icon px-3 py-1.5 rounded-full bg-brand-50 border border-brand-100 text-sm font-semibold text-brand-800">☁️ S3 Records</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-brand-50 border border-brand-100 text-sm font-semibold text-brand-800">☁️ User Records</span>
             </div>
           </div>
         </article>
@@ -291,14 +292,14 @@
           <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
               <p class="text-xs font-bold tracking-widest text-cyan-700 uppercase">Layer 2 · Intelligence Engine</p>
-              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Intent Router, Agent Orchestration & Risk Reasoning</h3>
-              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Classify intents into chat/risk/compare/stock/news, orchestrate tool calls via agent runtime, and keep multi-turn memory consistent.</p>
+              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Risk Extraction, 10-Q Deltas & Filing Comparison</h3>
+              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Extract Item 1A risk factors, detect incremental 10-Q disclosures, score risk priority, and compare year-over-year or cross-company changes across 10-K and 10-Q records.</p>
               <p class="mt-2 text-xs font-semibold text-amber-700">Powered by Amazon Bedrock + AWS AgentCore</p>
             </div>
             <div class="flex flex-wrap gap-2">
               <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">⚖️ Compare</span>
-              <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">🤖 Agent</span>
-              <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">🧠 Bedrock + AgentCore</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">🧾 10-Q Deltas</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-cyan-50 border border-cyan-200 text-sm font-semibold text-cyan-800">🧠 Risk Scoring</span>
             </div>
           </div>
         </article>
@@ -307,12 +308,12 @@
           <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
               <p class="text-xs font-bold tracking-widest text-amber-700 uppercase">Layer 3 · Decision Interface</p>
-              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Monitoring with Market & News Context</h3>
-              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Answer stock/news questions directly in chat without forced navigation, while keeping dashboard, records, and conversation state aligned.</p>
-              <p class="mt-2 text-xs font-semibold text-amber-700">AWS-integrated data pipelines across market and news context</p>
+              <h3 class="mt-1 font-display text-xl font-bold text-slate-900">Agent Workspace with Stock & News Context</h3>
+              <p class="mt-1.5 text-sm text-slate-600 max-w-2xl">Ask natural-language questions about uploaded filings, financial tables, stock movement, or recent headlines. The agent routes the right tool while preserving per-user chat memory.</p>
+              <p class="mt-2 text-xs font-semibold text-amber-700">Powered by Amazon Bedrock + market/news tool integrations</p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <span class="feature-icon px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-sm font-semibold text-amber-800">📈 Dashboard</span>
+              <span class="feature-icon px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-sm font-semibold text-amber-800">🤖 Agent</span>
               <span class="feature-icon px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-sm font-semibold text-amber-800">💹 Stock</span>
               <span class="feature-icon px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-sm font-semibold text-amber-800">📰 News</span>
             </div>
@@ -326,25 +327,25 @@
         <div class="section-title-bar"></div>
         <div>
           <h2 class="font-display text-2xl font-bold text-slate-900">Use Cases</h2>
-          <p class="text-slate-500 text-sm">Built for teams that need fast, auditable, and action-ready risk workflows.</p>
+          <p class="text-slate-500 text-sm">Built for teams that need SEC filing review, account-safe history, and market-aware decisions.</p>
         </div>
       </div>
 
       <div class="grid md:grid-cols-3 gap-5">
         <article class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card" data-aos="fade-up">
           <p class="text-xs inline-flex px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Analysts</p>
-          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Faster filing review</h3>
-          <p class="mt-2 text-sm text-slate-600 leading-relaxed">Spend less time scanning long reports and more time acting on prioritized risk narratives.</p>
+          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Faster 10-K/10-Q review</h3>
+          <p class="mt-2 text-sm text-slate-600 leading-relaxed">Upload or fetch filings, extract risk factors and tables, then ask follow-up questions without leaving the analyst workspace.</p>
         </article>
         <article class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card" data-aos="fade-up" data-aos-delay="70">
           <p class="text-xs inline-flex px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Research Teams</p>
-          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Cross-company insight</h3>
-          <p class="mt-2 text-sm text-slate-600 leading-relaxed">Benchmark issuers and vintages quickly with normalized outputs and side-by-side risk evolution.</p>
+          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Risk evolution tracking</h3>
+          <p class="mt-2 text-sm text-slate-600 leading-relaxed">Compare annual and quarterly disclosures across years or peers to spot rewritten, added, and emerging risks.</p>
         </article>
         <article class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card" data-aos="fade-up" data-aos-delay="140">
           <p class="text-xs inline-flex px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-brand-700 font-semibold">Risk & Compliance</p>
-          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Market-aware monitoring</h3>
-          <p class="mt-2 text-sm text-slate-600 leading-relaxed">Connect disclosures with market and news signals for earlier alerting and better escalation timing.</p>
+          <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Account-safe monitoring</h3>
+          <p class="mt-2 text-sm text-slate-600 leading-relaxed">Keep chat history and uploaded records separated by login account while connecting disclosures with market and news signals.</p>
         </article>
       </div>
     </section>
@@ -366,9 +367,9 @@
           </div>
           <p class="mt-4 text-4xl font-display font-bold text-brand-700">$0</p>
           <ul class="mt-4 space-y-2 text-sm text-slate-600">
-            <li>• Single-user exploration</li>
-            <li>• Core module preview</li>
-            <li>• Community support</li>
+            <li>• Public demo records</li>
+            <li>• Core risk workflow preview</li>
+            <li>• Agent Q&A exploration</li>
           </ul>
         </article>
 
@@ -379,9 +380,9 @@
           </div>
           <p class="mt-4 text-4xl font-display font-bold text-brand-700">$49<span class="text-lg text-slate-400">/seat</span></p>
           <ul class="mt-4 space-y-2 text-sm text-slate-600">
-            <li>• Team workspace</li>
-            <li>• Shared records & monitoring</li>
-            <li>• Enhanced AI analysis</li>
+            <li>• Per-user histories & records</li>
+            <li>• 10-K/10-Q monitoring</li>
+            <li>• Enhanced agent analysis</li>
           </ul>
         </article>
 
@@ -393,7 +394,7 @@
           <p class="mt-4 text-4xl font-display font-bold text-brand-700">Custom</p>
           <ul class="mt-4 space-y-2 text-sm text-slate-600">
             <li>• SSO / IAM integration</li>
-            <li>• Governance & access controls</li>
+            <li>• Governance & user isolation</li>
             <li>• Dedicated support</li>
           </ul>
         </article>
@@ -405,7 +406,7 @@
         <div class="section-title-bar"></div>
         <div>
           <h2 class="font-display text-2xl font-bold text-slate-900">Documentation Center</h2>
-          <p class="text-slate-500 text-sm">Fast onboarding guides, troubleshooting paths, and architecture references.</p>
+          <p class="text-slate-500 text-sm">Fast onboarding guides, authentication notes, and architecture references.</p>
         </div>
       </div>
 
@@ -413,19 +414,19 @@
         <a href="./docs/quick-start.html" class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card hover:shadow-soft transition" data-aos="fade-up">
           <div class="h-11 w-11 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-xl">🚀</div>
           <h3 class="mt-4 font-display text-xl font-bold text-slate-900">Quick Start</h3>
-          <p class="mt-2 text-sm text-slate-600">Go from first upload to tool-routed AI answers and monitoring in a practical sequence.</p>
+          <p class="mt-2 text-sm text-slate-600">Go from sign-in to upload, SEC auto-fetch, chat attachment, comparison, and agent answers in a practical sequence.</p>
         </a>
 
         <a href="./docs/faq.html" class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card hover:shadow-soft transition" data-aos="fade-up" data-aos-delay="70">
           <div class="h-11 w-11 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-xl">❓</div>
           <h3 class="mt-4 font-display text-xl font-bold text-slate-900">FAQ</h3>
-          <p class="mt-2 text-sm text-slate-600">Find direct answers for data handling, runtime behavior, and common product questions.</p>
+          <p class="mt-2 text-sm text-slate-600">Find direct answers for login, user isolation, uploaded data, runtime behavior, and common product questions.</p>
         </a>
 
         <a href="./docs/api-architecture.html" class="bg-white border border-brand-100 rounded-2xl p-6 shadow-card hover:shadow-soft transition" data-aos="fade-up" data-aos-delay="140">
           <div class="h-11 w-11 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-xl">🧩</div>
           <h3 class="mt-4 font-display text-xl font-bold text-slate-900">API Architecture</h3>
-          <p class="mt-2 text-sm text-slate-600">Understand how ingestion, extraction, intent routing, and storage connect end-to-end.</p>
+          <p class="mt-2 text-sm text-slate-600">Understand how Cognito, ingestion, extraction, intent routing, S3 storage, and agent tools connect end-to-end.</p>
         </a>
       </div>
 
@@ -441,8 +442,8 @@
       <div class="grid lg:grid-cols-5 gap-8">
         <div class="lg:col-span-2">
           <img src="./assets/logo.svg" alt="RiskLens AI" class="h-10 w-auto object-contain opacity-95" onerror="this.outerHTML='<div class=&quot;text-3xl&quot;>📊</div>';" />
-          <h3 class="mt-6 text-4xl leading-tight font-semibold text-white">AI risk intelligence platform for 10-K analysis.</h3>
-          <p class="mt-4 text-slate-400 max-w-md">Built with AWS technologies to help analysts ingest filings, detect changes, and monitor risk with market context.</p>
+          <h3 class="mt-6 text-4xl leading-tight font-semibold text-white">AI risk intelligence platform for 10-K and 10-Q analysis.</h3>
+          <p class="mt-4 text-slate-400 max-w-md">Built with AWS technologies to help analysts ingest filings, detect risk changes, extract tables, and monitor market context with a personal agent workspace.</p>
         </div>
         <div>
           <p class="text-white font-semibold mb-4">Product</p>
@@ -671,6 +672,43 @@
       "Open any card above for focused documentation pages and setup walkthroughs.": "点击上方任一卡片，查看聚焦文档与配置指引。",
       "AI risk intelligence platform for 10-K analysis.": "面向 10-K 分析的 AI 风险智能平台。",
       "Built with AWS technologies to help analysts ingest filings, detect changes, and monitor risk with market context.": "借助 AWS 技术帮助分析师接入文件、识别变化，并结合市场语境监控风险。",
+      "SEC 10-K/10-Q Intelligence Platform": "SEC 10-K/10-Q 智能分析平台",
+      "From SEC filings to market-aware risk intelligence": "从 SEC 申报文件到市场感知型风险智能",
+      "RiskLens AI turns 10-K and 10-Q filings into structured risk, financial table, and market-context intelligence. Users can upload or auto-fetch filings, compare risk evolution, ask the agent questions, and keep records separated by account.": "RiskLens AI 将 10-K 与 10-Q 申报文件转化为结构化风险、财务报表与市场语境智能。用户可以上传或自动抓取文件、对比风险演化、向智能体提问，并按账户隔离保存记录。",
+      "Cognito User Isolation": "Cognito 用户隔离",
+      "Three connected layers covering filing ingestion, risk intelligence, and an agent-powered analyst workspace.": "三层联动能力覆盖文件接入、风险智能与智能体驱动的分析师工作台。",
+      "Filing Ingestion, Tables & User-Scoped Records": "文件接入、财务表格与用户级记录",
+      "Upload PDFs or HTML files, auto-fetch SEC filings, or attach a filing directly in chat. RiskLens extracts risk factors and financial tables, then persists normalized records in S3 under the signed-in user's scope.": "支持上传 PDF 或 HTML、自动抓取 SEC 文件，或在聊天中直接附加文件。RiskLens 会提取风险因素和财务表格，并将标准化记录按登录用户范围持久化到 S3。",
+      "Powered by AWS S3 + Amazon Textract + SEC ingestion": "由 AWS S3 + Amazon Textract + SEC 接入流程提供支持",
+      "📤 10-K / 10-Q": "📤 10-K / 10-Q",
+      "☁️ User Records": "☁️ 用户记录",
+      "Risk Extraction, 10-Q Deltas & Filing Comparison": "风险提取、10-Q 增量识别与文件对比",
+      "Extract Item 1A risk factors, detect incremental 10-Q disclosures, score risk priority, and compare year-over-year or cross-company changes across 10-K and 10-Q records.": "提取 Item 1A 风险因素，识别 10-Q 增量披露，评估风险优先级，并在 10-K/10-Q 记录之间进行同比或跨公司对比。",
+      "🧾 10-Q Deltas": "🧾 10-Q 增量",
+      "🧠 Risk Scoring": "🧠 风险评分",
+      "Agent Workspace with Stock & News Context": "结合股票与新闻语境的智能体工作台",
+      "Ask natural-language questions about uploaded filings, financial tables, stock movement, or recent headlines. The agent routes the right tool while preserving per-user chat memory.": "用户可以用自然语言询问上传文件、财务表格、股价变化或近期新闻。智能体会路由到合适工具，并保留按用户隔离的聊天记忆。",
+      "Powered by Amazon Bedrock + market/news tool integrations": "由 Amazon Bedrock + 市场/新闻工具集成提供支持",
+      "Built for teams that need SEC filing review, account-safe history, and market-aware decisions.": "为需要 SEC 文件审阅、账户安全历史记录与市场感知决策的团队而打造。",
+      "Faster 10-K/10-Q review": "更快完成 10-K/10-Q 审阅",
+      "Upload or fetch filings, extract risk factors and tables, then ask follow-up questions without leaving the analyst workspace.": "上传或抓取文件，提取风险因素与财务表格，并在同一个分析师工作台中继续追问。",
+      "Risk evolution tracking": "风险演化追踪",
+      "Compare annual and quarterly disclosures across years or peers to spot rewritten, added, and emerging risks.": "跨年份或同业对比年度与季度披露，识别改写、新增与新兴风险。",
+      "Account-safe monitoring": "账户安全的风险监控",
+      "Keep chat history and uploaded records separated by login account while connecting disclosures with market and news signals.": "按登录账户隔离聊天历史和上传记录，同时将披露内容与市场及新闻信号联动。",
+      "• Public demo records": "• 公共演示记录",
+      "• Core risk workflow preview": "• 核心风险流程预览",
+      "• Agent Q&A exploration": "• 智能体问答体验",
+      "• Per-user histories & records": "• 按用户隔离的历史与记录",
+      "• 10-K/10-Q monitoring": "• 10-K/10-Q 监控",
+      "• Enhanced agent analysis": "• 增强智能体分析",
+      "• Governance & user isolation": "• 治理与用户隔离",
+      "Fast onboarding guides, authentication notes, and architecture references.": "覆盖快速上手、认证说明与架构参考。",
+      "Go from sign-in to upload, SEC auto-fetch, chat attachment, comparison, and agent answers in a practical sequence.": "按实践顺序完成登录、上传、SEC 自动抓取、聊天附件、文件对比与智能体回答。",
+      "Find direct answers for login, user isolation, uploaded data, runtime behavior, and common product questions.": "快速了解登录、用户隔离、上传数据、运行行为与常见产品问题。",
+      "Understand how Cognito, ingestion, extraction, intent routing, S3 storage, and agent tools connect end-to-end.": "理解 Cognito、文件接入、信息提取、意图路由、S3 存储与智能体工具如何端到端衔接。",
+      "AI risk intelligence platform for 10-K and 10-Q analysis.": "面向 10-K 与 10-Q 分析的 AI 风险智能平台。",
+      "Built with AWS technologies to help analysts ingest filings, detect risk changes, extract tables, and monitor market context with a personal agent workspace.": "借助 AWS 技术帮助分析师接入文件、识别风险变化、提取财务表格，并通过个人智能体工作台监控市场语境。",
       "Resources": "资源",
       "Access": "访问",
       "App": "应用",
@@ -686,8 +724,8 @@
       labelId: "lang-label",
       textMap: zhMap,
       titleMap: {
-        en: "RiskLens AI | SEC 10-K Risk Intelligence",
-        zh: "RiskLens AI | SEC 10-K 风险智能"
+        en: "RiskLens AI | SEC 10-K/10-Q Risk Intelligence",
+        zh: "RiskLens AI | SEC 10-K/10-Q 风险智能"
       }
     });
 
