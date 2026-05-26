@@ -4,6 +4,14 @@ import { useChatMemory } from '../lib/chatMemory'
 import { useWorkspaceChat } from '../lib/workspaceChat'
 import { popPendingChat } from '../lib/pendingChat'
 
+function formatBytes(bytes) {
+  const n = Number(bytes || 0)
+  if (!Number.isFinite(n) || n <= 0) return '0 B'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export default function AgentPage() {
   const threadRef = useRef(null)
   const pendingSentRef = useRef('')
@@ -55,6 +63,21 @@ export default function AgentPage() {
                 <span>{new Date(m.meta?.timestamp || Date.now()).toLocaleTimeString()}</span>
               </div>
               <p>{m.text}</p>
+              {m.meta?.attachment ? (
+                <div className="rl-agent-attachment-chip">
+                  <span className="rl-agent-attachment-icon" aria-hidden="true">FILE</span>
+                  <span className="rl-agent-attachment-copy">
+                    <strong>{m.meta.attachment.name || 'Attached filing'}</strong>
+                    <em>
+                      {String(m.meta.attachment.ext || '').toUpperCase() || 'FILE'}
+                      {' · '}
+                      {formatBytes(m.meta.attachment.size)}
+                      {m.meta.attachment.company ? ` · ${m.meta.attachment.company}` : ''}
+                      {m.meta.attachment.year ? ` ${m.meta.attachment.year}` : ''}
+                    </em>
+                  </span>
+                </div>
+              ) : null}
               {m.meta?.tools?.length ? (
                 <div className="rl-agent-tool-row">
                   {m.meta.tools.map((tool) => (

@@ -5,7 +5,7 @@ import { useGlobalConfig } from './globalConfig'
 import { useChatMemory } from './chatMemory'
 
 const MAX_CHAT_UPLOAD_BYTES = 40 * 1024 * 1024
-const CHAT_UPLOAD_ACCEPT_EXT = new Set(['html', 'htm'])
+const CHAT_UPLOAD_ACCEPT_EXT = new Set(['html', 'htm', 'pdf'])
 
 function detectLang(text) {
   return /[\u4e00-\u9fff]/.test(text || '') ? 'Chinese' : 'English'
@@ -48,14 +48,14 @@ function inferCompanyFromName(name = '') {
     .join(' ')
 }
 
-function plannedTools(query, hasConfig, pathname) {
+function plannedTools(query, hasConfig, pathname, hasAttachment = false) {
   const q = String(query || '').toLowerCase()
   const route = String(pathname || '')
   const tools = []
 
   if (q.includes('compare') || q.includes('对比') || route.includes('/compare')) tools.push('Cross-Filing Compare')
   if (route.includes('/tables')) tools.push('Financial Tables')
-  if (route.includes('/upload') || q.includes('upload')) tools.push('Filing Ingestion')
+  if (hasAttachment || route.includes('/upload') || q.includes('upload')) tools.push('Filing Ingestion')
   if (q.includes('10-k') || q.includes('10k') || q.includes('risk factor') || q.includes('风险')) tools.push('10-K Risk Analysis')
 
   if (
@@ -167,7 +167,7 @@ export function WorkspaceChatProvider({ children }) {
     const size = Number(file.size || 0)
     const ext = fileExt(file.name)
     if (!CHAT_UPLOAD_ACCEPT_EXT.has(ext)) {
-      return { ok: false, error: 'Chat upload currently supports HTML/HTM files only. Use Tables for PDF extraction.' }
+      return { ok: false, error: 'Chat upload supports 10-K/10-Q HTML, HTM, or PDF files.' }
     }
     if (size <= 0) return { ok: false, error: 'File is empty.' }
     if (size > MAX_CHAT_UPLOAD_BYTES) {
@@ -195,8 +195,8 @@ export function WorkspaceChatProvider({ children }) {
     const routeSearch = options.search ?? location.search ?? ''
     const context = parseContextFromSearch(routeSearch)
     const threadRecordId = String(currentThread?.context?.recordIds?.[0] || '').trim()
-    const tools = plannedTools(userText, hasGlobalConfig, routePath)
     const attachment = options.attachment || pendingAttachment
+    const tools = plannedTools(userText, hasGlobalConfig, routePath, Boolean(attachment?.file))
 
     const createdId = !currentThreadId ? createThread() : ''
     const targetThreadId = currentThreadId || currentThread?.id || createdId
@@ -227,6 +227,9 @@ export function WorkspaceChatProvider({ children }) {
           file_b64: fileB64,
         })
         uploadedRecordId = String(uploadRes?.record?.record_id || '').trim()
+        if (!uploadedRecordId) {
+          throw new Error('The file uploaded, but no filing record was returned. Please try again.')
+        }
         if (uploadedRecordId) addThreadRecordId(targetThreadId, uploadedRecordId)
         uploadedAttachmentMeta = {
           name: attachment.name,
@@ -236,10 +239,12 @@ export function WorkspaceChatProvider({ children }) {
           company: String(uploadRes?.record?.company || company),
           year: Number(uploadRes?.record?.year || yearGuess),
         }
+        clearPendingAttachment()
       } catch (uploadErr) {
         setError(uploadErr?.message || 'File upload failed')
-      } finally {
-        clearPendingAttachment()
+        setQuery(userText)
+        setLoading(false)
+        return null
       }
     }
 
