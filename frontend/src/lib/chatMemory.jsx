@@ -177,6 +177,7 @@ const ChatMemoryContext = createContext({
   deleteThread: () => {},
   appendMessage: () => {},
   replaceMessages: () => {},
+  updateMessageMeta: () => {},
   updateThreadTitle: () => {},
   addThreadRecordId: () => {},
 })
@@ -367,6 +368,32 @@ export function ChatMemoryProvider({ children }) {
     )
   }
 
+  const updateMessageMeta = (threadId, messageId, nextMeta) => {
+    const targetId = String(messageId || '').trim()
+    if (!targetId) return
+    setThreads((prev) =>
+      prev.map((t) => {
+        if (t.id !== threadId) return t
+        let changed = false
+        const nextMessages = (t.messages || []).map((message) => {
+          if (String(message?.meta?.messageId || '') !== targetId) return message
+          const currentMeta = message.meta && typeof message.meta === 'object' ? message.meta : {}
+          const patch = typeof nextMeta === 'function' ? nextMeta(currentMeta) : nextMeta
+          const mergedMeta = patch && typeof patch === 'object' ? { ...currentMeta, ...patch } : currentMeta
+          changed = true
+          return { ...message, meta: mergedMeta }
+        })
+        if (!changed) return t
+        return {
+          ...t,
+          updatedAt: Date.now(),
+          messages: nextMessages,
+          context: t.context && typeof t.context === 'object' ? t.context : { recordIds: [] },
+        }
+      }),
+    )
+  }
+
   const updateThreadTitle = (threadId, title) => {
     setThreads((prev) =>
       prev.map((t) => {
@@ -402,6 +429,7 @@ export function ChatMemoryProvider({ children }) {
     deleteThread,
     appendMessage,
     replaceMessages,
+    updateMessageMeta,
     updateThreadTitle,
     addThreadRecordId,
   }

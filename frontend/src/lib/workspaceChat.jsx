@@ -139,7 +139,7 @@ export function WorkspaceChatProvider({ children }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { config } = useGlobalConfig()
-  const { currentThread, currentThreadId, appendMessage, createThread, addThreadRecordId } = useChatMemory()
+  const { currentThread, currentThreadId, appendMessage, createThread, addThreadRecordId, updateMessageMeta } = useChatMemory()
 
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
@@ -203,11 +203,30 @@ export function WorkspaceChatProvider({ children }) {
     if (!targetThreadId) return null
 
     let uploadedRecordId = ''
-    let uploadedAttachmentMeta = null
+    const userMessageId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const optimisticAttachmentMeta = attachment?.file
+      ? {
+          name: attachment.name,
+          size: Number(attachment.size || 0),
+          ext: attachment.ext,
+          recordId: '',
+          company: String(config.company || inferCompanyFromName(attachment.name) || '').trim(),
+          year: Number(config.year || inferYearFromName(attachment.name) || 0),
+          status: 'uploading',
+        }
+      : null
 
     setQuery('')
+    if (attachment?.file) clearPendingAttachment()
     setLoading(true)
     setError('')
+
+    appendMessage(targetThreadId, {
+      role: 'user',
+      text: userText,
+      report: null,
+      meta: { messageId: userMessageId, lang, timestamp: Date.now(), route: routePath, attachment: optimisticAttachmentMeta },
+    })
 
     if (attachment?.file) {
       try {
@@ -231,29 +250,39 @@ export function WorkspaceChatProvider({ children }) {
           throw new Error('The file uploaded, but no filing record was returned. Please try again.')
         }
         if (uploadedRecordId) addThreadRecordId(targetThreadId, uploadedRecordId)
-        uploadedAttachmentMeta = {
-          name: attachment.name,
-          size: Number(attachment.size || 0),
-          ext: attachment.ext,
-          recordId: uploadedRecordId,
-          company: String(uploadRes?.record?.company || company),
-          year: Number(uploadRes?.record?.year || yearGuess),
-        }
-        clearPendingAttachment()
+        updateMessageMeta(targetThreadId, userMessageId, (currentMeta) => ({
+          attachment: {
+            ...(currentMeta?.attachment || {}),
+            name: attachment.name,
+            size: Number(attachment.size || 0),
+            ext: attachment.ext,
+            recordId: uploadedRecordId,
+            company: String(uploadRes?.record?.company || company),
+            year: Number(uploadRes?.record?.year || yearGuess),
+            status: 'ready',
+          },
+        }))
       } catch (uploadErr) {
-        setError(uploadErr?.message || 'File upload failed')
+        const msg = uploadErr?.message || 'File upload failed'
+        updateMessageMeta(targetThreadId, userMessageId, (currentMeta) => ({
+          attachment: {
+            ...(currentMeta?.attachment || {}),
+            status: 'failed',
+          },
+        }))
+        setError(msg)
         setQuery(userText)
+        setPendingAttachment(attachment)
+        appendMessage(targetThreadId, {
+          role: 'assistant',
+          text: `I could not upload the attached file: ${msg}`,
+          report: null,
+          meta: { lang, tools, timestamp: Date.now(), route: routePath },
+        })
         setLoading(false)
-        return null
+        return targetThreadId
       }
     }
-
-    appendMessage(targetThreadId, {
-      role: 'user',
-      text: userText,
-      report: null,
-      meta: { lang, timestamp: Date.now(), route: routePath, attachment: uploadedAttachmentMeta },
-    })
 
     try {
       const historyPayload = [...messages, { role: 'user', text: userText }]

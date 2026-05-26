@@ -12,6 +12,12 @@ function formatBytes(bytes) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function attachmentStatusLabel(status) {
+  if (status === 'uploading') return 'Uploading'
+  if (status === 'failed') return 'Upload failed'
+  return ''
+}
+
 export default function AgentPage() {
   const threadRef = useRef(null)
   const pendingSentRef = useRef('')
@@ -74,6 +80,7 @@ export default function AgentPage() {
                       {formatBytes(m.meta.attachment.size)}
                       {m.meta.attachment.company ? ` · ${m.meta.attachment.company}` : ''}
                       {m.meta.attachment.year ? ` ${m.meta.attachment.year}` : ''}
+                      {attachmentStatusLabel(m.meta.attachment.status) ? ` · ${attachmentStatusLabel(m.meta.attachment.status)}` : ''}
                     </em>
                   </span>
                 </div>
