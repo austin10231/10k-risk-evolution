@@ -875,7 +875,7 @@ export default function AppShell({ children }) {
               <p className="rl-brand-title">
                 RiskLens<span>AI</span>
               </p>
-              <p className="rl-brand-sub">10-K Risk Intelligence</p>
+              <p className="rl-brand-sub">SEC Filing Intelligence</p>
             </div>
           </div>
           <button
