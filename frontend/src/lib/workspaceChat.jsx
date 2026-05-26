@@ -27,23 +27,29 @@ function fileExt(name = '') {
 }
 
 function inferYearFromName(name = '') {
-  const m = String(name || '').match(/\b(19|20)\d{2}\b/)
+  const text = String(name || '')
+  const filingDate = text.match(/(?:^|[^0-9])((?:19|20)\d{2})[-_]?([01]\d)[-_]?([0-3]\d)(?=$|[^0-9])/)
+  const standaloneYear = text.match(/(?:^|[^0-9])((?:19|20)\d{2})(?=$|[^0-9])/)
+  const m = filingDate || standaloneYear
   if (!m) return 0
-  const y = Number(m[0])
+  const y = Number(m[1])
   return Number.isFinite(y) ? y : 0
 }
 
 function inferCompanyFromName(name = '') {
-  const base = String(name || '').replace(/\.[^.]+$/, '')
+  const base = String(name || '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/(?:^|[\s_-])(?:19|20)\d{2}[-_]?[01]\d[-_]?[0-3]\d(?=$|[\s_-])/g, ' ')
   const cleaned = base
     .replace(/[_\-]+/g, ' ')
-    .replace(/\b(10k|10-k|annual report|form)\b/gi, ' ')
+    .replace(/\b(10\s*k|10k|10-k|annual report|form)\b/gi, ' ')
     .replace(/\b(19|20)\d{2}\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   if (!cleaned) return ''
-  return cleaned
-    .split(' ')
+  const tokens = cleaned.split(' ')
+  if (tokens.length === 1 && /^[a-z]{1,5}$/i.test(tokens[0])) return tokens[0].toUpperCase()
+  return tokens
     .map((token) => token.slice(0, 1).toUpperCase() + token.slice(1))
     .join(' ')
 }
@@ -204,14 +210,16 @@ export function WorkspaceChatProvider({ children }) {
 
     let uploadedRecordId = ''
     const userMessageId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const fileCompanyGuess = attachment?.file ? inferCompanyFromName(attachment.name) : ''
+    const fileYearGuess = attachment?.file ? inferYearFromName(attachment.name) : 0
     const optimisticAttachmentMeta = attachment?.file
       ? {
           name: attachment.name,
           size: Number(attachment.size || 0),
           ext: attachment.ext,
           recordId: '',
-          company: String(config.company || inferCompanyFromName(attachment.name) || '').trim(),
-          year: Number(config.year || inferYearFromName(attachment.name) || 0),
+          company: String(fileCompanyGuess || config.company || '').trim(),
+          year: Number(fileYearGuess || config.year || 0),
           status: 'uploading',
         }
       : null
@@ -230,9 +238,9 @@ export function WorkspaceChatProvider({ children }) {
 
     if (attachment?.file) {
       try {
-        const companyGuess = String(config.company || inferCompanyFromName(attachment.name) || '').trim()
+        const companyGuess = String(fileCompanyGuess || config.company || '').trim()
         const company = companyGuess || 'Uploaded Filing'
-        const yearGuess = Number(config.year || inferYearFromName(attachment.name) || new Date().getFullYear())
+        const yearGuess = Number(fileYearGuess || config.year || new Date().getFullYear())
         const industry = String(config.industry || 'Other').trim() || 'Other'
         const dataUrl = await toBase64DataUrl(attachment.file)
         const fileB64 = dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : dataUrl
